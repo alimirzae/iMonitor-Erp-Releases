@@ -27,6 +27,7 @@ jobs:
           $branch='scripts/Install-iMonitorBranch.ps1'
           $text=Get-Content $branch -Raw
           $text=$text.Replace('$json | Add-Member Deployment ([pscustomobject]@{})', '$json | Add-Member -NotePropertyName Deployment -NotePropertyValue ([pscustomobject]@{})')
+          $text=$text.Replace('"IIS AppPool\$pool:(OI)(CI)RX"', '"IIS AppPool\${pool}:(OI)(CI)RX"')
           Set-Content $branch $text -Encoding UTF8
 
       - name: Parse PowerShell scripts
