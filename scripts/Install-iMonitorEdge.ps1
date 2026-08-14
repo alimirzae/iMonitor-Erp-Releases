@@ -1,26 +1,52 @@
 param(
     [ValidateSet('preview','stable')]
     [string]$Channel = 'preview',
-    [string]$InstallDir = "$env:ProgramFiles\iMonitor\Edge",
+    [string]$Root,
     [string]$ServiceName = 'iMonitorEdge',
     [int]$Port = 9000,
     [bool]$AllowLan = $true,
     [bool]$EnablePos = $false,
-    [switch]$SkipAutoUpdate
+    [switch]$SkipAutoUpdate,
+    [switch]$NonInteractive
 )
 
 $ErrorActionPreference = 'Stop'
 $ReleaseRepo = 'alimirzae/iMonitor-Erp-Releases'
 $RawBase = "https://raw.githubusercontent.com/$ReleaseRepo/main"
 $ManifestUrl = "$RawBase/manifests/edge-$Channel.json"
-$ProgramDataRoot = Join-Path $env:ProgramData 'iMonitor\Edge'
-$StatePath = Join-Path $ProgramDataRoot 'install-state.json'
+$DefaultRoot = 'C:\ERP'
+
+function Resolve-InstallRoot {
+    param([string]$RequestedRoot,[switch]$NoPrompt)
+    if(-not [string]::IsNullOrWhiteSpace($RequestedRoot)){
+        return [System.IO.Path]::GetFullPath($RequestedRoot.Trim())
+    }
+    if($NoPrompt){ return $DefaultRoot }
+
+    Write-Host ''
+    Write-Host 'iMonitor Edge installation' -ForegroundColor Cyan
+    Write-Host "Default installation folder: $DefaultRoot"
+    $answer = Read-Host 'Create and use C:\ERP? [Y/n]'
+    if([string]::IsNullOrWhiteSpace($answer) -or $answer -match '^(y|yes)$'){
+        return $DefaultRoot
+    }
+
+    while($true){
+        $custom = Read-Host 'Enter the full installation folder path (example: D:\ERP)'
+        if([string]::IsNullOrWhiteSpace($custom)){
+            Write-Host 'Folder path cannot be empty.' -ForegroundColor Yellow
+            continue
+        }
+        try { return [System.IO.Path]::GetFullPath($custom.Trim()) }
+        catch { Write-Host "Invalid folder path: $($_.Exception.Message)" -ForegroundColor Yellow }
+    }
+}
 
 function Assert-Administrator {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     $p = New-Object Security.Principal.WindowsPrincipal($id)
     if (-not $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        throw 'PowerShell را با Run as Administrator اجرا کنید.'
+        throw 'PowerShell must be run as Administrator.'
     }
 }
 
@@ -28,18 +54,19 @@ function Get-Manifest {
     Write-Host "Checking iMonitor Edge $Channel channel..." -ForegroundColor Cyan
     $m = Invoke-RestMethod -Uri $ManifestUrl -Headers @{ 'Cache-Control'='no-cache' } -TimeoutSec 20
     if (-not $m.published -or [string]::IsNullOrWhiteSpace([string]$m.url)) {
-        throw "هنوز artifact کانال $Channel منتشر نشده است. چند دقیقه بعد دوباره اجرا کنید."
+        throw "No iMonitor Edge artifact has been published for the $Channel channel yet."
     }
     return $m
 }
 
 function Download-Verified([object]$Manifest, [string]$Destination) {
+    Write-Host 'Downloading iMonitor Edge package...'
     Invoke-WebRequest -Uri $Manifest.url -OutFile $Destination -UseBasicParsing
     $actual = (Get-FileHash $Destination -Algorithm SHA256).Hash.ToLowerInvariant()
     $expected = ([string]$Manifest.sha256).ToLowerInvariant()
     if ($actual -ne $expected) {
         Remove-Item $Destination -Force -ErrorAction SilentlyContinue
-        throw "SHA256 mismatch. Expected $expected, got $actual"
+        throw "SHA256 verification failed. Expected $expected, got $actual"
     }
 }
 
@@ -53,19 +80,25 @@ function Configure-Firewall {
 
 function Install-AutoUpdater {
     if ($SkipAutoUpdate) { return }
-    New-Item -ItemType Directory -Path $ProgramDataRoot -Force | Out-Null
-    $updater = Join-Path $ProgramDataRoot 'Update-iMonitorEdge.ps1'
+    $updater = Join-Path $ConfigRoot 'Update-iMonitorEdge.ps1'
     Invoke-WebRequest "$RawBase/scripts/Update-iMonitorEdge.ps1" -OutFile $updater -UseBasicParsing
-
     $taskName = "iMonitor Edge Auto Update ($Channel)"
-    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$updater`" -Channel $Channel"
+    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$updater`" -Channel $Channel -Root `"$Root`""
     $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(10) -RepetitionInterval (New-TimeSpan -Minutes 15)
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Description 'Keeps iMonitor Edge updated from the public release channel.' -Force | Out-Null
 }
 
 Assert-Administrator
-New-Item -ItemType Directory -Path $ProgramDataRoot -Force | Out-Null
+$Root = Resolve-InstallRoot -RequestedRoot $Root -NoPrompt:$NonInteractive
+$InstallDir = Join-Path $Root 'Edge'
+$ConfigRoot = Join-Path $Root 'Config'
+$BackupRoot = Join-Path $Root 'Backup\Edge'
+$LogsRoot = Join-Path $Root 'Logs\Edge'
+$StatePath = Join-Path $ConfigRoot 'edge-state.json'
+New-Item -ItemType Directory -Path $Root,$InstallDir,$ConfigRoot,$BackupRoot,$LogsRoot -Force | Out-Null
+
+Write-Host "Installation root: $Root" -ForegroundColor Cyan
 $manifest = Get-Manifest
 $tempRoot = Join-Path $env:TEMP ("iMonitorEdge-" + [guid]::NewGuid().ToString('N'))
 $zip = Join-Path $tempRoot 'edge.zip'
@@ -77,38 +110,30 @@ try {
     Expand-Archive -Path $zip -DestinationPath $extract -Force
 
     $exe = Get-ChildItem $extract -Filter 'PosGateway_api.exe' -Recurse | Select-Object -First 1
-    if (-not $exe) { throw 'PosGateway_api.exe در artifact پیدا نشد.' }
+    if (-not $exe) { throw 'PosGateway_api.exe was not found in the release package.' }
     $sourceDir = $exe.Directory.FullName
 
     $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($existing -and $existing.Status -ne 'Stopped') {
+        Write-Host "Stopping Windows service $ServiceName..."
         Stop-Service $ServiceName -Force
         (Get-Service $ServiceName).WaitForStatus('Stopped','00:00:30')
     }
 
-    $backup = Join-Path $ProgramDataRoot 'upgrade-backup'
+    $backup = Join-Path $BackupRoot (Get-Date -Format 'yyyyMMdd-HHmmss')
     New-Item -ItemType Directory -Path $backup -Force | Out-Null
     $config = Join-Path $InstallDir 'appsettings.json'
-    $drivers = Join-Path $InstallDir 'drivers'
-    $data = Join-Path $InstallDir 'data'
-    if (Test-Path $config) { Copy-Item $config (Join-Path $backup 'appsettings.json') -Force }
-    foreach ($folder in @('drivers','data')) {
-        $src = Join-Path $InstallDir $folder
-        $dst = Join-Path $backup $folder
-        if (Test-Path $src) {
-            if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
-            Copy-Item $src $dst -Recurse -Force
-        }
+    foreach ($item in @('appsettings.json','drivers','data')) {
+        $src = Join-Path $InstallDir $item
+        if (Test-Path $src) { Copy-Item $src (Join-Path $backup $item) -Recurse -Force }
     }
 
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     Get-ChildItem $InstallDir -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -notin @('appsettings.json','drivers','data') } | Remove-Item -Recurse -Force
     Copy-Item (Join-Path $sourceDir '*') $InstallDir -Recurse -Force
 
-    if (Test-Path (Join-Path $backup 'appsettings.json')) { Copy-Item (Join-Path $backup 'appsettings.json') $config -Force }
-    foreach ($folder in @('drivers','data')) {
-        $saved = Join-Path $backup $folder
-        $target = Join-Path $InstallDir $folder
+    foreach ($item in @('appsettings.json','drivers','data')) {
+        $saved = Join-Path $backup $item
+        $target = Join-Path $InstallDir $item
         if (Test-Path $saved) {
             if (Test-Path $target) { Remove-Item $target -Recurse -Force }
             Copy-Item $saved $target -Recurse -Force
@@ -145,20 +170,19 @@ try {
     }
     if(-not $ok){ throw "Health check failed: $health" }
 
-    @{ channel=$Channel; version=$manifest.version; sha=$manifest.sourceSha; installedAt=(Get-Date).ToString('o'); port=$Port; allowLan=$AllowLan } | ConvertTo-Json | Set-Content $StatePath -Encoding UTF8
+    @{ channel=$Channel; version=$manifest.version; sha=$manifest.sourceSha; installedAt=(Get-Date).ToString('o'); port=$Port; allowLan=$AllowLan; root=$Root } | ConvertTo-Json | Set-Content $StatePath -Encoding UTF8
     Install-AutoUpdater
 
     Write-Host ''
     Write-Host 'iMonitor Edge installed successfully.' -ForegroundColor Green
+    Write-Host "Root    : $Root"
     Write-Host "Version : $($manifest.version)"
     Write-Host "Service : $ServiceName"
     Write-Host "Health  : $health"
     Write-Host "Swagger : http://127.0.0.1:$Port/swagger"
-    if($AllowLan){ Write-Host "LAN     : TCP $Port / Private + LocalSubnet" -ForegroundColor Cyan }
-    Write-Host 'POS is optional and is disabled unless explicitly enabled.'
+    if($AllowLan){ Write-Host "LAN     : TCP $Port / Private profile / LocalSubnet" -ForegroundColor Cyan }
+    Write-Host 'POS integration is optional and remains disabled unless explicitly enabled.'
 }
 finally {
     Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
-
-
