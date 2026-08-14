@@ -1,0 +1,55 @@
+name: Validate Public Installers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/validate-installers.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Normalize bootstrap scripts
+        shell: pwsh
+        run: |
+          $edge='scripts/Install-iMonitorEdge.ps1'
+          $text=Get-Content $edge -Raw
+          $text=$text.Replace('$json | Add-Member ApplicationSettings ([pscustomobject]@{})', '$json | Add-Member -NotePropertyName ApplicationSettings -NotePropertyValue ([pscustomobject]@{})')
+          Set-Content $edge $text -Encoding UTF8
+
+          $branch='scripts/Install-iMonitorBranch.ps1'
+          $text=Get-Content $branch -Raw
+          $text=$text.Replace('$json | Add-Member Deployment ([pscustomobject]@{})', '$json | Add-Member -NotePropertyName Deployment -NotePropertyValue ([pscustomobject]@{})')
+          Set-Content $branch $text -Encoding UTF8
+
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $failed=$false
+          Get-ChildItem scripts -Filter '*.ps1' | ForEach-Object {
+            $tokens=$null; $errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors)
+            if($errors.Count -gt 0){
+              $failed=$true
+              Write-Host "Parser errors in $($_.Name)" -ForegroundColor Red
+              $errors | ForEach-Object { Write-Host $_.Message }
+            }
+          }
+          if($failed){exit 1}
+
+      - name: Commit normalization if needed
+        shell: pwsh
+        run: |
+          git config user.name 'iMonitor Release Bot'
+          git config user.email 'release-bot@users.noreply.github.com'
+          git add scripts
+          if(git diff --cached --quiet){ exit 0 }
+          git commit -m 'fix: normalize public PowerShell installers'
+          git push
