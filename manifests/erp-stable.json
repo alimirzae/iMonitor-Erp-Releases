@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "product": "iMonitorERP",
   "channel": "stable",
-  "published": false,
-  "version": "0.0.0",
-  "sourceSha": "",
-  "publishedAt": null,
-  "url": "",
-  "sha256": "",
+  "published": true,
+  "version": "2026.08.14.28",
+  "sourceSha": "aa74845cdf047ef5c5656b4802db84e903bb7f6c",
+  "publishedAt": "2026-08-14T19:09:41.555202+00:00",
+  "url": "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/erp-stable-2026.08.14.28-aa74845cdf04/iMonitor-ERP-win-x64.zip",
+  "sha256": "fc603dc152d8dd8817dc50608b491b6ce32846e5be23537346867afe9c2e102c",
   "localPort": 8080
 }
