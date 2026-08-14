@@ -18,25 +18,18 @@ $DefaultRoot = 'C:\ERP'
 
 function Resolve-InstallRoot {
     param([string]$RequestedRoot,[switch]$NoPrompt)
-    if(-not [string]::IsNullOrWhiteSpace($RequestedRoot)){
-        return [System.IO.Path]::GetFullPath($RequestedRoot.Trim())
-    }
+    if(-not [string]::IsNullOrWhiteSpace($RequestedRoot)){ return [System.IO.Path]::GetFullPath($RequestedRoot.Trim()) }
     if($NoPrompt){ return $DefaultRoot }
 
     Write-Host ''
     Write-Host 'iMonitor Edge installation' -ForegroundColor Cyan
     Write-Host "Default installation folder: $DefaultRoot"
     $answer = Read-Host 'Create and use C:\ERP? [Y/n]'
-    if([string]::IsNullOrWhiteSpace($answer) -or $answer -match '^(y|yes)$'){
-        return $DefaultRoot
-    }
+    if([string]::IsNullOrWhiteSpace($answer) -or $answer -match '^(y|yes)$'){ return $DefaultRoot }
 
     while($true){
         $custom = Read-Host 'Enter the full installation folder path (example: D:\ERP)'
-        if([string]::IsNullOrWhiteSpace($custom)){
-            Write-Host 'Folder path cannot be empty.' -ForegroundColor Yellow
-            continue
-        }
+        if([string]::IsNullOrWhiteSpace($custom)){ Write-Host 'Folder path cannot be empty.' -ForegroundColor Yellow; continue }
         try { return [System.IO.Path]::GetFullPath($custom.Trim()) }
         catch { Write-Host "Invalid folder path: $($_.Exception.Message)" -ForegroundColor Yellow }
     }
@@ -45,17 +38,36 @@ function Resolve-InstallRoot {
 function Assert-Administrator {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     $p = New-Object Security.Principal.WindowsPrincipal($id)
-    if (-not $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        throw 'PowerShell must be run as Administrator.'
+    if (-not $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'PowerShell must be run as Administrator.' }
+}
+
+function Test-GatewayPrerequisites {
+    Write-Host ''
+    Write-Host 'Running gateway prerequisite checks...' -ForegroundColor Cyan
+
+    if($PSVersionTable.PSVersion.Major -lt 5){ throw "PowerShell 5.1 or newer is required. Current version: $($PSVersionTable.PSVersion)" }
+    Write-Host "[OK] PowerShell $($PSVersionTable.PSVersion)"
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $null = Invoke-WebRequest -Uri 'https://github.com' -Method Head -UseBasicParsing -TimeoutSec 15
+        Write-Host '[OK] Internet access to GitHub'
     }
+    catch { throw "Cannot reach GitHub over HTTPS. Check Internet, DNS, proxy, or TLS settings. $($_.Exception.Message)" }
+
+    if(-not (Get-Command New-NetFirewallRule -ErrorAction SilentlyContinue)){ throw 'Windows Firewall PowerShell cmdlets are not available on this system.' }
+    Write-Host '[OK] Windows Firewall cmdlets'
+
+    if(-not (Get-Command New-ScheduledTaskAction -ErrorAction SilentlyContinue)){ throw 'Windows Scheduled Tasks PowerShell cmdlets are not available on this system.' }
+    Write-Host '[OK] Scheduled Tasks cmdlets'
+
+    Write-Host '[OK] Separate .NET Runtime installation is not required because iMonitor Edge is published self-contained.' -ForegroundColor Green
 }
 
 function Get-Manifest {
     Write-Host "Checking iMonitor Edge $Channel channel..." -ForegroundColor Cyan
     $m = Invoke-RestMethod -Uri $ManifestUrl -Headers @{ 'Cache-Control'='no-cache' } -TimeoutSec 20
-    if (-not $m.published -or [string]::IsNullOrWhiteSpace([string]$m.url)) {
-        throw "No iMonitor Edge artifact has been published for the $Channel channel yet."
-    }
+    if (-not $m.published -or [string]::IsNullOrWhiteSpace([string]$m.url)) { throw "No iMonitor Edge artifact has been published for the $Channel channel yet." }
     return $m
 }
 
@@ -73,9 +85,7 @@ function Download-Verified([object]$Manifest, [string]$Destination) {
 function Configure-Firewall {
     $rule = "iMonitor Edge Gateway TCP $Port"
     Get-NetFirewallRule -DisplayName $rule -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue
-    if ($AllowLan) {
-        New-NetFirewallRule -DisplayName $rule -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -Profile Private -RemoteAddress LocalSubnet | Out-Null
-    }
+    if ($AllowLan) { New-NetFirewallRule -DisplayName $rule -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port -Profile Private -RemoteAddress LocalSubnet | Out-Null }
 }
 
 function Install-AutoUpdater {
@@ -90,6 +100,7 @@ function Install-AutoUpdater {
 }
 
 Assert-Administrator
+Test-GatewayPrerequisites
 $Root = Resolve-InstallRoot -RequestedRoot $Root -NoPrompt:$NonInteractive
 $InstallDir = Join-Path $Root 'Edge'
 $ConfigRoot = Join-Path $Root 'Config'
@@ -186,5 +197,3 @@ try {
 finally {
     Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
-
-
