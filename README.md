@@ -26,6 +26,17 @@ C:\ERP\
 - `stable` ← خروجی branch `master`
 - `edge-preview` ← آخرین iMonitor Edge ساخته‌شده از `test`
 - `edge-stable` ← نسخه پایدار Edge
+- `android-edge-preview` ← نسخه آزمایشی Android Edge برای تست بارکدخوان Native
+
+## نصب iMonitor Android Edge — Preview
+
+نسخه آزمایشی Android Edge برای اسکن Native بارکد، اطلاعات دستگاه/صفحه و ارتباط محلی با ERP روی `127.0.0.1:9000`:
+
+**[دانلود مستقیم APK Android Edge Preview](https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-edge-preview-2026.08.14.12-fd22d090c4e3/iMonitor-Android-Edge-preview.apk)**
+
+پس از نصب، برنامه را یک‌بار اجرا کنید، مجوز Camera را بدهید و سپس در فاکتور سریع از کلید «اسکن با دوربین» استفاده کنید. داخل صفحه دوربین نیز کلید «بستن اسکن» وجود دارد.
+
+> این نسخه Preview برای تست است. امضای پایدار Production و Auto-Update نهایی Android در مرحله بعد تثبیت می‌شود.
 
 ## نصب سریع iMonitor Edge روی Windows
 
@@ -118,5 +129,6 @@ Installer یک Scheduled Task سبک ایجاد می‌کند که manifest عم
 - `manifests/edge-stable.json`
 - `manifests/erp-preview.json`
 - `manifests/erp-stable.json`
+- `manifests/android-edge-preview.json` (پس از فعال‌شدن updater اندروید)
 
 تا قبل از اولین انتشار، manifest ممکن است `published=false` باشد و installer پیام واضحی نمایش می‌دهد.
