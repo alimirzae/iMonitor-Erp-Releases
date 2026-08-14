@@ -2,6 +2,24 @@
 
 این مخزن **کانال عمومی انتشار** iMonitor ERP و iMonitor Edge است. سورس اصلی ERP در مخزن خصوصی نگهداری می‌شود و این مخزن فقط شامل installerها، manifestها، checksumها و GitHub Releaseهای قابل نصب روی سرور/شعبه است.
 
+## ساختار نصب ویندوز
+
+نصب تعاملی به‌صورت پیش‌فرض پیشنهاد می‌دهد همه اجزای محلی داخل `C:\ERP` قرار بگیرند. اگر کاربر این مسیر را نخواهد، Installer مسیر کامل دیگری مانند `D:\ERP` را می‌پرسد. پیام‌ها، سؤال‌ها و خطاهای تمام اسکریپت‌های PowerShell انگلیسی هستند تا در کنسول Windows به‌صورت چپ‌به‌راست و خوانا نمایش داده شوند.
+
+ساختار استاندارد:
+
+```text
+C:\ERP\
+  Edge\
+  Production\
+  Preview\
+  Config\
+  Backup\
+  Logs\
+```
+
+در اجرای غیرتعاملی می‌توان مسیر را صریحاً با `-Root` داد. Updaterها همان مسیر انتخاب‌شده در نصب اولیه را حفظ می‌کنند.
+
 ## کانال‌ها
 
 - `preview` ← خروجی branch `test`
@@ -18,20 +36,25 @@ Set-ExecutionPolicy Bypass -Scope Process -Force
 irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEdge.ps1 | iex
 ```
 
+Installer ابتدا پیشنهاد می‌کند `C:\ERP` را بسازد. اگر پاسخ `n` بدهید مسیر دلخواه را می‌پرسد.
+
 پیش‌فرض‌ها:
 
 - Windows Service: `iMonitorEdge`
-- نصب: `C:\Program Files\iMonitor\Edge`
+- نصب Edge: `C:\ERP\Edge`
+- تنظیمات مشترک: `C:\ERP\Config`
+- Backup: `C:\ERP\Backup\Edge`
+- Logs: `C:\ERP\Logs\Edge`
 - API/Swagger: `http://127.0.0.1:9000`
 - LAN access: فعال، فقط `Private Network / LocalSubnet`
 - POS: غیرفعال تا زمانی که درایور/SDK مربوطه تنظیم شود
 - TCP/RAW receipt printing (معمولاً port `9100`): فعال
 
-برای نصب روی پورت دیگر یا بدون LAN ابتدا script را دانلود و با پارامتر اجرا کنید:
+برای نصب غیرتعاملی در مسیر مشخص:
 
 ```powershell
 Invoke-WebRequest https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEdge.ps1 -OutFile .\Install-iMonitorEdge.ps1
-.\Install-iMonitorEdge.ps1 -Channel preview -Port 9000 -AllowLan $true
+.\Install-iMonitorEdge.ps1 -Channel preview -Root 'C:\ERP' -Port 9000 -AllowLan $true -NonInteractive
 ```
 
 ## نصب/ارتقای ERP محلی شعبه
@@ -43,10 +66,19 @@ irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scrip
 .\Install-iMonitorBranch.ps1 -InstallProduction -InstallPreview
 ```
 
-قرارداد پورت محلی:
+در اجرای تعاملی مسیر نصب پرسیده می‌شود. ساختار پیش‌فرض ERP محلی:
 
-- Production: `http://localhost:8080`
-- Preview/Test: `http://localhost:8081`
+- Production: `C:\ERP\Production` → `http://localhost:8080`
+- Preview/Test: `C:\ERP\Preview` → `http://localhost:8081`
+- Config: `C:\ERP\Config`
+- Backup: `C:\ERP\Backup`
+- Logs: `C:\ERP\Logs`
+
+نمونه اجرای غیرتعاملی:
+
+```powershell
+.\Install-iMonitorBranch.ps1 -InstallProduction -InstallPreview -Root 'D:\ERP' -NonInteractive
+```
 
 ## تست فیش‌پرینتر شبکه
 
@@ -74,7 +106,7 @@ Invoke-RestMethod `
 
 ## Auto Update
 
-Installer یک Scheduled Task سبک ایجاد می‌کند که manifest عمومی را بررسی می‌کند. فقط اگر SHA/version تغییر کرده باشد نسخه جدید دانلود، checksum کنترل، سرویس متوقف، backup گرفته، upgrade انجام و health-check اجرا می‌شود. در صورت شکست، نسخه قبلی حفظ/قابل rollback است.
+Installer یک Scheduled Task سبک ایجاد می‌کند که manifest عمومی را بررسی می‌کند. فقط اگر SHA/version تغییر کرده باشد نسخه جدید دانلود، checksum کنترل، سرویس متوقف، backup گرفته، upgrade انجام و health-check اجرا می‌شود. مسیر ریشه‌ای که در نصب اولیه انتخاب شده حفظ می‌شود. در صورت شکست، نسخه قبلی حفظ/قابل rollback است.
 
 ## امنیت
 
