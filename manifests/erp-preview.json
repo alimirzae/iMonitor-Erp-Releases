@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "product": "iMonitorERP",
+  "channel": "preview",
+  "published": false,
+  "version": "0.0.0",
+  "sourceSha": "",
+  "publishedAt": null,
+  "url": "",
+  "sha256": "",
+  "localPort": 8081
+}
