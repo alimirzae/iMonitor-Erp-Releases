@@ -54,7 +54,7 @@ function Install-Channel([string]$Channel,[string]$Environment,[int]$Port,[strin
         Copy-Item $configPath (Join-Path $sitePath 'appsettings.json') -Force
 
         $json=Get-Content (Join-Path $sitePath 'appsettings.json') -Raw | ConvertFrom-Json
-        if($null -eq $json.Deployment){ $json | Add-Member Deployment ([pscustomobject]@{}) }
+        if($null -eq $json.Deployment){ $json | Add-Member -NotePropertyName Deployment -NotePropertyValue ([pscustomobject]@{}) }
         $json.Deployment | Add-Member Environment $Environment -Force
         $json.Deployment | Add-Member LocalPort $Port -Force
         $json.Deployment | Add-Member LocalUrl "http://localhost:$Port" -Force
@@ -66,7 +66,7 @@ function Install-Channel([string]$Channel,[string]$Environment,[int]$Port,[strin
         Set-ItemProperty "IIS:\AppPools\$pool" processModel.identityType ApplicationPoolIdentity
         if(Test-Path "IIS:\Sites\$siteName"){ Remove-Website $siteName }
         New-Website -Name $siteName -PhysicalPath $sitePath -ApplicationPool $pool -IPAddress '*' -Port $Port | Out-Null
-        & icacls $sitePath /grant "IIS AppPool\$pool:(OI)(CI)RX" /T /Q | Out-Null
+        & icacls $sitePath /grant "IIS AppPool\${pool}:(OI)(CI)RX" /T /Q | Out-Null
         Start-Website $siteName
 
         $ok=$false; for($i=0;$i -lt 30;$i++){ try{ $r=Invoke-WebRequest "http://127.0.0.1:$Port/" -UseBasicParsing -TimeoutSec 3; if($r.StatusCode -lt 500){$ok=$true;break} }catch{ Start-Sleep 1 } }
@@ -89,3 +89,4 @@ if(-not $SkipAutoUpdate){
 }
 
 Write-Host 'Local iMonitor ERP host is ready.' -ForegroundColor Cyan
+

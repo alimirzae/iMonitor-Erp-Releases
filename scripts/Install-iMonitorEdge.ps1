@@ -117,7 +117,7 @@ try {
 
     if (Test-Path $config) {
         $json = Get-Content $config -Raw | ConvertFrom-Json
-        if (-not $json.ApplicationSettings) { $json | Add-Member ApplicationSettings ([pscustomobject]@{}) }
+        if (-not $json.ApplicationSettings) { $json | Add-Member -NotePropertyName ApplicationSettings -NotePropertyValue ([pscustomobject]@{}) }
         foreach ($pair in @(@('Port',$Port),@('AllowLan',$AllowLan),@('EnablePos',$EnablePos))) {
             $name=$pair[0]; $value=$pair[1]
             if ($json.ApplicationSettings.PSObject.Properties.Name -contains $name) { $json.ApplicationSettings.$name = $value }
@@ -160,3 +160,4 @@ try {
 finally {
     Remove-Item $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
+
