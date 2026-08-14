@@ -1,10 +1,11 @@
 param(
     [ValidateSet('preview','stable')]
-    [string]$Channel='preview'
+    [string]$Channel='preview',
+    [string]$Root='C:\ERP'
 )
 
 $ErrorActionPreference='Stop'
-$statePath = Join-Path $env:ProgramData 'iMonitor\Edge\install-state.json'
+$statePath = Join-Path $Root 'Config\edge-state.json'
 $manifestUrl = "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/manifests/edge-$Channel.json"
 $installerUrl = 'https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEdge.ps1'
 
@@ -17,7 +18,7 @@ if ([string]$state.sha -eq [string]$manifest.sourceSha -and [string]$state.versi
 $temp = Join-Path $env:TEMP 'Install-iMonitorEdge.ps1'
 Invoke-WebRequest $installerUrl -OutFile $temp -UseBasicParsing
 try {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $temp -Channel $Channel -Port ([int]$state.port) -AllowLan ([bool]$state.allowLan) -SkipAutoUpdate
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $temp -Channel $Channel -Root $Root -Port ([int]$state.port) -AllowLan ([bool]$state.allowLan) -SkipAutoUpdate -NonInteractive
     if ($LASTEXITCODE -ne 0) { throw "Updater installer exit code: $LASTEXITCODE" }
 }
 finally {
