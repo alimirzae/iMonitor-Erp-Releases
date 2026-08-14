@@ -1,5 +1,5 @@
 param(
-    [string]$Root='C:\iMonitor-Local',
+    [string]$Root='C:\ERP',
     [switch]$UpdateProduction,
     [switch]$UpdatePreview
 )
@@ -22,7 +22,7 @@ if($UpdatePreview){$needPreview=Needs-Update 'preview'}
 if(-not $needProd -and -not $needPreview){exit 0}
 Invoke-WebRequest "$raw/scripts/Install-iMonitorBranch.ps1" -OutFile $installer -UseBasicParsing
 try{
-    $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$installer,'-Root',$Root,'-SkipAutoUpdate')
+    $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$installer,'-Root',$Root,'-SkipAutoUpdate','-NonInteractive')
     if($needProd){$args+='-InstallProduction'}
     if($needPreview){$args+='-InstallPreview'}
     & powershell.exe @args
