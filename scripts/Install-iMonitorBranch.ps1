@@ -2,51 +2,90 @@
 param(
     [switch]$InstallProduction,
     [switch]$InstallPreview,
-    [string]$Root = 'C:\iMonitor-Local',
+    [string]$Root,
     [string]$ProductionConfig,
     [string]$PreviewConfig,
-    [switch]$SkipAutoUpdate
+    [switch]$SkipAutoUpdate,
+    [switch]$NonInteractive
 )
 
 $ErrorActionPreference='Stop'
 $ReleaseRepo='alimirzae/iMonitor-Erp-Releases'
 $RawBase="https://raw.githubusercontent.com/$ReleaseRepo/main"
+$DefaultRoot='C:\ERP'
+
+function Resolve-InstallRoot {
+    param([string]$RequestedRoot,[switch]$NoPrompt)
+    if(-not [string]::IsNullOrWhiteSpace($RequestedRoot)){
+        return [System.IO.Path]::GetFullPath($RequestedRoot.Trim())
+    }
+    if($NoPrompt){ return $DefaultRoot }
+
+    Write-Host ''
+    Write-Host 'iMonitor ERP local installation' -ForegroundColor Cyan
+    Write-Host "Default installation folder: $DefaultRoot"
+    $answer = Read-Host 'Create and use C:\ERP? [Y/n]'
+    if([string]::IsNullOrWhiteSpace($answer) -or $answer -match '^(y|yes)$'){
+        return $DefaultRoot
+    }
+
+    while($true){
+        $custom = Read-Host 'Enter the full installation folder path (example: D:\ERP)'
+        if([string]::IsNullOrWhiteSpace($custom)){
+            Write-Host 'Folder path cannot be empty.' -ForegroundColor Yellow
+            continue
+        }
+        try { return [System.IO.Path]::GetFullPath($custom.Trim()) }
+        catch { Write-Host "Invalid folder path: $($_.Exception.Message)" -ForegroundColor Yellow }
+    }
+}
 
 if(-not $InstallProduction -and -not $InstallPreview){ $InstallProduction=$true; $InstallPreview=$true }
 $id=[Security.Principal.WindowsIdentity]::GetCurrent(); $p=New-Object Security.Principal.WindowsPrincipal($id)
-if(-not $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){ throw 'PowerShell را با Run as Administrator اجرا کنید.' }
+if(-not $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){ throw 'PowerShell must be run as Administrator.' }
+
+$Root = Resolve-InstallRoot -RequestedRoot $Root -NoPrompt:$NonInteractive
 
 $appcmd=Join-Path $env:windir 'System32\inetsrv\appcmd.exe'
-if(!(Test-Path $appcmd)){ throw 'IIS نصب نیست. ابتدا IIS را همراه ASP.NET Core Hosting Bundle نصب کنید.' }
-if(-not (& $appcmd list modules | Select-String 'AspNetCoreModuleV2')){ throw 'AspNetCoreModuleV2 پیدا نشد. ASP.NET Core Hosting Bundle 8 را نصب کنید.' }
+if(!(Test-Path $appcmd)){ throw 'IIS is not installed. Install IIS and the ASP.NET Core Hosting Bundle first.' }
+if(-not (& $appcmd list modules | Select-String 'AspNetCoreModuleV2')){ throw 'AspNetCoreModuleV2 was not found. Install the ASP.NET Core 8 Hosting Bundle first.' }
 Import-Module WebAdministration
 
-$configRoot=Join-Path $Root 'Config'; New-Item -ItemType Directory -Force -Path $Root,$configRoot | Out-Null
+$configRoot=Join-Path $Root 'Config'
+$backupRoot=Join-Path $Root 'Backup'
+$logsRoot=Join-Path $Root 'Logs'
+New-Item -ItemType Directory -Force -Path $Root,$configRoot,$backupRoot,$logsRoot | Out-Null
+
+Write-Host "Installation root: $Root" -ForegroundColor Cyan
 
 function Install-Channel([string]$Channel,[string]$Environment,[int]$Port,[string]$ConfigSource){
     $manifestUrl="$RawBase/manifests/erp-$Channel.json"
+    Write-Host "Checking ERP $Channel release manifest..."
     $m=Invoke-RestMethod $manifestUrl -Headers @{'Cache-Control'='no-cache'} -TimeoutSec 20
-    if(-not $m.published -or [string]::IsNullOrWhiteSpace([string]$m.url)){ throw "ERP $Channel هنوز منتشر نشده است." }
+    if(-not $m.published -or [string]::IsNullOrWhiteSpace([string]$m.url)){ throw "ERP $Channel has not been published yet." }
 
     $sitePath=Join-Path $Root $Environment
     $configPath=Join-Path $configRoot ("appsettings.{0}.json" -f $Environment.ToLowerInvariant())
     if($ConfigSource){
-        if(!(Test-Path $ConfigSource)){ throw "Config not found: $ConfigSource" }
+        if(!(Test-Path $ConfigSource)){ throw "Configuration file not found: $ConfigSource" }
         Copy-Item $ConfigSource $configPath -Force
     }
-    if(!(Test-Path $configPath)){ throw "برای اولین نصب $Environment فایل تنظیمات لازم است. پارامتر Config مربوطه را بدهید." }
+    if(!(Test-Path $configPath)){
+        throw "A configuration file is required for the first $Environment installation. Use the appropriate -ProductionConfig or -PreviewConfig parameter."
+    }
 
     $tmp=Join-Path $env:TEMP ("imonitor-erp-"+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory $tmp -Force | Out-Null
     try {
+        Write-Host "Downloading ERP $Channel package..."
         $zip=Join-Path $tmp 'erp.zip'; Invoke-WebRequest $m.url -OutFile $zip -UseBasicParsing
         $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant(); $expected=([string]$m.sha256).ToLowerInvariant()
-        if($actual -ne $expected){ throw "SHA256 mismatch for ERP $Channel" }
+        if($actual -ne $expected){ throw "SHA256 verification failed for ERP $Channel." }
         $payload=Join-Path $tmp 'payload'; Expand-Archive $zip $payload -Force
 
         $siteName="iMonitor ERP Local $Environment"; $pool="iMonitorLocal$Environment"
         if(Test-Path "IIS:\Sites\$siteName"){ Stop-Website $siteName -ErrorAction SilentlyContinue }
         if(Test-Path $sitePath){
-            $backup=Join-Path $Root ("Backup\$Environment\"+(Get-Date -Format 'yyyyMMdd-HHmmss')); New-Item -ItemType Directory $backup -Force | Out-Null
+            $backup=Join-Path $backupRoot ("$Environment\"+(Get-Date -Format 'yyyyMMdd-HHmmss')); New-Item -ItemType Directory $backup -Force | Out-Null
             Copy-Item (Join-Path $sitePath '*') $backup -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item (Join-Path $sitePath '*') -Recurse -Force -ErrorAction SilentlyContinue
         } else { New-Item -ItemType Directory $sitePath -Force | Out-Null }
@@ -70,9 +109,9 @@ function Install-Channel([string]$Channel,[string]$Environment,[int]$Port,[strin
         Start-Website $siteName
 
         $ok=$false; for($i=0;$i -lt 30;$i++){ try{ $r=Invoke-WebRequest "http://127.0.0.1:$Port/" -UseBasicParsing -TimeoutSec 3; if($r.StatusCode -lt 500){$ok=$true;break} }catch{ Start-Sleep 1 } }
-        if(-not $ok){ throw "ERP $Environment روی localhost:$Port پاسخ سالم نداد." }
-        @{channel=$Channel;environment=$Environment;version=$m.version;sha=$m.sourceSha;port=$Port;installedAt=(Get-Date).ToString('o')} | ConvertTo-Json | Set-Content (Join-Path $configRoot ("state-$Channel.json")) -Encoding UTF8
-        Write-Host "$Environment installed: http://localhost:$Port" -ForegroundColor Green
+        if(-not $ok){ throw "ERP $Environment did not respond successfully on http://localhost:$Port/." }
+        @{channel=$Channel;environment=$Environment;version=$m.version;sha=$m.sourceSha;port=$Port;root=$Root;installedAt=(Get-Date).ToString('o')} | ConvertTo-Json | Set-Content (Join-Path $configRoot ("state-$Channel.json")) -Encoding UTF8
+        Write-Host "$Environment installed successfully: http://localhost:$Port" -ForegroundColor Green
     } finally { Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
@@ -88,5 +127,8 @@ if(-not $SkipAutoUpdate){
     Register-ScheduledTask -TaskName 'iMonitor ERP Local Auto Update' -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
 }
 
-Write-Host 'Local iMonitor ERP host is ready.' -ForegroundColor Cyan
-
+Write-Host ''
+Write-Host 'iMonitor ERP local host is ready.' -ForegroundColor Cyan
+Write-Host "Root       : $Root"
+if($InstallProduction){ Write-Host 'Production : http://localhost:8080' }
+if($InstallPreview){ Write-Host 'Preview    : http://localhost:8081' }
