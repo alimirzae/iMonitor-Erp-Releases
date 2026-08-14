@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "product": "iMonitorERP",
   "channel": "preview",
-  "published": false,
-  "version": "0.0.0",
-  "sourceSha": "",
-  "publishedAt": null,
-  "url": "",
-  "sha256": "",
+  "published": true,
+  "version": "2026.08.14.7",
+  "sourceSha": "f126a1c8a5adf936527824f195e57b5679850c64",
+  "publishedAt": "2026-08-14T18:20:46.918823+00:00",
+  "url": "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/erp-preview-2026.08.14.7-f126a1c8a5ad/iMonitor-ERP-win-x64.zip",
+  "sha256": "39aabe71ff16fee20fc16c1110f58315bb86095ac1295243199242b62880ac1b",
   "localPort": 8081
 }
