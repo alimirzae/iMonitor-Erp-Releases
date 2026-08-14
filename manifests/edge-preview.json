@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "product": "iMonitorEdge",
   "channel": "preview",
-  "published": false,
-  "version": "0.0.0",
-  "sourceSha": "",
-  "publishedAt": null,
-  "url": "",
-  "sha256": ""
+  "published": true,
+  "version": "2026.08.14.7",
+  "sourceSha": "f126a1c8a5adf936527824f195e57b5679850c64",
+  "publishedAt": "2026-08-14T18:20:46.918823+00:00",
+  "url": "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/edge-preview-2026.08.14.7-f126a1c8a5ad/iMonitor-Edge-win-x64.zip",
+  "sha256": "8e2e94e134df4d6cd496652a65590738a0853bbb781093655c8659ff4e9cd6c2"
 }
