@@ -3,10 +3,10 @@
   "product": "iMonitorERP",
   "channel": "stable",
   "published": true,
-  "version": "2026.08.14.77",
-  "sourceSha": "574828abb3afeda5a1768d61b4891cabdb66296f",
-  "publishedAt": "2026-08-14T20:42:46.545639+00:00",
-  "url": "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/erp-stable-2026.08.14.77-574828abb3af/iMonitor-ERP-win-x64.zip",
-  "sha256": "cb4313ec2616610c82ca0bf88feca2ac23ad127b613550206db75b89bef74d80",
+  "version": "2026.08.15.112",
+  "sourceSha": "a63a91f273f4d6c9d12e3ec1ae4d2006169d2891",
+  "publishedAt": "2026-08-15T01:36:26.217728+00:00",
+  "url": "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/erp-stable-2026.08.15.112-a63a91f273f4/iMonitor-ERP-win-x64.zip",
+  "sha256": "e29cc7aeab451c0280102a0bee6870ca6eb62e2422623cfe2df73080d7d43291",
   "localPort": 8080
 }
