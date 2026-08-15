@@ -1,11 +1,10 @@
 {
-  "schemaVersion": 1,
-  "product": "iMonitorAndroidEdge",
   "channel": "preview",
-  "published": true,
-  "version": "2026.08.14.12",
-  "sourceSha": "fd22d090c4e3dfb60206bb654cd70e35347060a5",
-  "url": "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-edge-preview-2026.08.14.12-fd22d090c4e3/iMonitor-Android-Edge-preview.apk",
-  "sha256": "6feb431c162e503144abde9928b77e95f9218d5e8321e96fc23dd637ad0365a5",
-  "localPort": 9000
+  "version": "0.3.1",
+  "versionName": "0.3.1",
+  "versionCode": 5,
+  "publishedAt": "2026-08-15T04:32:39Z",
+  "url": "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-edge-preview-v0.3.1-54-f575dd8b6538/iMonitor-Android-Edge-preview.apk",
+  "sha256": "cf49defeff373f35fb5a5cf751293bdf30b3aad582104b04bbc5642b8864bef1",
+  "sourceSha": "f575dd8b6538f695db042f4cdb8617d70c501285"
 }
