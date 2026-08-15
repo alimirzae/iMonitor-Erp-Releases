@@ -26,17 +26,21 @@ C:\ERP\
 - `stable` ← خروجی branch `master`
 - `edge-preview` ← آخرین iMonitor Edge ساخته‌شده از `test`
 - `edge-stable` ← نسخه پایدار Edge
-- `android-edge-preview` ← نسخه آزمایشی Android Edge برای تست بارکدخوان Native
+- `android-edge-preview` ← نسخه آزمایشی Android Edge برای تست و توسعه قابلیت‌های Native
 
 ## نصب iMonitor Android Edge — Preview
 
-نسخه آزمایشی Android Edge برای اسکن Native بارکد، اطلاعات دستگاه/صفحه و ارتباط محلی با ERP روی `127.0.0.1:9000`:
+Android Edge برای بارکدخوان Native شناور، Voice/STT، مرورگر داخلی ERP، اطلاعات دستگاه و سرویس‌های محلی روی `127.0.0.1:9000` استفاده می‌شود.
 
-**[دانلود مستقیم APK Android Edge Preview](https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-edge-preview-2026.08.14.12-fd22d090c4e3/iMonitor-Android-Edge-preview.apk)**
+**[دانلود مستقیم آخرین Android Edge Preview](https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-edge-preview-latest/iMonitor-Android-Edge-preview.apk)**
 
-پس از نصب، برنامه را یک‌بار اجرا کنید، مجوز Camera را بدهید و سپس در فاکتور سریع از کلید «اسکن با دوربین» استفاده کنید. داخل صفحه دوربین نیز کلید «بستن اسکن» وجود دارد.
+این URL **ثابت** است و با انتشار نسخه‌های بعدی تغییر نمی‌کند. GitHub Actions فایل APK این Release را جایگزین و `manifests/android-edge-preview.json` را با `versionName`، `versionCode`، URL و SHA-256 واقعی همان build به‌روزرسانی می‌کند.
 
-> این نسخه Preview برای تست است. امضای پایدار Production و Auto-Update نهایی Android در مرحله بعد تثبیت می‌شود.
+Android Edge از نسخه 0.3.1 به بعد manifest رسمی را دوره‌ای بررسی می‌کند. اگر نسخه جدیدتری وجود داشته باشد، به کاربر پیشنهاد ارتقا می‌دهد، APK را دانلود می‌کند، SHA-256 را کنترل می‌کند و سپس Package Installer رسمی Android را برای تأیید نصب باز می‌کند. صفحه «تنظیمات شعبه و Edge» در ERP نیز همین manifest را با نسخه نصب‌شده روی دستگاه مقایسه می‌کند و در صورت قدیمی بودن نسخه هشدار می‌دهد.
+
+> نصب کاملاً silent در Android عمومی مجاز نیست و تأیید Package Installer لازم است، مگر دستگاه بعداً در حالت سازمانی Device Owner/MDM مدیریت شود. برای update-in-place قابل اتکا، همه APKهای یک کانال باید با signing key ثابت امضا شوند؛ signing key هرگز داخل repository قرار نمی‌گیرد.
+
+پس از نصب، برنامه را یک‌بار اجرا کنید و مجوزهای موردنیاز را بدهید. اگر مرورگر داخلی فعال باشد، ERP می‌تواند مستقیماً داخل Android Edge اجرا شود و Barcode/Voice/Printing از همان محیط در دسترس باشند.
 
 ## نصب سریع iMonitor Edge روی Windows
 
@@ -117,11 +121,13 @@ Invoke-RestMethod `
 
 ## Auto Update
 
-Installer یک Scheduled Task سبک ایجاد می‌کند که manifest عمومی را بررسی می‌کند. فقط اگر SHA/version تغییر کرده باشد نسخه جدید دانلود، checksum کنترل، سرویس متوقف، backup گرفته، upgrade انجام و health-check اجرا می‌شود. مسیر ریشه‌ای که در نصب اولیه انتخاب شده حفظ می‌شود. در صورت شکست، نسخه قبلی حفظ/قابل rollback است.
+Windows installer یک Scheduled Task سبک ایجاد می‌کند که manifest عمومی را بررسی می‌کند. فقط اگر SHA/version تغییر کرده باشد نسخه جدید دانلود، checksum کنترل، سرویس متوقف، backup گرفته، upgrade انجام و health-check اجرا می‌شود. مسیر ریشه‌ای که در نصب اولیه انتخاب شده حفظ می‌شود. در صورت شکست، نسخه قبلی حفظ/قابل rollback است.
+
+Android Edge نیز manifest مخصوص Android را بررسی و در صورت وجود نسخه جدید، جریان امن دانلود و درخواست نصب را شروع می‌کند.
 
 ## امنیت
 
-این repository **هیچ** connection string، رمز دیتابیس، Branch Token، PAT، SDK بانکی یا فایل تنظیمات مشتری را نگهداری نمی‌کند. تنظیمات شعبه هنگام upgrade حفظ می‌شوند. فایل‌های انتشار با SHA-256 بررسی می‌شوند.
+این repository **هیچ** connection string، رمز دیتابیس، Branch Token، PAT، SDK بانکی، signing key یا فایل تنظیمات مشتری را نگهداری نمی‌کند. تنظیمات شعبه هنگام upgrade حفظ می‌شوند. فایل‌های انتشار با SHA-256 بررسی می‌شوند.
 
 ## Manifestها
 
@@ -129,6 +135,6 @@ Installer یک Scheduled Task سبک ایجاد می‌کند که manifest عم
 - `manifests/edge-stable.json`
 - `manifests/erp-preview.json`
 - `manifests/erp-stable.json`
-- `manifests/android-edge-preview.json` (پس از فعال‌شدن updater اندروید)
+- `manifests/android-edge-preview.json`
 
-تا قبل از اولین انتشار، manifest ممکن است `published=false` باشد و installer پیام واضحی نمایش می‌دهد.
+Manifest Android بعد از هر build موفق Preview به‌صورت خودکار به نسخه واقعی منتشرشده به‌روزرسانی می‌شود.
