@@ -1,0 +1,17 @@
+{
+  "product": "iMonitor Track Android",
+  "channel": "dev",
+  "published": false,
+  "version": null,
+  "versionName": null,
+  "versionCode": null,
+  "packageName": "ir.imonitor.track.debug",
+  "minSdk": 26,
+  "targetSdk": 36,
+  "publishedAt": null,
+  "url": "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-track-dev-latest/iMonitor-Track-Android-dev.apk",
+  "archiveUrl": null,
+  "sha256": null,
+  "sourceRepository": "alimirzae/iTrack",
+  "sourceSha": null
+}
