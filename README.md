@@ -1,6 +1,28 @@
-# iMonitor ERP Releases
+# iMonitor Release Center
 
-این مخزن **کانال عمومی انتشار** iMonitor ERP و iMonitor Edge است. سورس اصلی ERP در مخزن خصوصی نگهداری می‌شود و این مخزن فقط شامل installerها، manifestها، checksumها و GitHub Releaseهای قابل نصب روی سرور/شعبه است.
+این مخزن **کانال عمومی انتشار خانواده iMonitor** است. سورس اصلی ERP، iMonitor Edge و iMonitor Track در مخزن‌های توسعه نگهداری می‌شود و این مخزن فقط شامل installerها، manifestها، checksumها و GitHub Releaseهای قابل نصب است.
+
+## iMonitor Track Android
+
+iMonitor Track اپ نیتیو Android برای Guard Vision، Security Camera، ثبت موقعیت، QR/BLE و عملیات میدانی iMonitor است. سورس آن در مخزن `alimirzae/iTrack` و پوشه `AndroidEdge/` نگهداری می‌شود.
+
+کانال‌های انتشار:
+
+- `android-track-dev` — build توسعه؛ package برابر `ir.imonitor.track.debug` و قابل نصب کنار نسخه اصلی.
+- `android-track-preview` — تست میدانی با signing key دائمی.
+- `android-track-stable` — نسخه پایدار سازمانی با همان signing key دائمی.
+
+دانلود ثابت آخرین نسخه توسعه بعد از اولین انتشار موفق:
+
+`https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-track-dev-latest/iMonitor-Track-Android-dev.apk`
+
+Manifestها:
+
+- `manifests/android-track-dev.json`
+- `manifests/android-track-preview.json`
+- `manifests/android-track-stable.json`
+
+پس از موفق شدن CI اصلی iTrack، workflow انتشار APK توسعه را روی self-hosted runner می‌سازد، SHA-256 را محاسبه می‌کند، یک Release آرشیوی و یک Release ثابت `android-track-dev-latest` می‌سازد و manifest را به‌روزرسانی می‌کند. Preview/Stable بعد از تنظیم signing key دائمی فعال می‌شوند.
 
 ## ساختار نصب ویندوز
 
@@ -26,7 +48,10 @@ C:\ERP\
 - `stable` ← خروجی branch `master`
 - `edge-preview` ← آخرین iMonitor Edge ساخته‌شده از `test`
 - `edge-stable` ← نسخه پایدار Edge
-- `android-edge-preview` ← نسخه آزمایشی Android Edge برای تست و توسعه قابلیت‌های Native
+- `android-edge-preview` ← نسخه آزمایشی Android Edge برای ERP
+- `android-track-dev` ← نسخه توسعه iMonitor Track
+- `android-track-preview` ← نسخه تست میدانی Track
+- `android-track-stable` ← نسخه پایدار Track
 
 ## نصب iMonitor Android Edge — Preview
 
@@ -39,8 +64,6 @@ Android Edge برای بارکدخوان Native شناور، Voice/STT، مرو�
 Android Edge از نسخه 0.3.1 به بعد manifest رسمی را دوره‌ای بررسی می‌کند. اگر نسخه جدیدتری وجود داشته باشد، به کاربر پیشنهاد ارتقا می‌دهد، APK را دانلود می‌کند، SHA-256 را کنترل می‌کند و سپس Package Installer رسمی Android را برای تأیید نصب باز می‌کند. صفحه «تنظیمات شعبه و Edge» در ERP نیز همین manifest را با نسخه نصب‌شده روی دستگاه مقایسه می‌کند و در صورت قدیمی بودن نسخه هشدار می‌دهد.
 
 > نصب کاملاً silent در Android عمومی مجاز نیست و تأیید Package Installer لازم است، مگر دستگاه بعداً در حالت سازمانی Device Owner/MDM مدیریت شود. برای update-in-place قابل اتکا، همه APKهای یک کانال باید با signing key ثابت امضا شوند؛ signing key هرگز داخل repository قرار نمی‌گیرد.
-
-پس از نصب، برنامه را یک‌بار اجرا کنید و مجوزهای موردنیاز را بدهید. اگر مرورگر داخلی فعال باشد، ERP می‌تواند مستقیماً داخل Android Edge اجرا شود و Barcode/Voice/Printing از همان محیط در دسترس باشند.
 
 ## نصب سریع iMonitor Edge روی Windows
 
@@ -89,41 +112,11 @@ irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scrip
 - Backup: `C:\ERP\Backup`
 - Logs: `C:\ERP\Logs`
 
-نمونه اجرای غیرتعاملی:
-
-```powershell
-.\Install-iMonitorBranch.ps1 -InstallProduction -InstallPreview -Root 'D:\ERP' -NonInteractive
-```
-
-## تست فیش‌پرینتر شبکه
-
-بعد از نصب Edge:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:9000/api/health
-```
-
-برای تست مستقیم یک فیش‌پرینتر شبکه‌ای (مثلاً `192.168.1.200:9100`):
-
-```powershell
-$body = @{
-  host = '192.168.1.200'
-  port = 9100
-  text = "iMonitor ERP`nPrinter Test`n`n"
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-  -Uri http://127.0.0.1:9000/api/printers/network/test `
-  -Method Post `
-  -ContentType 'application/json' `
-  -Body $body
-```
-
 ## Auto Update
 
 Windows installer یک Scheduled Task سبک ایجاد می‌کند که manifest عمومی را بررسی می‌کند. فقط اگر SHA/version تغییر کرده باشد نسخه جدید دانلود، checksum کنترل، سرویس متوقف، backup گرفته، upgrade انجام و health-check اجرا می‌شود. مسیر ریشه‌ای که در نصب اولیه انتخاب شده حفظ می‌شود. در صورت شکست، نسخه قبلی حفظ/قابل rollback است.
 
-Android Edge نیز manifest مخصوص Android را بررسی و در صورت وجود نسخه جدید، جریان امن دانلود و درخواست نصب را شروع می‌کند.
+Android Edge و در آینده iMonitor Track نیز manifest مخصوص خود را بررسی می‌کنند و در صورت وجود نسخه جدید، جریان امن دانلود، کنترل SHA-256 و درخواست نصب Android را اجرا می‌کنند.
 
 ## امنیت
 
@@ -136,5 +129,6 @@ Android Edge نیز manifest مخصوص Android را بررسی و در صورت
 - `manifests/erp-preview.json`
 - `manifests/erp-stable.json`
 - `manifests/android-edge-preview.json`
-
-Manifest Android بعد از هر build موفق Preview به‌صورت خودکار به نسخه واقعی منتشرشده به‌روزرسانی می‌شود.
+- `manifests/android-track-dev.json`
+- `manifests/android-track-preview.json`
+- `manifests/android-track-stable.json`
