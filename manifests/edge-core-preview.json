@@ -1,0 +1,25 @@
+{
+  "channel": "preview",
+  "coreVersion": "0.1.0",
+  "coreAbi": 1,
+  "minWindowsHost": "0.3.0",
+  "minAndroidHost": "0.5.0",
+  "publishedAt": "2026-08-19T15:15:00Z",
+  "files": [
+    {
+      "path": "edge_core/__init__.py",
+      "url": "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/edge-core/v0.1.0/edge_core/__init__.py",
+      "sha256": "46ca725262de6f06c66af3c19290e8578f4e16c5f7e170457e16941269f70be6"
+    },
+    {
+      "path": "edge_core/runtime.py",
+      "url": "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/edge-core/v0.1.0/edge_core/runtime.py",
+      "sha256": "f8ffbdcf4d9e76f6af33c9bbde4ad6fefd03e1fbf3d632a95eaec651defb4f9d"
+    },
+    {
+      "path": "edge_core/rpc.py",
+      "url": "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/edge-core/v0.1.0/edge_core/rpc.py",
+      "sha256": "2eee90072b2ee8c9b7e2e5bdf2e4b66c77657b925edb6d7176174b8eb8a9feee"
+    }
+  ]
+}
