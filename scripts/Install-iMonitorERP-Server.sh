@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 RELEASE_BASE="https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main"
 CHANNEL="main"
+NODE_PROFILE="cloud"
 ROOT_BASE="/opt/imonitor-erp"
 HTTP_PORT=""
 BIND_ADDRESS="0.0.0.0"
@@ -25,6 +26,7 @@ Usage:
 
 Options:
   --channel main|test       Release channel (default: main)
+  --profile PROFILE         cloud|branch_edge|single_device_edge|gateway_only
   --port PORT               Override HTTP port (main 8080, test 8081)
   --bind ADDRESS            Bind address (default: 0.0.0.0)
   --root PATH               Installation root (default: /opt/imonitor-erp)
@@ -48,6 +50,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --channel) CHANNEL="${2:-}"; shift 2 ;;
+    --profile) NODE_PROFILE="${2:-}"; shift 2 ;;
     --port) HTTP_PORT="${2:-}"; shift 2 ;;
     --bind) BIND_ADDRESS="${2:-}"; shift 2 ;;
     --root) ROOT_BASE="${2:-}"; shift 2 ;;
@@ -66,6 +69,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ "$CHANNEL" == "main" || "$CHANNEL" == "test" ]] || { echo "ERROR: channel must be main or test." >&2; exit 2; }
+case "$NODE_PROFILE" in cloud|branch_edge|single_device_edge|gateway_only) ;; *) echo "ERROR: invalid node profile: $NODE_PROFILE" >&2; exit 2 ;; esac
 [[ "$UPDATE_MINUTES" =~ ^[0-9]+$ && "$UPDATE_MINUTES" -ge 1 ]] || { echo "ERROR: invalid update interval." >&2; exit 2; }
 [[ "$EUID" -eq 0 ]] || { echo "ERROR: run as root (sudo)." >&2; exit 1; }
 
@@ -97,7 +101,6 @@ BOOTSTRAP_MARKER="$INSTALL_ROOT/.core-bootstrapped"
 mkdir -p "$INSTALL_ROOT" "$BACKUP_ROOT"
 cd "$INSTALL_ROOT"
 
-# Capture the actual image used by the currently running API before changing channel metadata.
 OLD_IMAGE_ID=""
 if [[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" ]]; then
   OLD_CONTAINER="$(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -p "imonitor-erp-$CHANNEL" ps -q api 2>/dev/null || true)"
@@ -123,7 +126,7 @@ IMONITOR_RELEASE_VERSION=${IMONITOR_RELEASE_VERSION:-rolling}
 IMONITOR_SOURCE_SHA=${IMONITOR_SOURCE_SHA:-unknown}
 IMONITOR_HTTP_PORT=$IMONITOR_HTTP_PORT
 IMONITOR_BIND_ADDRESS=$BIND_ADDRESS
-IMONITOR_NODE_PROFILE=cloud
+IMONITOR_NODE_PROFILE=$NODE_PROFILE
 IMONITOR_NODE_ID=$(hostname)-$CHANNEL
 IMONITOR_JWT_SECRET=$(random_secret)
 POSTGRES_DB=imonitor_erp
@@ -141,8 +144,8 @@ else
   set_env IMONITOR_SOURCE_SHA "${IMONITOR_SOURCE_SHA:-unknown}"
   set_env IMONITOR_HTTP_PORT "$IMONITOR_HTTP_PORT"
   set_env IMONITOR_BIND_ADDRESS "$BIND_ADDRESS"
+  set_env IMONITOR_NODE_PROFILE "$NODE_PROFILE"
   grep -q '^IMONITOR_JWT_SECRET=' "$ENV_FILE" || echo "IMONITOR_JWT_SECRET=$(random_secret)" >> "$ENV_FILE"
-  grep -q '^IMONITOR_NODE_PROFILE=' "$ENV_FILE" || echo 'IMONITOR_NODE_PROFILE=cloud' >> "$ENV_FILE"
   grep -q '^IMONITOR_NODE_ID=' "$ENV_FILE" || echo "IMONITOR_NODE_ID=$(hostname)-$CHANNEL" >> "$ENV_FILE"
 fi
 
@@ -152,7 +155,7 @@ if [[ -n "${GHCR_TOKEN:-}" ]]; then
   printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USER:-alimirzae}" --password-stdin >/dev/null
 fi
 
-echo "Checking iMonitor ERP $CHANNEL image: $IMONITOR_IMAGE"
+echo "Checking iMonitor ERP $CHANNEL/$NODE_PROFILE image: $IMONITOR_IMAGE"
 compose pull api
 NEW_IMAGE_ID="$(docker image inspect "$IMONITOR_IMAGE" --format '{{.Id}}' 2>/dev/null || true)"
 IMAGE_CHANGED=1
@@ -216,7 +219,7 @@ After=network-online.target docker.service
 Wants=network-online.target
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -lc 'curl -fsSL ${RELEASE_BASE}/scripts/Install-iMonitorERP-Server.sh | bash -s -- --channel ${CHANNEL} --port ${IMONITOR_HTTP_PORT} --bind ${BIND_ADDRESS} --root ${ROOT_BASE} --no-auto-update --no-docker-install'
+ExecStart=/bin/bash -lc 'curl -fsSL ${RELEASE_BASE}/scripts/Install-iMonitorERP-Server.sh | bash -s -- --channel ${CHANNEL} --profile ${NODE_PROFILE} --port ${IMONITOR_HTTP_PORT} --bind ${BIND_ADDRESS} --root ${ROOT_BASE} --no-auto-update --no-docker-install'
 EOF
     cat > "$timer" <<EOF
 [Unit]
@@ -242,7 +245,7 @@ HEALTH_URL="http://127.0.0.1:${IMONITOR_HTTP_PORT}/health"
 echo "Waiting for $HEALTH_URL ..."
 for _ in $(seq 1 60); do
   if curl -fsS "$HEALTH_URL" >/tmp/imonitor-health.json 2>/dev/null; then
-    echo "[OK] iMonitor ERP $CHANNEL is healthy."
+    echo "[OK] iMonitor ERP $CHANNEL ($NODE_PROFILE) is healthy."
     cat /tmp/imonitor-health.json; echo
     echo "Install root : $INSTALL_ROOT"
     echo "HTTP         : http://${BIND_ADDRESS}:${IMONITOR_HTTP_PORT}"
