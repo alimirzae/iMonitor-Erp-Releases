@@ -7,7 +7,7 @@
 | Product | Channel | Current published version | Manifest |
 |---|---|---:|---|
 | Windows Edge | stable | **0.2.0** | `manifests/edge-stable.json` |
-| Windows Edge | preview | **2026.08.15.120** | `manifests/edge-preview.json` |
+| Windows Edge | preview | **0.2.1** | `manifests/edge-preview.json` |
 | Android Edge | preview | **0.3.2 (versionCode 6)** | `manifests/android-edge-preview.json` |
 
 > این جدول نسخه‌های **واقعاً منتشرشده** را نشان می‌دهد، نه نسخه سورس. در سورس Ecomm، Android Edge اکنون `0.4.2 / versionCode 10` است اما تا زمان انتشار APK امضاشده و به‌روزرسانی manifest، نسخه عمومی همچنان `0.3.2` محسوب می‌شود.
