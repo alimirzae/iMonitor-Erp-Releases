@@ -17,7 +17,7 @@ BOOK_CODE="DEFAULT"
 BOOK_NAME="Default Financial Book"
 
 usage() {
-  cat <<'EOF_HELP'
+  cat <<'EOF'
 iMonitor ERP server installer/updater
 
 Usage:
@@ -39,10 +39,10 @@ Options:
   --book-name NAME          Initial financial book name
   -h, --help                Show this help
 
-The script is idempotent. PostgreSQL/Redis/RabbitMQ volumes and generated secrets are
-preserved. Before an application update, PostgreSQL is backed up; Alembic migrations
-run before the API container is started.
-EOF_HELP
+The installer is idempotent. Secrets and persistent PostgreSQL/Redis/RabbitMQ
+volumes are preserved. A real application image change triggers a PostgreSQL
+backup and Alembic migration before the new API is started.
+EOF
 }
 
 while [[ $# -gt 0 ]]; do
@@ -65,61 +65,44 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$CHANNEL" != "main" && "$CHANNEL" != "test" ]]; then
-  echo "ERROR: --channel must be main or test." >&2
-  exit 2
-fi
-if ! [[ "$UPDATE_MINUTES" =~ ^[0-9]+$ ]] || [[ "$UPDATE_MINUTES" -lt 1 ]]; then
-  echo "ERROR: --update-minutes must be a positive integer." >&2
-  exit 2
-fi
-if [[ "${EUID}" -ne 0 ]]; then
-  echo "ERROR: run as root, for example: curl ... | sudo bash -s -- --channel $CHANNEL" >&2
-  exit 1
-fi
+[[ "$CHANNEL" == "main" || "$CHANNEL" == "test" ]] || { echo "ERROR: channel must be main or test." >&2; exit 2; }
+[[ "$UPDATE_MINUTES" =~ ^[0-9]+$ && "$UPDATE_MINUTES" -ge 1 ]] || { echo "ERROR: invalid update interval." >&2; exit 2; }
+[[ "$EUID" -eq 0 ]] || { echo "ERROR: run as root (sudo)." >&2; exit 1; }
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
+random_secret() { if need_cmd openssl; then openssl rand -hex 32; else tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64; fi; }
 
 if ! need_cmd curl; then
-  if need_cmd apt-get; then
-    apt-get update -y && apt-get install -y curl ca-certificates
-  elif need_cmd dnf; then
-    dnf install -y curl ca-certificates
-  elif need_cmd yum; then
-    yum install -y curl ca-certificates
-  else
-    echo "ERROR: curl is required." >&2
-    exit 1
-  fi
+  if need_cmd apt-get; then apt-get update -y && apt-get install -y curl ca-certificates;
+  elif need_cmd dnf; then dnf install -y curl ca-certificates;
+  elif need_cmd yum; then yum install -y curl ca-certificates;
+  else echo "ERROR: curl is required." >&2; exit 1; fi
 fi
 
 if ! need_cmd docker; then
-  if [[ "$INSTALL_DOCKER" -ne 1 ]]; then
-    echo "ERROR: Docker is not installed." >&2
-    exit 1
-  fi
+  [[ "$INSTALL_DOCKER" -eq 1 ]] || { echo "ERROR: Docker is not installed." >&2; exit 1; }
   echo "Installing Docker Engine..."
   curl -fsSL https://get.docker.com | sh
 fi
-
-if need_cmd systemctl; then
-  systemctl enable --now docker >/dev/null 2>&1 || true
-fi
-if ! docker compose version >/dev/null 2>&1; then
-  echo "ERROR: Docker Compose v2 is required." >&2
-  exit 1
-fi
+if need_cmd systemctl; then systemctl enable --now docker >/dev/null 2>&1 || true; fi
+docker compose version >/dev/null 2>&1 || { echo "ERROR: Docker Compose v2 is required." >&2; exit 1; }
 
 INSTALL_ROOT="${ROOT_BASE%/}/${CHANNEL}"
-BACKUP_ROOT="${INSTALL_ROOT}/backups"
+BACKUP_ROOT="$INSTALL_ROOT/backups"
+CHANNEL_FILE="$INSTALL_ROOT/channel.env"
+MANIFEST_FILE="$INSTALL_ROOT/manifest.json"
+COMPOSE_FILE="$INSTALL_ROOT/compose.yml"
+ENV_FILE="$INSTALL_ROOT/.env"
+BOOTSTRAP_MARKER="$INSTALL_ROOT/.core-bootstrapped"
 mkdir -p "$INSTALL_ROOT" "$BACKUP_ROOT"
 cd "$INSTALL_ROOT"
 
-CHANNEL_FILE="${INSTALL_ROOT}/channel.env"
-MANIFEST_FILE="${INSTALL_ROOT}/manifest.json"
-COMPOSE_FILE="${INSTALL_ROOT}/compose.yml"
-ENV_FILE="${INSTALL_ROOT}/.env"
-BOOTSTRAP_MARKER="${INSTALL_ROOT}/.core-bootstrapped"
+# Capture the actual image used by the currently running API before changing channel metadata.
+OLD_IMAGE_ID=""
+if [[ -f "$ENV_FILE" && -f "$COMPOSE_FILE" ]]; then
+  OLD_CONTAINER="$(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -p "imonitor-erp-$CHANNEL" ps -q api 2>/dev/null || true)"
+  if [[ -n "$OLD_CONTAINER" ]]; then OLD_IMAGE_ID="$(docker inspect --format '{{.Image}}' "$OLD_CONTAINER" 2>/dev/null || true)"; fi
+fi
 
 curl -fsSL "$RELEASE_BASE/server/channels/${CHANNEL}.env" -o "$CHANNEL_FILE.tmp"
 curl -fsSL "$RELEASE_BASE/server/channels/${CHANNEL}.json" -o "$MANIFEST_FILE.tmp"
@@ -127,18 +110,13 @@ curl -fsSL "$RELEASE_BASE/server/compose.yml" -o "$COMPOSE_FILE.tmp"
 mv "$CHANNEL_FILE.tmp" "$CHANNEL_FILE"
 mv "$MANIFEST_FILE.tmp" "$MANIFEST_FILE"
 mv "$COMPOSE_FILE.tmp" "$COMPOSE_FILE"
-
 # shellcheck disable=SC1090
 source "$CHANNEL_FILE"
-if [[ -n "$HTTP_PORT" ]]; then IMONITOR_HTTP_PORT="$HTTP_PORT"; fi
-
-random_secret() {
-  if need_cmd openssl; then openssl rand -hex 32; else tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64; fi
-}
+[[ -z "$HTTP_PORT" ]] || IMONITOR_HTTP_PORT="$HTTP_PORT"
 
 if [[ ! -f "$ENV_FILE" ]]; then
   umask 077
-  cat > "$ENV_FILE" <<EOF_ENV
+  cat > "$ENV_FILE" <<EOF
 IMONITOR_CHANNEL=$CHANNEL
 IMONITOR_IMAGE=$IMONITOR_IMAGE
 IMONITOR_RELEASE_VERSION=${IMONITOR_RELEASE_VERSION:-rolling}
@@ -153,30 +131,34 @@ POSTGRES_USER=imonitor
 POSTGRES_PASSWORD=$(random_secret)
 RABBITMQ_USER=imonitor
 RABBITMQ_PASSWORD=$(random_secret)
-EOF_ENV
+EOF
   chmod 600 "$ENV_FILE"
 else
-  sed -i -E "s|^IMONITOR_CHANNEL=.*$|IMONITOR_CHANNEL=$CHANNEL|" "$ENV_FILE"
-  sed -i -E "s|^IMONITOR_IMAGE=.*$|IMONITOR_IMAGE=$IMONITOR_IMAGE|" "$ENV_FILE"
-  sed -i -E "s|^IMONITOR_RELEASE_VERSION=.*$|IMONITOR_RELEASE_VERSION=${IMONITOR_RELEASE_VERSION:-rolling}|" "$ENV_FILE" || true
-  sed -i -E "s|^IMONITOR_SOURCE_SHA=.*$|IMONITOR_SOURCE_SHA=${IMONITOR_SOURCE_SHA:-unknown}|" "$ENV_FILE" || true
-  sed -i -E "s|^IMONITOR_HTTP_PORT=.*$|IMONITOR_HTTP_PORT=$IMONITOR_HTTP_PORT|" "$ENV_FILE"
-  sed -i -E "s|^IMONITOR_BIND_ADDRESS=.*$|IMONITOR_BIND_ADDRESS=$BIND_ADDRESS|" "$ENV_FILE"
+  set_env() { local key="$1" value="$2"; if grep -q "^${key}=" "$ENV_FILE"; then sed -i -E "s|^${key}=.*$|${key}=${value}|" "$ENV_FILE"; else echo "${key}=${value}" >> "$ENV_FILE"; fi; }
+  set_env IMONITOR_CHANNEL "$CHANNEL"
+  set_env IMONITOR_IMAGE "$IMONITOR_IMAGE"
+  set_env IMONITOR_RELEASE_VERSION "${IMONITOR_RELEASE_VERSION:-rolling}"
+  set_env IMONITOR_SOURCE_SHA "${IMONITOR_SOURCE_SHA:-unknown}"
+  set_env IMONITOR_HTTP_PORT "$IMONITOR_HTTP_PORT"
+  set_env IMONITOR_BIND_ADDRESS "$BIND_ADDRESS"
   grep -q '^IMONITOR_JWT_SECRET=' "$ENV_FILE" || echo "IMONITOR_JWT_SECRET=$(random_secret)" >> "$ENV_FILE"
   grep -q '^IMONITOR_NODE_PROFILE=' "$ENV_FILE" || echo 'IMONITOR_NODE_PROFILE=cloud' >> "$ENV_FILE"
   grep -q '^IMONITOR_NODE_ID=' "$ENV_FILE" || echo "IMONITOR_NODE_ID=$(hostname)-$CHANNEL" >> "$ENV_FILE"
 fi
 
-compose() {
-  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -p "imonitor-erp-$CHANNEL" "$@"
-}
+compose() { docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" -p "imonitor-erp-$CHANNEL" "$@"; }
 
 if [[ -n "${GHCR_TOKEN:-}" ]]; then
-  GHCR_USER="${GHCR_USER:-alimirzae}"
-  printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin >/dev/null
+  printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USER:-alimirzae}" --password-stdin >/dev/null
 fi
 
-if compose ps --status running postgres 2>/dev/null | grep -q postgres; then
+echo "Checking iMonitor ERP $CHANNEL image: $IMONITOR_IMAGE"
+compose pull api
+NEW_IMAGE_ID="$(docker image inspect "$IMONITOR_IMAGE" --format '{{.Id}}' 2>/dev/null || true)"
+IMAGE_CHANGED=1
+if [[ -n "$OLD_IMAGE_ID" && -n "$NEW_IMAGE_ID" && "$OLD_IMAGE_ID" == "$NEW_IMAGE_ID" ]]; then IMAGE_CHANGED=0; fi
+
+if [[ "$IMAGE_CHANGED" -eq 1 ]] && compose ps --status running postgres 2>/dev/null | grep -q postgres; then
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   echo "Creating PostgreSQL backup: $BACKUP_ROOT/postgres-$stamp.sql.gz"
   set -a; source "$ENV_FILE"; set +a
@@ -184,30 +166,25 @@ if compose ps --status running postgres 2>/dev/null | grep -q postgres; then
     find "$BACKUP_ROOT" -type f -name 'postgres-*.sql.gz' -mtime +14 -delete 2>/dev/null || true
   else
     rm -f "$BACKUP_ROOT/postgres-$stamp.sql.gz"
-    echo "ERROR: database backup failed; refusing schema update." >&2
+    echo "ERROR: database backup failed; refusing application update." >&2
     exit 1
   fi
-fi
-
-echo "Pulling iMonitor ERP $CHANNEL image: $IMONITOR_IMAGE"
-if ! compose pull api postgres redis rabbitmq; then
-  echo "ERROR: container pull failed. If the GHCR package is private, provide GHCR_TOKEN/GHCR_USER." >&2
-  exit 1
 fi
 
 compose up -d postgres redis rabbitmq
 set -a; source "$ENV_FILE"; set +a
 for _ in $(seq 1 60); do
-  if compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then break; fi
+  compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1 && break
   sleep 2
 done
-if ! compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
-  echo "ERROR: PostgreSQL did not become ready." >&2
-  exit 1
-fi
+compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1 || { echo "ERROR: PostgreSQL did not become ready." >&2; exit 1; }
 
-echo "Applying database migrations..."
-compose run --rm --no-deps api python -m alembic upgrade head
+if [[ "$IMAGE_CHANGED" -eq 1 ]]; then
+  echo "Application image changed; applying Alembic migrations..."
+  compose run --rm --no-deps api python -m alembic upgrade head
+else
+  echo "Release image unchanged; backup and database migration skipped."
+fi
 
 if [[ ! -f "$BOOTSTRAP_MARKER" ]]; then
   GENERATED_PASSWORD=0
@@ -217,8 +194,7 @@ if [[ ! -f "$BOOTSTRAP_MARKER" ]]; then
     --company-code "$COMPANY_CODE" --company-name "$COMPANY_NAME" \
     --book-code "$BOOK_CODE" --book-name "$BOOK_NAME" \
     --username "$ADMIN_USER" --password "$ADMIN_PASSWORD"
-  touch "$BOOTSTRAP_MARKER"
-  chmod 600 "$BOOTSTRAP_MARKER"
+  touch "$BOOTSTRAP_MARKER" && chmod 600 "$BOOTSTRAP_MARKER"
   if [[ "$GENERATED_PASSWORD" -eq 1 ]]; then
     echo "IMPORTANT: generated initial admin credentials (shown once):"
     echo "  Username: $ADMIN_USER"
@@ -233,34 +209,31 @@ install_auto_update() {
   if need_cmd systemctl && [[ "$(cat /proc/1/comm 2>/dev/null || true)" == "systemd" ]]; then
     local service="/etc/systemd/system/imonitor-erp-${CHANNEL}-update.service"
     local timer="/etc/systemd/system/imonitor-erp-${CHANNEL}-update.timer"
-    cat > "$service" <<EOF_SERVICE
+    cat > "$service" <<EOF
 [Unit]
 Description=iMonitor ERP ${CHANNEL} automatic updater
 After=network-online.target docker.service
 Wants=network-online.target
-
 [Service]
 Type=oneshot
 ExecStart=/bin/bash -lc 'curl -fsSL ${RELEASE_BASE}/scripts/Install-iMonitorERP-Server.sh | bash -s -- --channel ${CHANNEL} --port ${IMONITOR_HTTP_PORT} --bind ${BIND_ADDRESS} --root ${ROOT_BASE} --no-auto-update --no-docker-install'
-EOF_SERVICE
-    cat > "$timer" <<EOF_TIMER
+EOF
+    cat > "$timer" <<EOF
 [Unit]
 Description=Check iMonitor ERP ${CHANNEL} updates
-
 [Timer]
 OnBootSec=2min
 OnUnitActiveSec=${UPDATE_MINUTES}min
 RandomizedDelaySec=30
 Persistent=true
-
 [Install]
 WantedBy=timers.target
-EOF_TIMER
+EOF
     systemctl daemon-reload
     systemctl enable --now "imonitor-erp-${CHANNEL}-update.timer" >/dev/null
     echo "Auto-update: systemd timer every ${UPDATE_MINUTES} minute(s)."
   else
-    echo "WARNING: systemd is not active; automatic update timer was not installed. Re-run this installer to update." >&2
+    echo "WARNING: systemd is not active; re-run this installer to update." >&2
   fi
 }
 install_auto_update
