@@ -4,9 +4,9 @@
     "channel":  "preview",
     "published":  true,
     "version":  "0.2.4",
-    "sourceSha":  "9dfccfdab9839780b707ef0215a0f32676eef571",
-    "publishedAt":  "2026-08-19T12:26:36.9549166Z",
+    "sourceSha":  "0ea96344e96aa6b898684b9355657ff4f370aa97",
+    "publishedAt":  "2026-08-19T14:44:51.6003658Z",
     "url":  "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/edge-preview-latest/iMonitor-Edge-win-x64.zip",
-    "archiveUrl":  "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/edge-preview-v0.2.4-9dfccfdab983/iMonitor-Edge-win-x64.zip",
-    "sha256":  "e5517cc7a647b04e6b7732802a89d4c78272ba8ff3800dd8c4931bef19c9c6e4"
+    "archiveUrl":  "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/edge-preview-v0.2.4-0ea96344e96a/iMonitor-Edge-win-x64.zip",
+    "sha256":  "5a907f6e5756a7f6ca03e6b109c8b286231f9c6f4f1ea5de389dab97b25671ea"
 }
