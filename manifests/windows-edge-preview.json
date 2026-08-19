@@ -1,0 +1,12 @@
+{
+    "channel":  "preview",
+    "published":  true,
+    "version":  "0.2.2",
+    "publishedAt":  "2026-08-19T11:06:05Z",
+    "url":  "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/windows-edge-preview-latest/iMonitor-Windows-Edge-preview.zip",
+    "archiveUrl":  "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/windows-edge-preview-v0.2.2-4285b3a960c1/iMonitor-Windows-Edge-preview.zip",
+    "sha256":  "610c1521ed499dcb41e6bd2f7f83522a518633f8abea834a1f3ccb5af42fbce2",
+    "runtime":  "win-x64",
+    "selfContained":  true,
+    "sourceSha":  "4285b3a960c153d28fdf0ec66e539dc590cc738b"
+}
