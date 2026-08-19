@@ -2,6 +2,16 @@
 
 این مخزن **کانال عمومی انتشار خانواده iMonitor** است. سورس اصلی ERP، iMonitor Edge و iMonitor Track در مخزن‌های توسعه نگهداری می‌شود و این مخزن فقط شامل installerها، manifestها، checksumها و GitHub Releaseهای قابل نصب است.
 
+## Current releases
+
+| Product | Channel | Current published version | Manifest |
+|---|---|---:|---|
+| Windows Edge | stable | **0.2.0** | `manifests/edge-stable.json` |
+| Windows Edge | preview | **2026.08.15.120** | `manifests/edge-preview.json` |
+| Android Edge | preview | **0.3.2 (versionCode 6)** | `manifests/android-edge-preview.json` |
+
+> این جدول نسخه‌های **واقعاً منتشرشده** را نشان می‌دهد، نه نسخه سورس. در سورس Ecomm، Android Edge اکنون `0.4.1 / versionCode 9` است اما تا زمان انتشار APK امضاشده و به‌روزرسانی manifest، نسخه عمومی همچنان `0.3.2` محسوب می‌شود.
+
 ## iMonitor Track Android
 
 iMonitor Track اپ نیتیو Android برای Guard Vision، Security Camera، ثبت موقعیت، QR/BLE و عملیات میدانی iMonitor است. سورس آن در مخزن `alimirzae/iTrack` و پوشه `AndroidEdge/` نگهداری می‌شود.
