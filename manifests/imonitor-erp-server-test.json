@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "product": "iMonitorERP-Python",
+  "channel": "test",
+  "deployment": "docker-compose",
+  "image": "ghcr.io/alimirzae/imonitor-erp:test-latest",
+  "compose": "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/server/compose.yml",
+  "installer": "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.sh",
+  "defaultPort": 8081,
+  "services": ["api", "postgresql", "redis", "rabbitmq"],
+  "sourceRepository": "alimirzae/iMonitor-ERP",
+  "sourceBranch": "test"
+}
