@@ -59,9 +59,14 @@ services:
         condition: service_healthy
     environment:
       IMONITOR_ENVIRONMENT: ${IMONITOR_CHANNEL}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      REDIS_URL: redis://redis:6379/0
-      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      IMONITOR_NODE_PROFILE: ${IMONITOR_NODE_PROFILE:-cloud}
+      IMONITOR_NODE_ID: ${IMONITOR_NODE_ID:-server-node}
+      IMONITOR_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      IMONITOR_JWT_SECRET: ${IMONITOR_JWT_SECRET}
+      IMONITOR_JWT_ISSUER: ${IMONITOR_JWT_ISSUER:-imonitor-erp}
+      IMONITOR_JWT_AUDIENCE: ${IMONITOR_JWT_AUDIENCE:-imonitor-erp}
+      IMONITOR_REDIS_URL: redis://redis:6379/0
+      IMONITOR_RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
     ports:
       - "${IMONITOR_BIND_ADDRESS:-0.0.0.0}:${IMONITOR_HTTP_PORT}:8080"
     healthcheck:

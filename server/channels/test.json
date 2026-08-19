@@ -1,0 +1,1 @@
+{"product":"iMonitor ERP","channel":"test","version":"rolling","sourceSha":"unknown","image":"ghcr.io/alimirzae/imonitor-erp:test-latest","defaultPort":8081,"schema":"alembic","publishedAt":null}

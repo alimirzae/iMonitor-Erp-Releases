@@ -1,144 +1,75 @@
-# iMonitor Release Center
+# iMonitor ERP Release Center
 
-این مخزن **کانال عمومی انتشار خانواده iMonitor** است. سورس اصلی ERP، iMonitor Edge و iMonitor Track در مخزن‌های توسعه نگهداری می‌شود و این مخزن فقط شامل installerها، manifestها، checksumها و GitHub Releaseهای قابل نصب است.
+Public release/bootstrap repository for iMonitor ERP. Application source code remains in the development repository; this repository contains channel metadata, server compose files and one-command installers/updaters.
 
-## Current releases
+## Server channels
 
-| Product | Channel | Current published version | Manifest |
-|---|---|---:|---|
-| Windows Edge | stable | **0.2.0** | `manifests/edge-stable.json` |
-| Windows Edge | preview | **0.2.1** | `manifests/edge-preview.json` |
-| Android Edge | preview | **0.3.2 (versionCode 6)** | `manifests/android-edge-preview.json` |
+- `main` — production/stable server channel, default port `8080`
+- `test` — test/preview server channel, default port `8081`
 
-> این جدول نسخه‌های **واقعاً منتشرشده** را نشان می‌دهد، نه نسخه سورس. در سورس Ecomm، Android Edge اکنون `0.4.2 / versionCode 10` است اما تا زمان انتشار APK امضاشده و به‌روزرسانی manifest، نسخه عمومی همچنان `0.3.2` محسوب می‌شود.
+Each source commit publishes a container to GHCR and an immutable GitHub Release. `server/channels/main.json` and `server/channels/test.json` identify the currently promoted image/commit for each channel. Server installers always read this repository before updating.
 
-## iMonitor Track Android
+## Ubuntu / Debian / WSL — one command
 
-iMonitor Track اپ نیتیو Android برای Guard Vision، Security Camera، ثبت موقعیت، QR/BLE و عملیات میدانی iMonitor است. سورس آن در مخزن `alimirzae/iTrack` و پوشه `AndroidEdge/` نگهداری می‌شود.
+Production:
 
-کانال‌های انتشار:
-
-- `android-track-dev` — build توسعه؛ package برابر `ir.imonitor.track.debug` و قابل نصب کنار نسخه اصلی.
-- `android-track-preview` — تست میدانی با signing key دائمی.
-- `android-track-stable` — نسخه پایدار سازمانی با همان signing key دائمی.
-
-دانلود ثابت آخرین نسخه توسعه بعد از اولین انتشار موفق:
-
-`https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-track-dev-latest/iMonitor-Track-Android-dev.apk`
-
-Manifestها:
-
-- `manifests/android-track-dev.json`
-- `manifests/android-track-preview.json`
-- `manifests/android-track-stable.json`
-
-پس از موفق شدن CI اصلی iTrack، workflow انتشار APK توسعه را روی self-hosted runner می‌سازد، SHA-256 را محاسبه می‌کند، یک Release آرشیوی و یک Release ثابت `android-track-dev-latest` می‌سازد و manifest را به‌روزرسانی می‌کند. Preview/Stable بعد از تنظیم signing key دائمی فعال می‌شوند.
-
-## ساختار نصب ویندوز
-
-نصب تعاملی به‌صورت پیش‌فرض پیشنهاد می‌دهد همه اجزای محلی داخل `C:\ERP` قرار بگیرند. اگر کاربر این مسیر را نخواهد، Installer مسیر کامل دیگری مانند `D:\ERP` را می‌پرسد. پیام‌ها، سؤال‌ها و خطاهای تمام اسکریپت‌های PowerShell انگلیسی هستند تا در کنسول Windows به‌صورت چپ‌به‌راست و خوانا نمایش داده شوند.
-
-ساختار استاندارد:
-
-```text
-C:\ERP\
-  Edge\
-  Production\
-  Preview\
-  Config\
-  Backup\
-  Logs\
+```bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.sh | sudo bash -s -- --channel main
 ```
 
-در اجرای غیرتعاملی می‌توان مسیر را صریحاً با `-Root` داد. Updaterها همان مسیر انتخاب‌شده در نصب اولیه را حفظ می‌کنند.
+Test:
 
-## کانال‌ها
+```bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.sh | sudo bash -s -- --channel test
+```
 
-- `preview` ← خروجی branch `test`
-- `stable` ← خروجی branch `master`
-- `edge-preview` ← آخرین iMonitor Edge ساخته‌شده از `test`
-- `edge-stable` ← نسخه پایدار Edge
-- `android-edge-preview` ← نسخه آزمایشی Android Edge برای ERP
-- `android-track-dev` ← نسخه توسعه iMonitor Track
-- `android-track-preview` ← نسخه تست میدانی Track
-- `android-track-stable` ← نسخه پایدار Track
+The installer can install Docker when missing, creates persistent PostgreSQL/Redis/RabbitMQ volumes, generates secrets, runs Alembic migrations, creates the first administrator/context on first install, starts the API and installs a 5-minute systemd auto-update timer when systemd is available.
 
-## نصب iMonitor Android Edge — Preview
+For the first PuyaTools test installation you can explicitly set the initial context:
 
-Android Edge برای بارکدخوان Native شناور، Voice/STT، مرورگر داخلی ERP، اطلاعات دستگاه و سرویس‌های محلی روی `127.0.0.1:9000` استفاده می‌شود.
+```bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.sh | sudo bash -s -- \
+  --channel test \
+  --company-code PUYATOOLS \
+  --company-name PuyaTools \
+  --book-code MAIN \
+  --book-name Main
+```
 
-**[دانلود مستقیم آخرین Android Edge Preview](https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-edge-preview-latest/iMonitor-Android-Edge-preview.apk)**
+If `--admin-password` is omitted, a random initial password is printed once. To use a private GHCR package, export `GHCR_TOKEN` and optionally `GHCR_USER` before running the installer; Docker credentials remain on that machine for later updates.
 
-این URL **ثابت** است و با انتشار نسخه‌های بعدی تغییر نمی‌کند. GitHub Actions فایل APK این Release را جایگزین و `manifests/android-edge-preview.json` را با `versionName`، `versionCode`، URL و SHA-256 واقعی همان build به‌روزرسانی می‌کند.
+## Windows / Windows Server — one command
 
-Android Edge از نسخه 0.3.1 به بعد manifest رسمی را دوره‌ای بررسی می‌کند. اگر نسخه جدیدتری وجود داشته باشد، به کاربر پیشنهاد ارتقا می‌دهد، APK را دانلود می‌کند، SHA-256 را کنترل می‌کند و سپس Package Installer رسمی Android را برای تأیید نصب باز می‌کند. صفحه «تنظیمات شعبه و Edge» در ERP نیز همین manifest را با نسخه نصب‌شده روی دستگاه مقایسه می‌کند و در صورت قدیمی بودن نسخه هشدار می‌دهد.
+Open PowerShell as Administrator.
 
-> نصب کاملاً silent در Android عمومی مجاز نیست و تأیید Package Installer لازم است، مگر دستگاه بعداً در حالت سازمانی Device Owner/MDM مدیریت شود. برای update-in-place قابل اتکا، همه APKهای یک کانال باید با signing key ثابت امضا شوند؛ signing key هرگز داخل repository قرار نمی‌گیرد.
-
-## نصب سریع iMonitor Edge روی Windows
-
-PowerShell را با **Run as Administrator** باز کنید و اجرا کنید:
+Production:
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force
-irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEdge.ps1 | iex
+irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.ps1 -OutFile "$env:TEMP\Install-iMonitorERP-Server.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\Install-iMonitorERP-Server.ps1" -Channel main
 ```
 
-Installer ابتدا پیشنهاد می‌کند `C:\ERP` را بسازد. اگر پاسخ `n` بدهید مسیر دلخواه را می‌پرسد.
-
-پیش‌فرض‌ها:
-
-- Windows Service: `iMonitorEdge`
-- نصب Edge: `C:\ERP\Edge`
-- تنظیمات مشترک: `C:\ERP\Config`
-- Backup: `C:\ERP\Backup\Edge`
-- Logs: `C:\ERP\Logs\Edge`
-- API/Swagger: `http://127.0.0.1:9000`
-- LAN access: فعال، فقط `Private Network / LocalSubnet`
-- POS: غیرفعال تا زمانی که درایور/SDK مربوطه تنظیم شود
-- TCP/RAW receipt printing (معمولاً port `9100`): فعال
-
-برای نصب غیرتعاملی در مسیر مشخص:
+Test:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEdge.ps1 -OutFile .\Install-iMonitorEdge.ps1
-.\Install-iMonitorEdge.ps1 -Channel preview -Root 'C:\ERP' -Port 9000 -AllowLan $true -NonInteractive
+irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.ps1 -OutFile "$env:TEMP\Install-iMonitorERP-Server.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\Install-iMonitorERP-Server.ps1" -Channel test
 ```
 
-## نصب/ارتقای ERP محلی شعبه
+The Windows installer enables/installs WSL2 + Ubuntu when required, delegates the Linux stack installation, configures the Windows port proxy/firewall and registers an automatic update task. A reboot may be required during the first WSL installation; a resume task continues setup afterwards.
 
-نسخه Production محلی از `stable` و نسخه Preview محلی از `preview` دریافت می‌شود. Installerهای ERP بعد از انتشار اولین artifact در همین مخزن فعال می‌شوند:
+## Update and rollback behavior
 
-```powershell
-irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorBranch.ps1 -OutFile .\Install-iMonitorBranch.ps1
-.\Install-iMonitorBranch.ps1 -InstallProduction -InstallPreview
-```
+Running the same installer is always safe and is also the manual update command. Before schema migration, an existing PostgreSQL database is backed up. Then the selected channel image is pulled, `alembic upgrade head` runs, and only after a successful migration is the API started. Persistent database/message/cache volumes are not recreated.
 
-در اجرای تعاملی مسیر نصب پرسیده می‌شود. ساختار پیش‌فرض ERP محلی:
+Channel metadata contains the source commit and exact image reference. Immutable releases allow operators to identify or pin an earlier build when rollback is required. Database rollback is intentionally not automatic; restore uses the pre-update PostgreSQL backup when a schema downgrade is necessary.
 
-- Production: `C:\ERP\Production` → `http://localhost:8080`
-- Preview/Test: `C:\ERP\Preview` → `http://localhost:8081`
-- Config: `C:\ERP\Config`
-- Backup: `C:\ERP\Backup`
-- Logs: `C:\ERP\Logs`
+## Server files
 
-## Auto Update
+- `server/compose.yml` — PostgreSQL + Redis + RabbitMQ + iMonitor FastAPI runtime
+- `server/channels/main.env` / `test.env` — machine-readable channel settings
+- `server/channels/main.json` / `test.json` — promoted release manifest
+- `scripts/Install-iMonitorERP-Server.sh` — Ubuntu/Debian/WSL installer + updater
+- `scripts/Install-iMonitorERP-Server.ps1` — Windows/Windows Server WSL installer + updater
 
-Windows installer یک Scheduled Task سبک ایجاد می‌کند که manifest عمومی را بررسی می‌کند. فقط اگر SHA/version تغییر کرده باشد نسخه جدید دانلود، checksum کنترل، سرویس متوقف، backup گرفته، upgrade انجام و health-check اجرا می‌شود. مسیر ریشه‌ای که در نصب اولیه انتخاب شده حفظ می‌شود. در صورت شکست، نسخه قبلی حفظ/قابل rollback است.
+## Security
 
-Android Edge و در آینده iMonitor Track نیز manifest مخصوص خود را بررسی می‌کنند و در صورت وجود نسخه جدید، جریان امن دانلود، کنترل SHA-256 و درخواست نصب Android را اجرا می‌کنند.
-
-## امنیت
-
-این repository **هیچ** connection string، رمز دیتابیس، Branch Token، PAT، SDK بانکی، signing key یا فایل تنظیمات مشتری را نگهداری نمی‌کند. تنظیمات شعبه هنگام upgrade حفظ می‌شوند. فایل‌های انتشار با SHA-256 بررسی می‌شوند.
-
-## Manifestها
-
-- `manifests/edge-preview.json`
-- `manifests/edge-stable.json`
-- `manifests/erp-preview.json`
-- `manifests/erp-stable.json`
-- `manifests/android-edge-preview.json`
-- `manifests/android-track-dev.json`
-- `manifests/android-track-preview.json`
-- `manifests/android-track-stable.json`
+No production password, JWT signing secret, database credential or GHCR token belongs in this repository. Installers generate host-local secrets and store them in the protected local installation directory. Legacy PuyaTools/Ecomm database credentials are also local-only and must be read-only.
