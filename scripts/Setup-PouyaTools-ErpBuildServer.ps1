@@ -134,10 +134,10 @@ function Ensure-AppPool([string]$Name){
     Set-ItemProperty "IIS:\AppPools\$Name" -Name processModel.loadUserProfile -Value $true
     Set-ItemProperty "IIS:\AppPools\$Name" -Name startMode -Value 'AlwaysRunning'
 }
-function Ensure-Site([string]$Name,[string]$Pool,[string]$Path,[int]$Port,[string]$Host){
+function Ensure-Site([string]$Name,[string]$Pool,[string]$Path,[int]$Port,[string]$HostName){
     Ensure-AppPool $Pool
     if(Get-Website -Name $Name -ErrorAction SilentlyContinue){ Remove-Website -Name $Name }
-    New-Website -Name $Name -PhysicalPath $Path -Port $Port -HostHeader $Host -ApplicationPool $Pool | Out-Null
+    New-Website -Name $Name -PhysicalPath $Path -Port $Port -HostHeader $HostName -ApplicationPool $Pool | Out-Null
     Set-ItemProperty "IIS:\Sites\$Name" -Name applicationDefaults.preloadEnabled -Value $true -ErrorAction SilentlyContinue
     $identity="IIS AppPool\$Pool"
     & icacls $Path /grant "${identity}:(OI)(CI)(RX)" /T /C | Out-Null
