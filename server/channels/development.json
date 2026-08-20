@@ -1,0 +1,1 @@
+{"product":"iMonitor ERP","channel":"development","version":"rolling","sourceSha":"unknown","image":"ghcr.io/alimirzae/imonitor-erp:development-latest","defaultPort":8082,"schema":"alembic","publishedAt":null,"autoUpdate":{"defaultMinutes":1,"forceAllowed":true},"dashboardPort":10000,"android":{"native":null,"pythonPayload":null}}
