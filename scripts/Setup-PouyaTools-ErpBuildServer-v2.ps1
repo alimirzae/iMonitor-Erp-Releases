@@ -178,22 +178,44 @@ if(-not(Test-Path (Join-Path $runnerDir 'config.cmd'))){
 
 Push-Location $runnerDir
 try{
+    # Windows service setup is performed during config.cmd via --runasservice.
+    # If this runner was previously configured without a service, unregister it first.
     if(Test-Path '.runner'){
-        try { & .\svc.cmd stop | Out-Null } catch {}
-        try { & .\svc.cmd uninstall | Out-Null } catch {}
+        Step 'Removing previous runner registration so it can be reconfigured as a Windows service...'
         try {
-            $removeToken=& gh api -X POST "repos/$Repo/actions/runners/remove-token" --jq .token
-            & .\config.cmd remove --unattended --token $removeToken | Out-Null
+            $existingService=Get-Service 'actions.runner.*' -ErrorAction SilentlyContinue | Where-Object {$_.Name -match [regex]::Escape($RunnerName)} | Select-Object -First 1
+            if($existingService){
+                if($existingService.Status -ne 'Stopped'){ Stop-Service $existingService.Name -Force -ErrorAction SilentlyContinue }
+                sc.exe delete $existingService.Name | Out-Null
+                Start-Sleep -Seconds 2
+            }
         } catch {}
+        $removeToken=& gh api -X POST "repos/$Repo/actions/runners/remove-token" --jq .token
+        & .\config.cmd remove --unattended --token $removeToken
+        if($LASTEXITCODE -ne 0){ throw 'Could not remove previous runner registration.' }
     }
+
     $token=& gh api -X POST "repos/$Repo/actions/runners/registration-token" --jq .token
     if(-not $token){ throw 'Could not obtain GitHub runner registration token.' }
-    & .\config.cmd --unattended --url "https://github.com/$Repo" --token $token --name $RunnerName --work '_work' --labels 'pouyatools-server,erp-build,dotnet-build,iis-deploy' --replace
-    if($LASTEXITCODE -ne 0){ throw 'GitHub runner configuration failed.' }
-    & .\svc.cmd install
-    if($LASTEXITCODE -ne 0){ throw 'Runner service install failed.' }
-    & .\svc.cmd start
-    if($LASTEXITCODE -ne 0){ throw 'Runner service start failed.' }
+    Step 'Registering runner and installing it as a Windows service...'
+    & .\config.cmd --unattended --url "https://github.com/$Repo" --token $token --name $RunnerName --work '_work' --labels 'pouyatools-server,erp-build,dotnet-build,iis-deploy' --replace --runasservice
+    if($LASTEXITCODE -ne 0){ throw 'GitHub runner configuration/service installation failed.' }
+
+    Start-Sleep -Seconds 2
+    $service=Get-Service 'actions.runner.*' -ErrorAction SilentlyContinue | Where-Object {$_.Name -match [regex]::Escape($RunnerName)} | Select-Object -First 1
+    if(-not $service){
+        # Some runner service names normalize punctuation differently. Fall back to the only runner service if unambiguous.
+        $services=@(Get-Service 'actions.runner.*' -ErrorAction SilentlyContinue)
+        if($services.Count -eq 1){$service=$services[0]}
+    }
+    if(-not $service){ throw 'Runner registered, but no Windows service actions.runner.* was found.' }
+    if($service.Status -ne 'Running'){
+        Start-Service $service.Name
+        Start-Sleep -Seconds 2
+        $service=Get-Service $service.Name
+    }
+    if($service.Status -ne 'Running'){ throw "Runner service is not running: $($service.Name)" }
+    Ok "Runner service running: $($service.Name)"
 } finally { Pop-Location }
 
 powercfg /change standby-timeout-ac 0 | Out-Null
