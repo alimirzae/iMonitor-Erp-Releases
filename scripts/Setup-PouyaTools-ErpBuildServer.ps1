@@ -9,20 +9,95 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 function Step([string]$m){ Write-Host "[$(Get-Date -Format HH:mm:ss)] $m" -ForegroundColor Cyan }
+function Ok([string]$m){ Write-Host "[$(Get-Date -Format HH:mm:ss)] $m" -ForegroundColor Green }
 function Ensure-Admin {
     $id=[Security.Principal.WindowsIdentity]::GetCurrent()
     $p=New-Object Security.Principal.WindowsPrincipal($id)
     if(-not $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){ throw 'Run this script from PowerShell as Administrator.' }
 }
 function Refresh-Path { $env:PATH=[Environment]::GetEnvironmentVariable('PATH','Machine')+';'+[Environment]::GetEnvironmentVariable('PATH','User') }
-function Ensure-Command([string]$Name,[string]$WingetId){
-    if(Get-Command $Name -ErrorAction SilentlyContinue){ return }
-    if(-not(Get-Command winget.exe -ErrorAction SilentlyContinue)){ throw "$Name is missing and winget is unavailable. Install $WingetId first." }
-    Step "Installing $WingetId ..."
-    winget install --id $WingetId --exact --silent --accept-package-agreements --accept-source-agreements
-    if($LASTEXITCODE -ne 0){ throw "winget install failed for $WingetId" }
+function Download-File([string]$Url,[string]$OutFile){
+    Step "Downloading $Url"
+    $curl=Get-Command curl.exe -ErrorAction SilentlyContinue
+    if($curl){
+        & $curl.Source -L --fail --retry 4 --retry-delay 3 --connect-timeout 20 --max-time 900 --progress-bar -o $OutFile $Url
+        if($LASTEXITCODE -ne 0){ throw "Download failed with curl exit code $LASTEXITCODE : $Url" }
+    }else{
+        Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $OutFile -TimeoutSec 900
+    }
+    if(-not(Test-Path $OutFile)){ throw "Download did not create $OutFile" }
+}
+function Ensure-Git {
+    if(Get-Command git.exe -ErrorAction SilentlyContinue){ Ok "Git already installed: $(& git --version)"; return }
+    Step 'Git is missing. Installing Git for Windows directly from the official GitHub release...'
+    $release=Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/git-for-windows/git/releases/latest' -Headers @{'User-Agent'='iMonitor-ERP-Setup'}
+    $asset=$release.assets | Where-Object {$_.name -match '^Git-[0-9].*-64-bit\.exe$' -and $_.name -notmatch 'Portable'} | Select-Object -First 1
+    if(-not $asset){ throw 'Could not locate the latest 64-bit Git for Windows installer.' }
+    $installer=Join-Path $env:TEMP $asset.name
+    Download-File $asset.browser_download_url $installer
+    Step "Installing $($asset.name)..."
+    $p=Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-','/CLOSEAPPLICATIONS' -Wait -PassThru
+    if($p.ExitCode -ne 0){ throw "Git installer failed with exit code $($p.ExitCode)" }
     Refresh-Path
+    if(-not(Get-Command git.exe -ErrorAction SilentlyContinue)){
+        $gitPath='C:\Program Files\Git\cmd'
+        if(Test-Path (Join-Path $gitPath 'git.exe')){$env:PATH="$gitPath;$env:PATH"}
+    }
+    if(-not(Get-Command git.exe -ErrorAction SilentlyContinue)){ throw 'Git installation completed but git.exe is still unavailable.' }
+    Ok "Git installed: $(& git --version)"
+}
+function Ensure-Gh {
+    if(Get-Command gh.exe -ErrorAction SilentlyContinue){ Ok "GitHub CLI already installed: $(& gh --version | Select-Object -First 1)"; return }
+    Step 'GitHub CLI is missing. Installing it directly from the official GitHub release...'
+    $release=Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/cli/cli/releases/latest' -Headers @{'User-Agent'='iMonitor-ERP-Setup'}
+    $asset=$release.assets | Where-Object {$_.name -match '^gh_.*_windows_amd64\.msi$'} | Select-Object -First 1
+    if(-not $asset){ throw 'Could not locate the latest GitHub CLI Windows amd64 MSI.' }
+    $installer=Join-Path $env:TEMP $asset.name
+    Download-File $asset.browser_download_url $installer
+    Step "Installing $($asset.name)..."
+    $p=Start-Process msiexec.exe -ArgumentList '/i',"`"$installer`"",'/qn','/norestart' -Wait -PassThru
+    if($p.ExitCode -notin 0,3010){ throw "GitHub CLI installer failed with exit code $($p.ExitCode)" }
+    Refresh-Path
+    if(-not(Get-Command gh.exe -ErrorAction SilentlyContinue)){
+        $ghPath='C:\Program Files\GitHub CLI'
+        if(Test-Path (Join-Path $ghPath 'gh.exe')){$env:PATH="$ghPath;$env:PATH"}
+    }
+    if(-not(Get-Command gh.exe -ErrorAction SilentlyContinue)){ throw 'GitHub CLI installation completed but gh.exe is still unavailable.' }
+    Ok "GitHub CLI installed: $(& gh --version | Select-Object -First 1)"
+}
+function Ensure-DotNet8 {
+    $hasSdk=$false
+    if(Get-Command dotnet.exe -ErrorAction SilentlyContinue){
+        $sdks=& dotnet --list-sdks
+        $hasSdk=[bool]($sdks -match '^8\.')
+    }
+    if(-not $hasSdk){
+        Step '.NET SDK 8 is missing. Installing it with the official dotnet-install script...'
+        $installScript=Join-Path $env:TEMP 'dotnet-install.ps1'
+        Download-File 'https://dot.net/v1/dotnet-install.ps1' $installScript
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installScript -Channel 8.0 -InstallDir 'C:\Program Files\dotnet'
+        if($LASTEXITCODE -ne 0){ throw "dotnet-install failed with exit code $LASTEXITCODE" }
+        [Environment]::SetEnvironmentVariable('DOTNET_ROOT','C:\Program Files\dotnet','Machine')
+        $machinePath=[Environment]::GetEnvironmentVariable('PATH','Machine')
+        if($machinePath -notlike '*C:\Program Files\dotnet*'){
+            [Environment]::SetEnvironmentVariable('PATH',"C:\Program Files\dotnet;$machinePath",'Machine')
+        }
+        Refresh-Path
+    }
+    if(-not(Get-Command dotnet.exe -ErrorAction SilentlyContinue)){ throw 'dotnet.exe is unavailable after SDK installation.' }
+    Ok ".NET SDKs installed:`n$(& dotnet --list-sdks | Out-String)"
+
+    Step 'Ensuring ASP.NET Core Hosting Bundle 8 / IIS ANCM...'
+    $ancm = Join-Path $env:ProgramFiles 'IIS\Asp.Net Core Module\V2\aspnetcorev2.dll'
+    if(-not(Test-Path $ancm)){
+        $hosting=Join-Path $env:TEMP 'dotnet-hosting-8.exe'
+        Download-File 'https://aka.ms/dotnet/8.0/dotnet-hosting-win.exe' $hosting
+        $p=Start-Process -FilePath $hosting -ArgumentList '/install','/quiet','/norestart' -Wait -PassThru
+        if($p.ExitCode -notin 0,3010,1641){ throw "ASP.NET Core Hosting Bundle installer failed with exit code $($p.ExitCode)" }
+    }
+    if(Test-Path $ancm){ Ok 'ASP.NET Core Module V2 is installed.' } else { Write-Warning 'Hosting Bundle installation completed, but ANCM file was not detected yet. A reboot may be required.' }
 }
 
 Ensure-Admin
@@ -31,27 +106,17 @@ if(-not(Test-Path $DriveRoot)){ throw "Drive/root does not exist: $DriveRoot" }
 Step 'Enabling IIS and management features...'
 $features=@('IIS-WebServerRole','IIS-WebServer','IIS-CommonHttpFeatures','IIS-StaticContent','IIS-DefaultDocument','IIS-HttpErrors','IIS-ApplicationDevelopment','IIS-ISAPIExtensions','IIS-ISAPIFilter','IIS-ManagementConsole','IIS-RequestFiltering','IIS-WebSockets','IIS-HttpLogging')
 foreach($f in $features){
-    & dism.exe /Online /Enable-Feature /FeatureName:$f /All /NoRestart | Out-Null
-    if($LASTEXITCODE -notin 0,3010){ throw "Failed to enable Windows feature $f" }
+    $state=(& dism.exe /Online /Get-FeatureInfo /FeatureName:$f 2>$null | Select-String 'State :').ToString()
+    if($state -match 'Enabled') { Ok "IIS feature already enabled: $f"; continue }
+    Step "Enabling IIS feature: $f"
+    & dism.exe /Online /Enable-Feature /FeatureName:$f /All /NoRestart
+    if($LASTEXITCODE -notin 0,3010){ throw "Failed to enable Windows feature $f (exit $LASTEXITCODE)" }
+    Ok "Enabled: $f"
 }
 
-Ensure-Command 'git.exe' 'Git.Git'
-Ensure-Command 'gh.exe' 'GitHub.cli'
-Ensure-Command 'dotnet.exe' 'Microsoft.DotNet.SDK.8'
-
-$sdks=& dotnet --list-sdks
-if(-not($sdks -match '^8\.')){
-    Step 'Installing .NET SDK 8...'
-    winget install --id Microsoft.DotNet.SDK.8 --exact --silent --accept-package-agreements --accept-source-agreements
-    Refresh-Path
-}
-
-Step 'Ensuring ASP.NET Core Hosting Bundle 8...'
-$ancm = Join-Path $env:ProgramFiles 'IIS\Asp.Net Core Module\V2\aspnetcorev2.dll'
-if(-not(Test-Path $ancm)){
-    winget install --id Microsoft.DotNet.HostingBundle.8 --exact --silent --accept-package-agreements --accept-source-agreements
-    Refresh-Path
-}
+Ensure-Git
+Ensure-Gh
+Ensure-DotNet8
 
 $runnerRoot=Join-Path $DriveRoot 'EcommRunner'
 $prodRoot=Join-Path $DriveRoot 'Sites\Ecomm-Production'
@@ -107,7 +172,7 @@ if(-not(Test-Path (Join-Path $runnerDir 'config.cmd'))){
     $asset=$release.assets | Where-Object { $_.name -match '^actions-runner-win-x64-.*\.zip$' } | Select-Object -First 1
     if(-not $asset){ throw 'Could not locate latest Windows x64 GitHub Actions runner package.' }
     $zip=Join-Path $runnerRoot $asset.name
-    Invoke-WebRequest -UseBasicParsing -Uri $asset.browser_download_url -OutFile $zip
+    Download-File $asset.browser_download_url $zip
     Expand-Archive $zip -DestinationPath $runnerDir -Force
 }
 
