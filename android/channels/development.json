@@ -1,0 +1,1 @@
+{"product":"iMonitor ERP Android Edge","channel":"development","native":{"version":"rolling","versionCode":0,"apkUrl":null,"sha256":null,"publishedAt":null},"python":{"version":"rolling","bundleUrl":null,"sha256":null,"publishedAt":null,"restartRequired":true},"updatePolicy":{"pythonFastUpdate":true,"nativeManualButton":true,"checkMinutes":5}}
