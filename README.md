@@ -1,97 +1,63 @@
 # iMonitor ERP Release Center
 
-مرکز عمومی انتشار و نصب خودکار محصولات iMonitor ERP
+مرکز عمومی انتشار و نصب خودکار iMonitor ERP برای Windows و Linux.
 
-## iMonitor Ecom ERP
+## کانال‌های انتشار
 
-این محصول از پروژه `Ecomm` ساخته می‌شود.
+| Source branch | Release tag | Port |
+| --- | --- | --- |
+| `test` | `imonitor-ecomerp-test-vX.Y.Z` | 8080 |
+| `master` | `imonitor-ecomerp-master-vX.Y.Z` | 80 |
 
-```
-Ecomm Source
-    |
-    v
-GitHub Actions Build
-    |
-    v
-Ecomm ERP ZIP Release
-    |
-    v
-Customer Linux Server
-```
+هر Release استاندارد شامل این فایل‌هاست:
 
-## Ubuntu / Debian / WSL Installer v1.0.4
+- `iMonitor-EcomERP-linux-x64.tar.gz`
+- `iMonitor-EcomERP-linux-x64.tar.gz.sha256`
+- `iMonitor-EcomERP-win-x64.zip`
+- `iMonitor-EcomERP-win-x64.zip.sha256`
+- `manifest.json`
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.4.sh | sudo bash -s -- --channel test
-```
+بسته‌ها از یک SHA واحد پروژه Ecomm ساخته می‌شوند و Asset براساس سیستم‌عامل صریح انتخاب می‌شود.
 
-برای نسخه پایدار:
+## نصب Ubuntu / Debian / WSL — v1.0.5
+
+نسخه تست:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.4.sh | sudo bash -s -- --channel master
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.5.sh | sudo bash -s -- --channel test
 ```
 
-## امکانات Installer
+نسخه پایدار:
 
-- نصب dependency های مورد نیاز
-- تشخیص Release فقط مربوط به Ecomm ERP
-- دانلود ZIP با نمایش progress
-- retry در خطای دانلود
-- نصب به عنوان Linux systemd service
-- restart خودکار بعد از خطا
-- backup نسخه قبلی
-- بروزرسانی خودکار
-
-## بروزرسانی خودکار
-
-بعد از نصب، یک timer در systemd فعال می‌شود.
-
-سرور هر ۳۰ دقیقه GitHub Release را بررسی می‌کند:
-
-1. نسخه جدید پیدا می‌شود.
-2. ZIP دانلود می‌شود.
-3. نسخه قبلی backup می‌شود.
-4. نسخه جدید فعال می‌شود.
-5. سرویس restart می‌شود.
-
-## استاندارد Release
-
-فقط Releaseهای زیر توسط Installer استفاده می‌شوند:
-
-```
-imonitor-ecomerp-test-vX.Y.Z
-imonitor-ecomerp-master-vX.Y.Z
+```bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.5.sh | sudo bash -s -- --channel master
 ```
 
-Windows Edge و Android Edge Release جدا هستند و هیچ تداخلی با Ecomm ERP ندارند.
+Installer وابستگی‌های پایه و ASP.NET Core Runtime 8 را در صورت نیاز نصب می‌کند، SHA-256 را کنترل می‌کند، نسخه قبلی را نگه می‌دارد و Timer بروزرسانی ۳۰ دقیقه‌ای می‌سازد.
 
-## پورت‌ها
+## نصب Windows x64 — v1.0.5
 
-| Channel | Port |
-|---|---|
-| test | 8080 |
-| master | 80 |
+PowerShell را با دسترسی Administrator اجرا کنید:
 
-## عیب‌یابی
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.5.ps1 -OutFile $env:TEMP\Install-iMonitorERP.ps1
+powershell -ExecutionPolicy Bypass -File $env:TEMP\Install-iMonitorERP.ps1 -Channel test
+```
 
-بررسی سرویس:
+برای نسخه پایدار مقدار `-Channel master` را بدهید.
+
+## بررسی Linux
 
 ```bash
 systemctl status imonitor-ecom-erp-test.service
-```
-
-بررسی update timer:
-
-```bash
 systemctl status imonitor-ecom-erp-test-update.timer
-```
-
-مشاهده لاگ:
-
-```bash
 journalctl -u imonitor-ecom-erp-test.service -f
 ```
 
-## امنیت
+## امنیت و Rollback
 
-هیچ Secret در Release Center ذخیره نمی‌شود.
+- Assetها با SHA-256 اعتبارسنجی می‌شوند.
+- نسخه جدید ابتدا در staging استخراج می‌شود.
+- نسخه قبلی در پوشه `previous` باقی می‌ماند.
+- هیچ Token یا Secret در Release Center ذخیره نمی‌شود.
+- Windows Edge و Android Edge Releaseهای جدا دارند.
