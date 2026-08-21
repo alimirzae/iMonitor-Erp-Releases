@@ -10,7 +10,7 @@
 Ecomm Source
     |
     v
-GitHub Actions
+GitHub Actions Build
     |
     v
 Ecomm ERP ZIP Release
@@ -19,47 +19,51 @@ Ecomm ERP ZIP Release
 Customer Linux Server
 ```
 
-## Ubuntu / Debian / WSL Installer
+## Ubuntu / Debian / WSL Installer v1.0.4
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.3.sh | sudo bash -s -- --channel test
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.4.sh | sudo bash -s -- --channel test
 ```
 
-## مراحل Installer
+برای نسخه پایدار:
 
-Installer:
+```bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.4.sh | sudo bash -s -- --channel master
+```
 
-1. dependency ها را بررسی می‌کند.
-2. Release فقط مربوط به iMonitor Ecom ERP را پیدا می‌کند.
-3. نسخه فعلی را با آخرین نسخه GitHub مقایسه می‌کند.
-4. در صورت نیاز فایل ZIP را دانلود می‌کند.
-5. progress دانلود، سرعت و وضعیت را نمایش می‌دهد.
-6. نسخه جدید را جایگزین می‌کند.
-7. سرویس Linux را مدیریت می‌کند.
-8. update checker خودکار را فعال می‌کند.
+## امکانات Installer
+
+- نصب dependency های مورد نیاز
+- تشخیص Release فقط مربوط به Ecomm ERP
+- دانلود ZIP با نمایش progress
+- retry در خطای دانلود
+- نصب به عنوان Linux systemd service
+- restart خودکار بعد از خطا
+- backup نسخه قبلی
+- بروزرسانی خودکار
 
 ## بروزرسانی خودکار
 
-بعد از نصب، سرور هر ۳۰ دقیقه GitHub Release را بررسی می‌کند.
+بعد از نصب، یک timer در systemd فعال می‌شود.
 
-در صورت انتشار نسخه جدید:
+سرور هر ۳۰ دقیقه GitHub Release را بررسی می‌کند:
 
-- دانلود خودکار انجام می‌شود.
-- نسخه جدید نصب می‌شود.
-- سرویس restart می‌شود.
-
-بدون نیاز به login یا token گیتهاب.
+1. نسخه جدید پیدا می‌شود.
+2. ZIP دانلود می‌شود.
+3. نسخه قبلی backup می‌شود.
+4. نسخه جدید فعال می‌شود.
+5. سرویس restart می‌شود.
 
 ## استاندارد Release
 
-فقط Releaseهای زیر توسط Ecomm Installer استفاده می‌شوند:
+فقط Releaseهای زیر توسط Installer استفاده می‌شوند:
 
 ```
 imonitor-ecomerp-test-vX.Y.Z
 imonitor-ecomerp-master-vX.Y.Z
 ```
 
-Windows Edge و Android Edge Release جدا هستند و توسط این Installer خوانده نمی‌شوند.
+Windows Edge و Android Edge Release جدا هستند و هیچ تداخلی با Ecomm ERP ندارند.
 
 ## پورت‌ها
 
@@ -67,6 +71,26 @@ Windows Edge و Android Edge Release جدا هستند و توسط این Instal
 |---|---|
 | test | 8080 |
 | master | 80 |
+
+## عیب‌یابی
+
+بررسی سرویس:
+
+```bash
+systemctl status imonitor-ecom-erp-test.service
+```
+
+بررسی update timer:
+
+```bash
+systemctl status imonitor-ecom-erp-test-update.timer
+```
+
+مشاهده لاگ:
+
+```bash
+journalctl -u imonitor-ecom-erp-test.service -f
+```
 
 ## امنیت
 
