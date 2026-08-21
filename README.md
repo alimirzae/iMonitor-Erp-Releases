@@ -6,120 +6,74 @@ Repository:
 
 https://github.com/alimirzae/iMonitor-Erp-Releases
 
-این مخزن شامل نسخه‌های منتشر شده، فایل‌های Release، Docker deployment، اسکریپت‌های نصب و مکانیزم بروزرسانی خودکار است.
+## iMonitor Ecom ERP
 
-کد اصلی در مخزن‌های توسعه نگهداری می‌شود:
-
-- https://github.com/alimirzae/Ecomm
-
-## محصولات و کانال‌های انتشار
-
-### iMonitor ERP
-
-نسخه اصلی پلتفرم iMonitor ERP با runtime مستقل:
-
-```
-imonitor-erp
-```
-
-### iMonitor Ecom ERP
-
-نسخه ERP مبتنی بر پروژه Ecomm با runtime جداگانه:
+نسخه مبتنی بر پروژه Ecomm:
 
 ```
 imonitor-ecom-erp
 ```
 
-این نسخه با iMonitor ERP تداخل ندارد و دارای Release مستقل است.
-
-## نسخه‌ها و Release
-
-هر تغییر از مخزن Ecomm پس از build موفق به صورت Release منتشر می‌شود:
-
-```
-Ecomm/test
-      |
-      v
-imonitor-ecom-erp-test-vX.Y.Z
-
-Ecomm/master
-      |
-      v
-imonitor-ecom-erp-stable-vX.Y.Z
-```
-
-هر Release شامل:
-
-- شماره نسخه
-- commit source
-- Docker image
-- manifest بروزرسانی
-- اطلاعات کانال انتشار
-
-است.
+این نسخه مستقل از `imonitor-erp` منتشر می‌شود و برای نصب روی سرورهای مشتری طراحی شده است.
 
 ## نصب Ubuntu / Debian / WSL
 
-پشتیبانی:
+آخرین Installer نسخه‌دار استفاده شود:
 
-- Ubuntu Server
-- Debian
-- Ubuntu در WSL2
+### Ecom ERP Installer v1.0.1
 
-نصب نسخه تست Ecom ERP:
+نسخه تست:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP.sh | sudo bash -s -- --channel test
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.1.sh | sudo bash -s -- --channel test
 ```
 
-نصب نسخه پایدار Ecom ERP:
+نسخه پایدار:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP.sh | sudo bash -s -- --channel stable
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.1.sh | sudo bash -s -- --channel master
 ```
 
-امکانات:
+امکانات Installer:
 
-- نصب خودکار Docker
-- دریافت آخرین Release عمومی بدون GitHub login یا Token
-- نصب و اجرای Container
-- نگهداری دائمی Database
-- اجرای Migration
+- بدون Docker
+- نصب خودکار dependency ها
+- نصب خودکار .NET 8 Runtime در صورت نبودن
+- دریافت نسخه از GitHub Release
+- مقایسه نسخه نصب شده با Release جدید
+- Update فقط در صورت وجود نسخه جدید
+- Backup نسخه قبلی
+- Rollback در صورت خطای اجرا
 - مدیریت سرویس با systemd
-- بروزرسانی خودکار
-- Rollback در صورت شکست نسخه جدید
 
-## نصب Windows / Windows Server
+پورت‌ها:
 
-پشتیبانی:
+| نسخه | پورت |
+|---|---|
+| test | 8080 |
+| master | 80 |
 
-- Windows Server
-- Windows 10/11 Pro
-- Windows 11 Enterprise
+## نسخه‌بندی
 
-نسخه Windows از PowerShell Installer استفاده می‌کند و در صورت نیاز WSL2 + Ubuntu را آماده می‌کند.
+هر Release شامل شماره نسخه و اطلاعات commit منبع است:
 
-نمونه نصب:
+```
+Ecomm/test
+    -> imonitor-ecom-erp-test-vX.Y.Z
 
-```powershell
-irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP.ps1 -OutFile "$env:TEMP\Install-iMonitorEcomERP.ps1"
-powershell -ExecutionPolicy Bypass -File "$env:TEMP\Install-iMonitorEcomERP.ps1" -Channel test
+Ecomm/master
+    -> imonitor-ecom-erp-master-vX.Y.Z
 ```
 
-## مکانیزم بروزرسانی خودکار
+## بروزرسانی خودکار
 
-سرورهای مشتری نیاز به حساب GitHub یا Token ندارند.
-
-فرآیند:
+سرور مشتری نیاز به GitHub login یا Token ندارد:
 
 ```
 Ecomm Source
       |
       v
 GitHub Actions
-      |
-      v
-Docker Build
       |
       v
 GitHub Release
@@ -131,32 +85,10 @@ Release API
 Customer Server
 ```
 
-Installer:
+## Windows / Windows Server
 
-1. آخرین Release را بررسی می‌کند.
-2. نسخه نصب شده را مقایسه می‌کند.
-3. فقط در صورت وجود نسخه جدید Update انجام می‌دهد.
-4. قبل از تغییر Backup می‌گیرد.
-5. Container جدید را Health Check می‌کند.
-6. در صورت خطا به نسخه قبلی برمی‌گردد.
-
-## ساختار Repository
-
-```
-releases/
-  Ecom ERP versions
-
-server/
-  docker compose
-  release manifests
-
-scripts/
-  Ubuntu installers
-  Windows installers
-```
+Installer مخصوص Windows نیز در همین مخزن منتشر می‌شود و dependency های لازم را به صورت خودکار آماده می‌کند.
 
 ## امنیت
 
-هیچ رمز عبور، کلید خصوصی یا اطلاعات حساس در این مخزن قرار نمی‌گیرد.
-
-Installer روی سرور مقصد تنظیمات امن و Secretهای محلی ایجاد می‌کند.
+هیچ Secret یا اطلاعات حساس در این مخزن نگهداری نمی‌شود.
