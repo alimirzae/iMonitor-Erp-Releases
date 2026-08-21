@@ -18,32 +18,56 @@ imonitor-ecom-erp
 
 ## نصب Ubuntu / Debian / WSL
 
-آخرین Installer نسخه‌دار استفاده شود:
-
-### Ecom ERP Installer v1.0.1
+### Ecom ERP Installer v1.0.2
 
 نسخه تست:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.1.sh | sudo bash -s -- --channel test
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.2.sh | sudo bash -s -- --channel test
 ```
 
 نسخه پایدار:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.1.sh | sudo bash -s -- --channel master
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.2.sh | sudo bash -s -- --channel master
 ```
 
-امکانات Installer:
+## مراحل نصب
+
+Installer مراحل زیر را با پیام وضعیت نمایش می‌دهد:
+
+1. بررسی و نصب dependency ها
+2. بررسی .NET 8 Runtime
+3. پیدا کردن Release صحیح فقط برای iMonitor Ecom ERP
+4. نمایش نسخه انتخاب شده
+5. دانلود فایل Release با progress bar
+6. استخراج فایل‌ها
+7. نگهداری backup نسخه قبلی
+8. ساخت و راه‌اندازی systemd service
+9. بررسی سلامت سرویس
+
+در زمان دانلود، نوار پیشرفت curl نمایش داده می‌شود تا مشخص باشد:
+
+- چه مقدار از فایل دریافت شده است
+- سرعت دانلود چقدر است
+- زمان تقریبی باقی‌مانده چقدر است
+
+در صورت خطا:
+
+- دانلود تا ۵ بار با فاصله زمانی مجدد تلاش می‌شود.
+- فایل ناقص یا خالی نصب نمی‌شود.
+- خطاهای Release، Extract و Service واضح نمایش داده می‌شوند.
+
+## امکانات Installer
 
 - بدون Docker
 - نصب خودکار dependency ها
 - نصب خودکار .NET 8 Runtime در صورت نبودن
 - دریافت نسخه از GitHub Release
-- مقایسه نسخه نصب شده با Release جدید
-- Update فقط در صورت وجود نسخه جدید
+- انتخاب امن Release مربوط به Ecom ERP
+- نمایش وضعیت نصب
+- دانلود قابل مشاهده با progress
 - Backup نسخه قبلی
-- Rollback در صورت خطای اجرا
 - مدیریت سرویس با systemd
 
 پورت‌ها:
@@ -55,14 +79,11 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## نسخه‌بندی
 
-هر Release شامل شماره نسخه و اطلاعات commit منبع است:
+Releaseها باید با نام مشخص iMonitor Ecom ERP منتشر شوند:
 
 ```
-Ecomm/test
-    -> imonitor-ecom-erp-test-vX.Y.Z
-
-Ecomm/master
-    -> imonitor-ecom-erp-master-vX.Y.Z
+imonitor-ecomerp-test-vX.Y.Z
+imonitor-ecomerp-master-vX.Y.Z
 ```
 
 ## بروزرسانی خودکار
@@ -87,7 +108,7 @@ Customer Server
 
 ## Windows / Windows Server
 
-Installer مخصوص Windows نیز در همین مخزن منتشر می‌شود و dependency های لازم را به صورت خودکار آماده می‌کند.
+Installer مخصوص Windows نیز در همین مخزن منتشر می‌شود.
 
 ## امنیت
 
