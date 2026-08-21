@@ -6,76 +6,101 @@ if [[ "${1:-}" == "--channel" ]]; then
   CHANNEL="${2:-test}"
 fi
 
+if [[ "$CHANNEL" == "master" ]]; then
+  PORT=80
+else
+  PORT=8080
+fi
+
 APP="imonitor-ecom-erp-${CHANNEL}"
 BASE="/opt/${APP}"
 REPO="alimirzae/iMonitor-Erp-Releases"
+SERVICE="${APP}.service"
 
-if ! command -v docker >/dev/null 2>&1; then
-  apt update
-  apt install -y docker.io docker-compose-plugin curl jq
-  systemctl enable --now docker
-fi
+apt update
+apt install -y curl jq aspnetcore-runtime-8.0 unzip
 
-mkdir -p "$BASE"
+mkdir -p "$BASE/releases"
 cd "$BASE"
 
-RELEASE_API="https://api.github.com/repos/${REPO}/releases"
+API="https://api.github.com/repos/${REPO}/releases"
 
-LATEST=$(curl -fsSL "$RELEASE_API" | jq -r --arg c "$CHANNEL" '.[] | select(.prerelease == ($c == "test")) | .tag_name' | head -n1)
+TAG=$(curl -fsSL "$API" | jq -r --arg c "$CHANNEL" '.[] | select(.name|ascii_downcase|contains($c)) | .tag_name' | head -n1)
 
-if [[ -z "$LATEST" || "$LATEST" == "null" ]]; then
-  echo "No release found for channel: $CHANNEL"
+if [[ -z "$TAG" || "$TAG" == "null" ]]; then
+  echo "No Ecom ERP release found for channel $CHANNEL"
   exit 1
 fi
 
-INSTALLED=""
-[[ -f version ]] && INSTALLED=$(cat version)
+CURRENT=""
+[[ -f version ]] && CURRENT=$(cat version)
 
-if [[ "$INSTALLED" == "$LATEST" ]]; then
-  echo "Already running $LATEST"
+if [[ "$CURRENT" == "$TAG" ]]; then
+  echo "Already running $TAG"
   exit 0
 fi
 
-echo "Updating $APP: $INSTALLED -> $LATEST"
+echo "Installing $APP $TAG"
 
-OLD_IMAGE=$(docker compose images -q 2>/dev/null || true)
+URL=$(curl -fsSL "$API/tags/$TAG" | jq -r '.assets[0].browser_download_url')
 
-curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/server/ecom/compose.yml" -o compose.yml
-
-IMAGE="ghcr.io/alimirzae/imonitor-ecom-erp:${LATEST}"
-export IMAGE
-
-printf "%s" "$LATEST" > version
-
-docker compose pull
-docker compose up -d
-
-sleep 10
-
-if ! docker compose ps | grep -q "Up"; then
-  echo "Deployment failed. Rolling back."
-  docker compose down || true
-  git checkout -- version || true
+if [[ -z "$URL" || "$URL" == "null" ]]; then
+  echo "Release asset not found"
   exit 1
 fi
 
-echo "Installed $LATEST"
+BACKUP="$BASE/backup-$CURRENT"
+if [[ -d current ]]; then
+  cp -a current "$BACKUP" || true
+fi
 
-cat >/etc/systemd/system/${APP}-update.service <<EOF
+rm -rf new
+mkdir new
+curl -fsSL "$URL" -o release.zip
+unzip -oq release.zip -d new
+
+mv current old 2>/dev/null || true
+mv new current
+
+echo "$TAG" > version
+
+cat >/etc/systemd/system/$SERVICE <<EOF
 [Unit]
-Description=iMonitor Ecom ERP update
+Description=iMonitor Ecom ERP $CHANNEL
+After=network.target
 
 [Service]
-Type=oneshot
-ExecStart=/usr/local/bin/${APP}-update
+WorkingDirectory=$BASE/current
+ExecStart=/usr/bin/dotnet Ecomm.dll --urls http://0.0.0.0:$PORT
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
 EOF
+
+systemctl daemon-reload
+systemctl enable $SERVICE
+systemctl restart $SERVICE
+
+sleep 15
+
+if ! systemctl is-active --quiet $SERVICE; then
+  echo "Health check failed. Rolling back."
+  rm -rf current
+  mv old current || true
+  echo "$CURRENT" > version
+  systemctl restart $SERVICE || true
+  exit 1
+fi
 
 cat >/usr/local/bin/${APP}-update <<EOF
 #!/bin/bash
-bash /opt/${APP}/installer.sh --channel ${CHANNEL}
+$BASE/installer.sh --channel $CHANNEL
 EOF
-
 chmod +x /usr/local/bin/${APP}-update
+
+cp "$0" "$BASE/installer.sh"
 
 cat >/etc/systemd/system/${APP}-update.timer <<EOF
 [Unit]
@@ -89,6 +114,16 @@ OnUnitActiveSec=15min
 WantedBy=timers.target
 EOF
 
-cp "$0" "$BASE/installer.sh"
+cat >/etc/systemd/system/${APP}-update.service <<EOF
+[Unit]
+Description=iMonitor Ecom ERP updater
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/${APP}-update
+EOF
+
 systemctl daemon-reload
 systemctl enable --now ${APP}-update.timer
+
+echo "$APP installed on port $PORT"
