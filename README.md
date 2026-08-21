@@ -1,75 +1,140 @@
 # iMonitor ERP Release Center
 
-Public release/bootstrap repository for iMonitor ERP. Application source code remains in the development repository; this repository contains channel metadata, server compose files and one-command installers/updaters.
+Public release and deployment center for iMonitor ERP.
 
-## Server channels
+Repository:
 
-- `main` — production/stable server channel, default port `8080`
-- `test` — test/preview server channel, default port `8081`
+https://github.com/alimirzae/iMonitor-Erp-Releases
 
-Each source commit publishes a container to GHCR and an immutable GitHub Release. `server/channels/main.json` and `server/channels/test.json` identify the currently promoted image/commit for each channel. Server installers always read this repository before updating.
+This repository provides public installers, release manifests, Docker deployment files and automatic update mechanisms. Source code remains in development repositories.
 
-## Ubuntu / Debian / WSL — one command
+## Products and deployment channels
 
-Production:
+### iMonitor ERP
+
+Production and test releases for the main iMonitor ERP platform.
+
+### iMonitor Ecom ERP
+
+A separated ERP deployment package based on Ecomm. It uses an independent runtime name:
+
+```
+imonitor-ecom-erp
+```
+
+and does not conflict with:
+
+```
+imonitor-erp
+```
+
+## Ubuntu / Debian / WSL Installation
+
+Supported:
+
+- Ubuntu Server
+- Debian
+- Ubuntu on WSL2
+
+Install production:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.sh | sudo bash -s -- --channel main
 ```
 
-Test:
+Install test:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.sh | sudo bash -s -- --channel test
 ```
 
-The installer can install Docker when missing, creates persistent PostgreSQL/Redis/RabbitMQ volumes, generates secrets, runs Alembic migrations, creates the first administrator/context on first install, starts the API and installs a 5-minute systemd auto-update timer when systemd is available.
+Features:
 
-For the first PuyaTools test installation you can explicitly set the initial context:
+- Automatic Docker installation
+- Container deployment
+- Database persistence
+- Automatic migrations
+- Systemd service management
+- Automatic update checker
+- Release channel management
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.sh | sudo bash -s -- \
-  --channel test \
-  --company-code PUYATOOLS \
-  --company-name PuyaTools \
-  --book-code MAIN \
-  --book-name Main
-```
+## Windows / Windows Server Installation
 
-If `--admin-password` is omitted, a random initial password is printed once. To use a private GHCR package, export `GHCR_TOKEN` and optionally `GHCR_USER` before running the installer; Docker credentials remain on that machine for later updates.
+Supported:
 
-## Windows / Windows Server — one command
+- Windows Server 2019+
+- Windows 10/11 Pro
+- Windows 11 Enterprise
 
-Open PowerShell as Administrator.
+The Windows installer uses WSL2 + Ubuntu when required and configures the required services automatically.
+
+Run PowerShell as Administrator:
 
 Production:
 
 ```powershell
-irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.ps1 -OutFile "$env:TEMP\Install-iMonitorERP-Server.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\Install-iMonitorERP-Server.ps1" -Channel main
+irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.ps1 -OutFile "$env:TEMP\Install-iMonitorERP-Server.ps1"
+powershell -ExecutionPolicy Bypass -File "$env:TEMP\Install-iMonitorERP-Server.ps1" -Channel main
 ```
 
 Test:
 
 ```powershell
-irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.ps1 -OutFile "$env:TEMP\Install-iMonitorERP-Server.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\Install-iMonitorERP-Server.ps1" -Channel test
+irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.ps1 -OutFile "$env:TEMP\Install-iMonitorERP-Server.ps1"
+powershell -ExecutionPolicy Bypass -File "$env:TEMP\Install-iMonitorERP-Server.ps1" -Channel test
 ```
 
-The Windows installer enables/installs WSL2 + Ubuntu when required, delegates the Linux stack installation, configures the Windows port proxy/firewall and registers an automatic update task. A reboot may be required during the first WSL installation; a resume task continues setup afterwards.
+Windows deployment includes:
 
-## Update and rollback behavior
+- WSL2 preparation
+- Ubuntu environment setup
+- Docker runtime
+- Firewall configuration
+- Port forwarding
+- Automatic updates
 
-Running the same installer is always safe and is also the manual update command. Before schema migration, an existing PostgreSQL database is backed up. Then the selected channel image is pulled, `alembic upgrade head` runs, and only after a successful migration is the API started. Persistent database/message/cache volumes are not recreated.
+## Automatic Updates
 
-Channel metadata contains the source commit and exact image reference. Immutable releases allow operators to identify or pin an earlier build when rollback is required. Database rollback is intentionally not automatic; restore uses the pre-update PostgreSQL backup when a schema downgrade is necessary.
+Servers do not need GitHub accounts or tokens for public releases.
 
-## Server files
+The update flow is:
 
-- `server/compose.yml` — PostgreSQL + Redis + RabbitMQ + iMonitor FastAPI runtime
-- `server/channels/main.env` / `test.env` — machine-readable channel settings
-- `server/channels/main.json` / `test.json` — promoted release manifest
-- `scripts/Install-iMonitorERP-Server.sh` — Ubuntu/Debian/WSL installer + updater
-- `scripts/Install-iMonitorERP-Server.ps1` — Windows/Windows Server WSL installer + updater
+```
+Ecomm Source
+      |
+      v
+GitHub Actions Build
+      |
+      v
+Docker Image
+      |
+      v
+Release Manifest
+      |
+      v
+Customer Server
+```
+
+The server periodically checks the selected release channel and updates automatically.
+
+## Repository Structure
+
+```
+server/
+  compose files
+  release manifests
+
+scripts/
+  Ubuntu installers
+  Windows installers
+
+channels/
+  test releases
+  stable releases
+```
 
 ## Security
 
-No production password, JWT signing secret, database credential or GHCR token belongs in this repository. Installers generate host-local secrets and store them in the protected local installation directory. Legacy PuyaTools/Ecomm database credentials are also local-only and must be read-only.
+No production passwords or private credentials are stored in this repository.
+
+Installers generate local secrets and keep runtime configuration on the target machine.
