@@ -1,0 +1,6 @@
+{
+  "product": "imonitor-ecom-erp",
+  "channel": "stable",
+  "version": "0.0.1-stable",
+  "image": "ghcr.io/alimirzae/imonitor-ecom-erp:stable"
+}
