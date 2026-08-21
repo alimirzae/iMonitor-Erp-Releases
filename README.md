@@ -1,140 +1,162 @@
 # iMonitor ERP Release Center
 
-Public release and deployment center for iMonitor ERP.
+مرکز عمومی انتشار و نصب خودکار محصولات iMonitor ERP
 
 Repository:
 
 https://github.com/alimirzae/iMonitor-Erp-Releases
 
-This repository provides public installers, release manifests, Docker deployment files and automatic update mechanisms. Source code remains in development repositories.
+این مخزن شامل نسخه‌های منتشر شده، فایل‌های Release، Docker deployment، اسکریپت‌های نصب و مکانیزم بروزرسانی خودکار است.
 
-## Products and deployment channels
+کد اصلی در مخزن‌های توسعه نگهداری می‌شود:
+
+- https://github.com/alimirzae/Ecomm
+
+## محصولات و کانال‌های انتشار
 
 ### iMonitor ERP
 
-Production and test releases for the main iMonitor ERP platform.
-
-### iMonitor Ecom ERP
-
-A separated ERP deployment package based on Ecomm. It uses an independent runtime name:
-
-```
-imonitor-ecom-erp
-```
-
-and does not conflict with:
+نسخه اصلی پلتفرم iMonitor ERP با runtime مستقل:
 
 ```
 imonitor-erp
 ```
 
-## Ubuntu / Debian / WSL Installation
+### iMonitor Ecom ERP
 
-Supported:
+نسخه ERP مبتنی بر پروژه Ecomm با runtime جداگانه:
+
+```
+imonitor-ecom-erp
+```
+
+این نسخه با iMonitor ERP تداخل ندارد و دارای Release مستقل است.
+
+## نسخه‌ها و Release
+
+هر تغییر از مخزن Ecomm پس از build موفق به صورت Release منتشر می‌شود:
+
+```
+Ecomm/test
+      |
+      v
+imonitor-ecom-erp-test-vX.Y.Z
+
+Ecomm/master
+      |
+      v
+imonitor-ecom-erp-stable-vX.Y.Z
+```
+
+هر Release شامل:
+
+- شماره نسخه
+- commit source
+- Docker image
+- manifest بروزرسانی
+- اطلاعات کانال انتشار
+
+است.
+
+## نصب Ubuntu / Debian / WSL
+
+پشتیبانی:
 
 - Ubuntu Server
 - Debian
-- Ubuntu on WSL2
+- Ubuntu در WSL2
 
-Install production:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.sh | sudo bash -s -- --channel main
-```
-
-Install test:
+نصب نسخه تست Ecom ERP:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.sh | sudo bash -s -- --channel test
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP.sh | sudo bash -s -- --channel test
 ```
 
-Features:
+نصب نسخه پایدار Ecom ERP:
 
-- Automatic Docker installation
-- Container deployment
-- Database persistence
-- Automatic migrations
-- Systemd service management
-- Automatic update checker
-- Release channel management
+```bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP.sh | sudo bash -s -- --channel stable
+```
 
-## Windows / Windows Server Installation
+امکانات:
 
-Supported:
+- نصب خودکار Docker
+- دریافت آخرین Release عمومی بدون GitHub login یا Token
+- نصب و اجرای Container
+- نگهداری دائمی Database
+- اجرای Migration
+- مدیریت سرویس با systemd
+- بروزرسانی خودکار
+- Rollback در صورت شکست نسخه جدید
 
-- Windows Server 2019+
+## نصب Windows / Windows Server
+
+پشتیبانی:
+
+- Windows Server
 - Windows 10/11 Pro
 - Windows 11 Enterprise
 
-The Windows installer uses WSL2 + Ubuntu when required and configures the required services automatically.
+نسخه Windows از PowerShell Installer استفاده می‌کند و در صورت نیاز WSL2 + Ubuntu را آماده می‌کند.
 
-Run PowerShell as Administrator:
-
-Production:
+نمونه نصب:
 
 ```powershell
-irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.ps1 -OutFile "$env:TEMP\Install-iMonitorERP-Server.ps1"
-powershell -ExecutionPolicy Bypass -File "$env:TEMP\Install-iMonitorERP-Server.ps1" -Channel main
+irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP.ps1 -OutFile "$env:TEMP\Install-iMonitorEcomERP.ps1"
+powershell -ExecutionPolicy Bypass -File "$env:TEMP\Install-iMonitorEcomERP.ps1" -Channel test
 ```
 
-Test:
+## مکانیزم بروزرسانی خودکار
 
-```powershell
-irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Server.ps1 -OutFile "$env:TEMP\Install-iMonitorERP-Server.ps1"
-powershell -ExecutionPolicy Bypass -File "$env:TEMP\Install-iMonitorERP-Server.ps1" -Channel test
-```
+سرورهای مشتری نیاز به حساب GitHub یا Token ندارند.
 
-Windows deployment includes:
-
-- WSL2 preparation
-- Ubuntu environment setup
-- Docker runtime
-- Firewall configuration
-- Port forwarding
-- Automatic updates
-
-## Automatic Updates
-
-Servers do not need GitHub accounts or tokens for public releases.
-
-The update flow is:
+فرآیند:
 
 ```
 Ecomm Source
       |
       v
-GitHub Actions Build
+GitHub Actions
       |
       v
-Docker Image
+Docker Build
       |
       v
-Release Manifest
+GitHub Release
+      |
+      v
+Release API
       |
       v
 Customer Server
 ```
 
-The server periodically checks the selected release channel and updates automatically.
+Installer:
 
-## Repository Structure
+1. آخرین Release را بررسی می‌کند.
+2. نسخه نصب شده را مقایسه می‌کند.
+3. فقط در صورت وجود نسخه جدید Update انجام می‌دهد.
+4. قبل از تغییر Backup می‌گیرد.
+5. Container جدید را Health Check می‌کند.
+6. در صورت خطا به نسخه قبلی برمی‌گردد.
+
+## ساختار Repository
 
 ```
+releases/
+  Ecom ERP versions
+
 server/
-  compose files
+  docker compose
   release manifests
 
 scripts/
   Ubuntu installers
   Windows installers
-
-channels/
-  test releases
-  stable releases
 ```
 
-## Security
+## امنیت
 
-No production passwords or private credentials are stored in this repository.
+هیچ رمز عبور، کلید خصوصی یا اطلاعات حساس در این مخزن قرار نمی‌گیرد.
 
-Installers generate local secrets and keep runtime configuration on the target machine.
+Installer روی سرور مقصد تنظیمات امن و Secretهای محلی ایجاد می‌کند.
