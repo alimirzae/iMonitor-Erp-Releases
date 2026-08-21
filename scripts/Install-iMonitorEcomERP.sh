@@ -17,8 +17,24 @@ BASE="/opt/${APP}"
 REPO="alimirzae/iMonitor-Erp-Releases"
 SERVICE="${APP}.service"
 
-apt update
-apt install -y curl jq aspnetcore-runtime-8.0 unzip
+install_dependencies() {
+  apt update
+  apt install -y curl jq unzip ca-certificates gnupg software-properties-common wget
+
+  if ! command -v dotnet >/dev/null 2>&1; then
+    wget https://packages.microsoft.com/config/ubuntu/$(. /etc/os-release && echo $VERSION_ID)/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb || true
+    if [ -f /tmp/packages-microsoft-prod.deb ]; then
+      dpkg -i /tmp/packages-microsoft-prod.deb
+    fi
+    apt update
+  fi
+
+  if ! dotnet --list-runtimes 2>/dev/null | grep -q "Microsoft.AspNetCore.App 8"; then
+    apt install -y aspnetcore-runtime-8.0 || apt install -y dotnet-runtime-8.0
+  fi
+}
+
+install_dependencies
 
 mkdir -p "$BASE/releases"
 cd "$BASE"
@@ -44,21 +60,19 @@ echo "Installing $APP $TAG"
 
 URL=$(curl -fsSL "$API/tags/$TAG" | jq -r '.assets[0].browser_download_url')
 
-if [[ -z "$URL" || "$URL" == "null" ]]; then
-  echo "Release asset not found"
-  exit 1
-fi
-
-BACKUP="$BASE/backup-$CURRENT"
-if [[ -d current ]]; then
-  cp -a current "$BACKUP" || true
-fi
-
+BACKUP="$BASE/backup"
 rm -rf new
 mkdir new
+
+if [[ -d current ]]; then
+  rm -rf "$BACKUP"
+  cp -a current "$BACKUP"
+fi
+
 curl -fsSL "$URL" -o release.zip
 unzip -oq release.zip -d new
 
+rm -rf old
 mv current old 2>/dev/null || true
 mv new current
 
@@ -88,8 +102,7 @@ sleep 15
 if ! systemctl is-active --quiet $SERVICE; then
   echo "Health check failed. Rolling back."
   rm -rf current
-  mv old current || true
-  echo "$CURRENT" > version
+  mv backup current || true
   systemctl restart $SERVICE || true
   exit 1
 fi
