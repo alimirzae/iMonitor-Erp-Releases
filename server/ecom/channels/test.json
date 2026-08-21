@@ -1,0 +1,6 @@
+{
+  "product": "imonitor-ecom-erp",
+  "channel": "test",
+  "version": "0.0.1-test",
+  "image": "ghcr.io/alimirzae/imonitor-ecom-erp:test"
+}
