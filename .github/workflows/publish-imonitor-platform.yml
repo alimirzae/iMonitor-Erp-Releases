@@ -18,7 +18,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -31,16 +31,18 @@ jobs:
           TAG=$(jq -r '.release_tag' manifests/imonitor-platform-release.json)
           SOURCE_REPO=$(jq -r '.source_repository' manifests/imonitor-platform-release.json)
           SOURCE_REF=$(jq -r '.source_ref' manifests/imonitor-platform-release.json)
+          INSTALLER_VERSION=$(jq -r '.installer_version' manifests/imonitor-platform-release.json)
           INSTALLER_PATH=$(jq -r '.installer_path' manifests/imonitor-platform-release.json)
           UPDATER_PATH=$(jq -r '.updater_path' manifests/imonitor-platform-release.json)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "source_repo=$SOURCE_REPO" >> "$GITHUB_OUTPUT"
           echo "source_ref=$SOURCE_REF" >> "$GITHUB_OUTPUT"
+          echo "installer_version=$INSTALLER_VERSION" >> "$GITHUB_OUTPUT"
           echo "installer_path=$INSTALLER_PATH" >> "$GITHUB_OUTPUT"
           echo "updater_path=$UPDATER_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve and download iMonitor source
+      - name: Resolve and download latest iMonitor source
         id: source
         shell: bash
         env:
@@ -51,6 +53,7 @@ jobs:
           set -euo pipefail
           SHA=$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/${SOURCE_REPO}/commits/${SOURCE_REF}" | jq -r '.sha')
           test -n "$SHA" && test "$SHA" != null
+          echo "Resolved ${SOURCE_REPO}@${SOURCE_REF} -> ${SHA}"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           mkdir -p work/source/iMonitor-Platform
           curl -fL --retry 5 "https://github.com/${SOURCE_REPO}/archive/${SHA}.tar.gz" -o work/source.tar.gz
@@ -70,10 +73,62 @@ jobs:
           docker pull mysql:8.0
           docker pull redis:7-alpine
           docker pull nginx:alpine
+
+      - name: Smoke test Docker Compose stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd work/source/iMonitor-Platform
+          export COMPOSE_PROJECT_NAME=imonitor
+
+          diagnostics() {
+            echo
+            echo '================ docker compose ps -a ================'
+            docker compose ps -a || true
+            echo
+            echo '================ docker compose logs ================='
+            docker compose logs --no-color --tail=200 || true
+            echo '========================================================'
+          }
+
+          if ! docker compose up -d; then
+            diagnostics
+            exit 1
+          fi
+
+          deadline=$(( $(date +%s) + 300 ))
+          while true; do
+            if docker compose ps -a | grep -Eiq 'Exited|Dead|Restarting'; then
+              diagnostics
+              exit 1
+            fi
+            if curl -fsS --max-time 5 http://127.0.0.1:8000/health >/dev/null 2>&1 && \
+               curl -fsS --max-time 5 http://127.0.0.1:3000/ >/dev/null 2>&1; then
+              echo 'iMonitor backend and frontend are healthy.'
+              docker compose ps
+              break
+            fi
+            if (( $(date +%s) >= deadline )); then
+              echo 'Timed out waiting for iMonitor stack.'
+              diagnostics
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Bundle Docker images
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd work/source/iMonitor-Platform
+          export COMPOSE_PROJECT_NAME=imonitor
           mapfile -t CUSTOM < <(docker compose images --format json | jq -r 'select(.Repository != null and .Repository != "") | .Repository + ":" + .Tag' | sort -u)
           IMAGES=("${CUSTOM[@]}" mysql:8.0 redis:7-alpine nginx:alpine)
           printf '%s\n' "${IMAGES[@]}" | sort -u > ../../docker-images.txt
           docker image save $(cat ../../docker-images.txt) | gzip -1 > ../../iMonitor-Platform-docker-images-v${VERSION}.tar.gz
+          docker compose down || true
 
       - name: Package source and release metadata
         shell: bash
@@ -82,15 +137,18 @@ jobs:
           TAG: ${{ steps.meta.outputs.tag }}
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
           SOURCE_REPO: ${{ steps.meta.outputs.source_repo }}
+          INSTALLER_VERSION: ${{ steps.meta.outputs.installer_version }}
           INSTALLER_PATH: ${{ steps.meta.outputs.installer_path }}
           UPDATER_PATH: ${{ steps.meta.outputs.updater_path }}
         run: |
           set -euo pipefail
+          INSTALLER_NAME="Install-iMonitorPlatform-v${INSTALLER_VERSION}.sh"
+          UPDATER_NAME="Update-iMonitorPlatform-v${INSTALLER_VERSION}.sh"
           mkdir -p dist
           tar -czf "dist/iMonitor-Platform-source-v${VERSION}.tar.gz" -C work/source iMonitor-Platform
           mv "work/iMonitor-Platform-docker-images-v${VERSION}.tar.gz" dist/
-          cp "$INSTALLER_PATH" "dist/Install-iMonitorPlatform-v1.0.0.sh"
-          cp "$UPDATER_PATH" "dist/Update-iMonitorPlatform-v1.0.0.sh"
+          cp "$INSTALLER_PATH" "dist/$INSTALLER_NAME"
+          cp "$UPDATER_PATH" "dist/$UPDATER_NAME"
           cat > dist/manifest.json <<EOF
           {
             "product": "iMonitor Platform",
@@ -101,11 +159,11 @@ jobs:
             "architecture": "linux-amd64",
             "source_asset": "iMonitor-Platform-source-v${VERSION}.tar.gz",
             "docker_images_asset": "iMonitor-Platform-docker-images-v${VERSION}.tar.gz",
-            "installer": "Install-iMonitorPlatform-v1.0.0.sh",
-            "updater": "Update-iMonitorPlatform-v1.0.0.sh"
+            "installer": "${INSTALLER_NAME}",
+            "updater": "${UPDATER_NAME}"
           }
           EOF
-          (cd dist && sha256sum iMonitor-Platform-source-v${VERSION}.tar.gz iMonitor-Platform-docker-images-v${VERSION}.tar.gz Install-iMonitorPlatform-v1.0.0.sh Update-iMonitorPlatform-v1.0.0.sh manifest.json > "SHA256SUMS-v${VERSION}.txt")
+          (cd dist && sha256sum "iMonitor-Platform-source-v${VERSION}.tar.gz" "iMonitor-Platform-docker-images-v${VERSION}.tar.gz" "$INSTALLER_NAME" "$UPDATER_NAME" manifest.json > "SHA256SUMS-v${VERSION}.txt")
 
       - name: Publish GitHub Release
         shell: bash
@@ -114,21 +172,23 @@ jobs:
           TAG: ${{ steps.meta.outputs.tag }}
           VERSION: ${{ steps.meta.outputs.version }}
           SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          INSTALLER_VERSION: ${{ steps.meta.outputs.installer_version }}
         run: |
           set -euo pipefail
           cat > release-notes.md <<EOF
           # iMonitor Platform v${VERSION}
 
-          نصب یک‌مرحله‌ای کل سامانه iMonitor روی Ubuntu/Debian Linux با Docker Compose.
+          Latest verified iMonitor Platform Linux release.
 
           **Source SHA:** \`${SOURCE_SHA}\`
+          **Installer:** \`v${INSTALLER_VERSION}\`
 
-          این انتشار شامل سورس نسخه ثابت، Docker imageهای از پیش ساخته‌شده، MySQL، Redis و Nginx موردنیاز در image bundle، SHA-256 و Installer/Updater نسخه‌دار است.
+          The publish workflow builds the latest configured iTrack source, starts the complete Docker Compose stack, verifies backend `/health` and frontend HTTP response, and only then packages and publishes the release.
 
-          نصب:
-          \`curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorPlatform-v1.0.0.sh | sudo bash\`
+          Install / update:
+          \`curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorPlatform-v${INSTALLER_VERSION}.sh | sudo bash\`
 
-          پس از نصب، updater هر ۳۰ دقیقه GitHub Releases را بررسی و نسخه جدیدتر iMonitor Platform را خودکار نصب می‌کند.
+          The installer itself also validates the stack after `docker compose up`; on startup failure or timeout it prints `docker compose ps -a` and the last 200 log lines for every service directly in the terminal.
           EOF
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
