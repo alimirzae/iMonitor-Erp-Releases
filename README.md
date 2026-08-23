@@ -8,14 +8,14 @@
 
 **صفحه انتشارها:** https://github.com/alimirzae/iMonitor-Erp-Releases/releases
 
-**آخرین انتشار iMonitor Platform:** https://github.com/alimirzae/iMonitor-Erp-Releases/releases/tag/imonitor-platform-v0.1.0
+**آخرین انتشار iMonitor Platform:** https://github.com/alimirzae/iMonitor-Erp-Releases/releases/tag/imonitor-platform-v0.1.1
 
-### نصب یک‌مرحله‌ای Ubuntu / Debian — Installer v1.0.0
+### نصب یک‌مرحله‌ای Ubuntu / Debian — Installer v1.0.1
 
 روی سرور Linux اجرا کنید:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorPlatform-v1.0.0.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorPlatform-v1.0.1.sh | sudo bash
 ```
 
 Installer موارد زیر را خودکار انجام می‌دهد:
@@ -27,7 +27,9 @@ Installer موارد زیر را خودکار انجام می‌دهد:
 - نگهداری تنظیمات و Secretها در `/etc/imonitor-platform/imonitor.env`
 - نصب نسخه‌ها در `/opt/imonitor-platform/releases/<version>` و سوییچ اتمیک `current`
 - اجرای کل Stack با Docker Compose
-- باز کردن پورت‌های لازم در UFW در صورت فعال بودن آن
+- Bind سرویس‌های عمومی روی `0.0.0.0` و باز کردن پورت‌های لازم در UFW در صورت فعال بودن آن
+- بررسی واقعی Backend و Frontend بعد از `docker compose up`
+- اگر Container از کار افتاده، Restart loop داشته باشد یا سرویس در مهلت مقرر بالا نیاید، چاپ خودکار `docker compose ps -a` و ۲۰۰ خط آخر log تمام سرویس‌ها در همان Terminal
 - ایجاد سرویس startup و Timer بروزرسانی خودکار
 
 پس از نصب:
@@ -40,7 +42,7 @@ Installer موارد زیر را خودکار انجام می‌دهد:
 
 ### بروزرسانی خودکار
 
-Updater نسخه‌دار `Update-iMonitorPlatform-v1.0.0.sh` نصب می‌شود. Timer سیستم هر ۳۰ دقیقه GitHub Releases را بررسی می‌کند و اگر نسخه جدیدتری با پیشوند `imonitor-platform-v` موجود باشد، آن را دانلود، اعتبارسنجی و نصب می‌کند.
+Updater نسخه‌دار `Update-iMonitorPlatform-v1.0.1.sh` نصب می‌شود. Timer سیستم هر ۳۰ دقیقه manifest و GitHub Releases را بررسی می‌کند و Installer نسخه فعلی را با cache-busting دریافت می‌کند. خود Installer جدیدترین Release با پیشوند `imonitor-platform-v` را نصب می‌کند.
 
 بررسی وضعیت:
 
@@ -48,6 +50,14 @@ Updater نسخه‌دار `Update-iMonitorPlatform-v1.0.0.sh` نصب می‌شو
 systemctl status imonitor-platform.service
 systemctl status imonitor-platform-update.timer
 docker compose -f /opt/imonitor-platform/current/docker-compose.yml ps
+```
+
+مشاهده Logها در صورت نیاز:
+
+```bash
+cd /opt/imonitor-platform/current
+docker compose ps -a
+docker compose logs --tail=200
 ```
 
 اجرای دستی Update:
