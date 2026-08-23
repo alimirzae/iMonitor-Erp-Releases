@@ -1,18 +1,18 @@
 {
   "product": "iMonitor Platform",
   "release_channel": "stable",
-  "release_version": "0.1.0",
-  "release_tag": "imonitor-platform-v0.1.0",
+  "release_version": "0.1.1",
+  "release_tag": "imonitor-platform-v0.1.1",
   "source_repository": "alimirzae/iTrack",
   "source_ref": "main",
-  "installer_version": "1.0.0",
-  "installer_path": "scripts/Install-iMonitorPlatform-v1.0.0.sh",
-  "updater_path": "scripts/Update-iMonitorPlatform-v1.0.0.sh",
+  "installer_version": "1.0.1",
+  "installer_path": "scripts/Install-iMonitorPlatform-v1.0.1.sh",
+  "updater_path": "scripts/Update-iMonitorPlatform-v1.0.1.sh",
   "linux_arch": "amd64",
   "web_ports": [80, 3000],
   "api_port": 8000,
   "ftp_port": 21,
   "ftp_passive_range": "30000-30010",
   "update_interval_minutes": 30,
-  "release_requested_at": "2026-08-23T11:19:00+03:30"
+  "release_requested_at": "2026-08-23T18:19:00+03:30"
 }
