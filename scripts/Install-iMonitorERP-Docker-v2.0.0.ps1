@@ -178,6 +178,19 @@ $testUser = $envValues.MYSQL_TEST_USER
 $prodUser = $envValues.MYSQL_PROD_USER
 $testDb = $envValues.MYSQL_TEST_DATABASE
 $prodDb = $envValues.MYSQL_PROD_DATABASE
+$mysqlInit = Join-Path $InstallRoot 'mysql-init'
+New-Item -ItemType Directory -Force -Path $mysqlInit | Out-Null
+@"
+CREATE DATABASE IF NOT EXISTS \`$testDb\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS \`$prodDb\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '$testUser'@'%' IDENTIFIED BY '$testPassword';
+CREATE USER IF NOT EXISTS '$prodUser'@'%' IDENTIFIED BY '$prodPassword';
+ALTER USER '$testUser'@'%' IDENTIFIED BY '$testPassword';
+ALTER USER '$prodUser'@'%' IDENTIFIED BY '$prodPassword';
+GRANT ALL PRIVILEGES ON \`$testDb\`.* TO '$testUser'@'%';
+GRANT ALL PRIVILEGES ON \`$prodDb\`.* TO '$prodUser'@'%';
+FLUSH PRIVILEGES;
+"@ | Set-Content (Join-Path $mysqlInit '01-databases.sql') -Encoding UTF8
 @{
     Database=@{Type='MySql';MigrateOnStartup=$true;MySql=@{Server='mysql';Port=3306;UserId=$testUser;Password=$testPassword;ConnectionString="Server=mysql;Port=3306;Database=$testDb;User=$testUser;Password=$testPassword;CharSet=utf8mb4;"}}
     ConnectionStrings=@{MySql="Server=mysql;Port=3306;Database=$testDb;User=$testUser;Password=$testPassword;CharSet=utf8mb4;"}
@@ -199,7 +212,9 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     command: ["--character-set-server=utf8mb4","--collation-server=utf8mb4_unicode_ci"]
-    volumes: [mysql-data:/var/lib/mysql]
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
     networks: [imonitor]
     healthcheck:
       test: ["CMD-SHELL","mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD --silent"]
