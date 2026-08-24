@@ -289,6 +289,41 @@ try {
     throw
 } finally { Pop-Location }
 
+function Wait-Endpoint([string]$Name,[int]$Port) {
+    for ($attempt=1; $attempt -le 60; $attempt++) {
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/" -TimeoutSec 10
+            if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
+                Write-Host "$Name health check passed on port $Port."
+                return $true
+            }
+        } catch {}
+        Start-Sleep -Seconds 5
+    }
+    return $false
+}
+$healthy = $true
+if ($Channel -in @('Both','Test')) { $healthy = (Wait-Endpoint 'Test' $TestPort) -and $healthy }
+if ($Channel -in @('Both','Production')) { $healthy = (Wait-Endpoint 'Production' $ProductionPort) -and $healthy }
+if (-not $healthy) {
+    Write-Warning 'Health check failed; restoring previous application directories.'
+    foreach ($gitChannel in @('test','master')) {
+        $current = Join-Path $InstallRoot "$gitChannel-current"
+        $previous = Join-Path $InstallRoot "$gitChannel-previous"
+        if (Test-Path $previous) {
+            if (Test-Path $current) { Remove-Item $current -Recurse -Force }
+            Move-Item $previous $current
+        }
+    }
+    Push-Location $InstallRoot
+    try {
+        & docker compose --env-file $credentialsFile up -d --force-recreate
+        & docker compose --env-file $credentialsFile ps
+        & docker compose --env-file $credentialsFile logs --tail 150
+    } finally { Pop-Location }
+    throw 'ERP health check failed and the previous release was restored.'
+}
+
 $self = Join-Path $installerRoot 'Install-iMonitorERP-Docker.ps1'
 Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/$repo/main/scripts/Install-iMonitorERP-Docker-v2.0.0.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" -OutFile $self
 $testTask = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -Channel Test -UpdateOnly -SkipDockerInstall"
