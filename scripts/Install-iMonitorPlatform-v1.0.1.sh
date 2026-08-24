@@ -10,6 +10,9 @@ COMPOSE_PROJECT_NAME="imonitor"
 UPDATE_ONLY=0
 FORCE=0
 STACK_STARTED=0
+SOURCE_FALLBACK=0
+SOURCE_REPO="alimirzae/iTrack"
+SOURCE_REF="main"
 
 for arg in "$@"; do
   case "$arg" in
@@ -115,11 +118,19 @@ install_base_deps
 mkdir -p "$PRODUCT_ROOT/releases" "$STATE_ROOT/installers" "$CONFIG_ROOT"
 
 REL="$(release_json)"
-[[ "$REL" != "null" && -n "$REL" ]] || { echo "No iMonitor Platform release found." >&2; exit 3; }
-TAG="$(jq -r '.tag_name' <<<"$REL")"
-VERSION="${TAG#imonitor-platform-v}"
+if [[ "$REL" == "null" || -z "$REL" ]]; then
+  SOURCE_FALLBACK=1
+  log "No prebuilt Platform release found; falling back to a local build from ${SOURCE_REPO}@${SOURCE_REF}"
+  SOURCE_SHA="$(curl -fsSL --retry 5 -H 'Accept: application/vnd.github+json'     "https://api.github.com/repos/${SOURCE_REPO}/commits/${SOURCE_REF}" | jq -r '.sha')"
+  [[ -n "$SOURCE_SHA" && "$SOURCE_SHA" != "null" ]] || { echo "Could not resolve iMonitor source commit." >&2; exit 3; }
+  VERSION="source-${SOURCE_SHA:0:12}"
+  TAG="imonitor-platform-${VERSION}"
+else
+  TAG="$(jq -r '.tag_name' <<<"$REL")"
+  VERSION="${TAG#imonitor-platform-v}"
+fi
 CURRENT="$(cat "$STATE_ROOT/current-version" 2>/dev/null || true)"
-log "Latest GitHub release: $TAG"
+log "Selected platform version: $TAG"
 
 if [[ "$CURRENT" == "$VERSION" && $FORCE -eq 0 && -d "$PRODUCT_ROOT/current" ]]; then
   log "Latest release $VERSION is already installed; validating running services instead of exiting blindly"
@@ -135,20 +146,26 @@ if [[ "$CURRENT" == "$VERSION" && $FORCE -eq 0 && -d "$PRODUCT_ROOT/current" ]];
   exit 0
 fi
 
-SRC_NAME="iMonitor-Platform-source-v${VERSION}.tar.gz"
-IMG_NAME="iMonitor-Platform-docker-images-v${VERSION}.tar.gz"
-SUM_NAME="SHA256SUMS-v${VERSION}.txt"
-SRC_URL="$(asset_url "$REL" "$SRC_NAME")"
-IMG_URL="$(asset_url "$REL" "$IMG_NAME")"
-SUM_URL="$(asset_url "$REL" "$SUM_NAME")"
-[[ -n "$SRC_URL" && -n "$IMG_URL" && -n "$SUM_URL" ]] || { echo "Release assets are incomplete for $TAG." >&2; exit 4; }
-
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-log "Downloading release $VERSION"
-curl -fL --retry 5 --retry-delay 3 "$SRC_URL" -o "$TMP/$SRC_NAME"
-curl -fL --retry 5 --retry-delay 3 "$IMG_URL" -o "$TMP/$IMG_NAME"
-curl -fL --retry 5 --retry-delay 3 "$SUM_URL" -o "$TMP/$SUM_NAME"
-(cd "$TMP" && sha256sum -c "$SUM_NAME")
+if [[ $SOURCE_FALLBACK -eq 1 ]]; then
+  SRC_NAME="iMonitor-Platform-source-${VERSION}.tar.gz"
+  SRC_URL="https://github.com/${SOURCE_REPO}/archive/${SOURCE_SHA}.tar.gz"
+  log "Downloading source ${SOURCE_REPO}@${SOURCE_SHA}"
+  curl -fL --retry 5 --retry-delay 3 "$SRC_URL" -o "$TMP/$SRC_NAME"
+else
+  SRC_NAME="iMonitor-Platform-source-v${VERSION}.tar.gz"
+  IMG_NAME="iMonitor-Platform-docker-images-v${VERSION}.tar.gz"
+  SUM_NAME="SHA256SUMS-v${VERSION}.txt"
+  SRC_URL="$(asset_url "$REL" "$SRC_NAME")"
+  IMG_URL="$(asset_url "$REL" "$IMG_NAME")"
+  SUM_URL="$(asset_url "$REL" "$SUM_NAME")"
+  [[ -n "$SRC_URL" && -n "$IMG_URL" && -n "$SUM_URL" ]] || { echo "Release assets are incomplete for $TAG." >&2; exit 4; }
+  log "Downloading release $VERSION"
+  curl -fL --retry 5 --retry-delay 3 "$SRC_URL" -o "$TMP/$SRC_NAME"
+  curl -fL --retry 5 --retry-delay 3 "$IMG_URL" -o "$TMP/$IMG_NAME"
+  curl -fL --retry 5 --retry-delay 3 "$SUM_URL" -o "$TMP/$SUM_NAME"
+  (cd "$TMP" && sha256sum -c "$SUM_NAME")
+fi
 
 RELEASE_DIR="$PRODUCT_ROOT/releases/$VERSION"
 rm -rf "$RELEASE_DIR"; mkdir -p "$RELEASE_DIR"
@@ -187,10 +204,14 @@ EOF
 fi
 cp "$CONFIG_ROOT/imonitor.env" "$RELEASE_DIR/.env"
 
-log "Loading prebuilt Docker images"
-if ! gzip -dc "$TMP/$IMG_NAME" | docker load; then
-  echo "Failed to load Docker image bundle." >&2
-  exit 5
+if [[ $SOURCE_FALLBACK -eq 0 ]]; then
+  log "Loading prebuilt Docker images"
+  if ! gzip -dc "$TMP/$IMG_NAME" | docker load; then
+    echo "Failed to load Docker image bundle." >&2
+    exit 5
+  fi
+else
+  log "Prebuilt images are unavailable; Docker Compose will build images locally"
 fi
 
 ln -sfn "$RELEASE_DIR" "$PRODUCT_ROOT/current"
@@ -198,9 +219,16 @@ cd "$PRODUCT_ROOT/current"
 export COMPOSE_PROJECT_NAME
 
 log "Starting iMonitor Platform with Docker Compose"
-if ! compose up -d --no-build; then
-  print_diagnostics "docker compose up -d --no-build failed"
-  exit 10
+if [[ $SOURCE_FALLBACK -eq 1 ]]; then
+  if ! compose up -d --build; then
+    print_diagnostics "docker compose up -d --build failed"
+    exit 10
+  fi
+else
+  if ! compose up -d --no-build; then
+    print_diagnostics "docker compose up -d --no-build failed"
+    exit 10
+  fi
 fi
 STACK_STARTED=1
 
