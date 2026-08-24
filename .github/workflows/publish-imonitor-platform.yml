@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: imonitor-platform-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   publish:
@@ -42,22 +42,29 @@ jobs:
           echo "installer_path=$INSTALLER_PATH" >> "$GITHUB_OUTPUT"
           echo "updater_path=$UPDATER_PATH" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve and download latest iMonitor source
+      - name: Checkout private iMonitor source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.meta.outputs.source_repo }}
+          ref: ${{ steps.meta.outputs.source_ref }}
+          token: ${{ secrets.RELEASE_REPO_TOKEN }}
+          path: work/source/iMonitor-Platform
+          clean: true
+          fetch-depth: 1
+
+      - name: Record resolved iMonitor source
         id: source
         shell: bash
         env:
+          VERSION: ${{ steps.meta.outputs.version }}
           SOURCE_REPO: ${{ steps.meta.outputs.source_repo }}
           SOURCE_REF: ${{ steps.meta.outputs.source_ref }}
-          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          SHA=$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/${SOURCE_REPO}/commits/${SOURCE_REF}" | jq -r '.sha')
-          test -n "$SHA" && test "$SHA" != null
+          SHA=$(git -C work/source/iMonitor-Platform rev-parse HEAD)
+          test -n "$SHA"
           echo "Resolved ${SOURCE_REPO}@${SOURCE_REF} -> ${SHA}"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-          mkdir -p work/source/iMonitor-Platform
-          curl -fL --retry 5 "https://github.com/${SOURCE_REPO}/archive/${SHA}.tar.gz" -o work/source.tar.gz
-          tar -xzf work/source.tar.gz -C work/source/iMonitor-Platform --strip-components=1
           printf '%s\n' "$SHA" > work/source/iMonitor-Platform/RELEASE_SOURCE_SHA
           printf '%s\n' "$VERSION" > work/source/iMonitor-Platform/RELEASE_VERSION
 
