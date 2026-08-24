@@ -181,14 +181,14 @@ $prodDb = $envValues.MYSQL_PROD_DATABASE
 $mysqlInit = Join-Path $InstallRoot 'mysql-init'
 New-Item -ItemType Directory -Force -Path $mysqlInit | Out-Null
 @"
-CREATE DATABASE IF NOT EXISTS \`$testDb\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE DATABASE IF NOT EXISTS \`$prodDb\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS $testDb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS $prodDb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '$testUser'@'%' IDENTIFIED BY '$testPassword';
 CREATE USER IF NOT EXISTS '$prodUser'@'%' IDENTIFIED BY '$prodPassword';
 ALTER USER '$testUser'@'%' IDENTIFIED BY '$testPassword';
 ALTER USER '$prodUser'@'%' IDENTIFIED BY '$prodPassword';
-GRANT ALL PRIVILEGES ON \`$testDb\`.* TO '$testUser'@'%';
-GRANT ALL PRIVILEGES ON \`$prodDb\`.* TO '$prodUser'@'%';
+GRANT ALL PRIVILEGES ON $testDb.* TO '$testUser'@'%';
+GRANT ALL PRIVILEGES ON $prodDb.* TO '$prodUser'@'%';
 FLUSH PRIVILEGES;
 "@ | Set-Content (Join-Path $mysqlInit '01-databases.sql') -Encoding UTF8
 @{
