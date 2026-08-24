@@ -130,6 +130,9 @@ install_channel(){
   curl -fsSL --retry 8 --retry-all-errors "$sum_url" -o "$work/$asset.sha256"
   (cd "$work" && sha256sum -c "$asset.sha256")
   release_dir="$ROOT/releases/$channel/$tag"
+  local old_target
+  old_target="$(readlink -f "$ROOT/$channel-current" 2>/dev/null || true)"
+  printf '%s' "$old_target" > "$STATE_ROOT/${channel}-previous-path"
   rm -rf "$release_dir"; mkdir -p "$release_dir"
   tar -xzf "$work/$asset" -C "$release_dir"
   rm -rf "$work"
@@ -324,12 +327,25 @@ EOF
 health_check(){
   local failed=0
   if [[ "$CHANNEL" == "both" || "$CHANNEL" == "test" ]]; then
-    curl -fsS --retry 20 --retry-delay 3 "http://127.0.0.1:$TEST_PORT/" >/dev/null || failed=1
+    curl -fsS --retry 60 --retry-delay 5 --retry-all-errors "http://127.0.0.1:$TEST_PORT/" >/dev/null || failed=1
   fi
   if [[ "$CHANNEL" == "both" || "$CHANNEL" == "master" ]]; then
-    curl -fsS --retry 20 --retry-delay 3 "http://127.0.0.1:$PROD_PORT/" >/dev/null || failed=1
+    curl -fsS --retry 60 --retry-delay 5 --retry-all-errors "http://127.0.0.1:$PROD_PORT/" >/dev/null || failed=1
   fi
-  (( failed == 0 )) || { docker compose --env-file "$CREDENTIALS" ps; docker compose --env-file "$CREDENTIALS" logs --tail=150; fail "Health check failed."; }
+  if (( failed != 0 )); then
+    log "Health check failed; restoring previous release links"
+    for rollback_channel in test master; do
+      previous="$(cat "$STATE_ROOT/${rollback_channel}-previous-path" 2>/dev/null || true)"
+      if [[ -n "$previous" && -d "$previous" ]]; then
+        ln -sfn "$previous" "$ROOT/${rollback_channel}-current"
+        basename "$previous" > "$STATE_ROOT/${rollback_channel}-version"
+      fi
+    done
+    docker compose --env-file "$CREDENTIALS" up -d --force-recreate || true
+    docker compose --env-file "$CREDENTIALS" ps
+    docker compose --env-file "$CREDENTIALS" logs --tail=150
+    fail "Health check failed; previous release was restored."
+  fi
 }
 
 install_dependencies
