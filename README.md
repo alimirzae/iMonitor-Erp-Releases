@@ -269,3 +269,32 @@ cd C:\ProgramData\iMonitorERP-Docker
 docker compose --env-file .\credentials.env ps
 docker compose --env-file .\credentials.env logs --tail 200
 ```
+
+
+---
+
+## New_Win_Edge — فاز یک چاپ مستقیم بارکد
+
+این برنامه روی همان رایانه Windows که پرینتر به آن متصل است نصب می‌شود و API محلی زیر را بدون نمایش فرم اجرا می‌کند:
+
+- Health: `http://127.0.0.1:17891/health`
+- Printer discovery: `http://127.0.0.1:17891/api/printers`
+- Direct barcode print: `POST http://127.0.0.1:17891/api/labels/print`
+
+### نصب One-Click روی Windows
+
+PowerShell معمولی را باز و این فرمان را اجرا کنید:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-New-Win-Edge.ps1 | iex"
+```
+
+Installer بسته را از `manifests/new-win-edge-preview.json` دریافت، SHA-256 را بررسی و در مسیر زیر نصب می‌کند:
+
+```text
+%LOCALAPPDATA%\iMonitor\New_Win_Edge\current
+```
+
+برنامه در Startup کاربر ثبت می‌شود، Headless اجرا می‌شود و چاپ مستقیم از پنجره «چاپ برچسب کالا» در Ecomm انجام می‌گیرد. برای نمایش رابط نگهداری می‌توان فایل اجرایی را با `--show-ui` اجرا کرد.
+
+> تا وقتی manifest مقدار `published: true` نداشته باشد، installer عمداً نصب را متوقف می‌کند. workflow مخزن `New_Windows_Edge` پس از build موفق بسته و manifest را منتشر می‌کند.
