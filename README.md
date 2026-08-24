@@ -10,12 +10,12 @@
 
 **آخرین انتشار iMonitor Platform:** https://github.com/alimirzae/iMonitor-Erp-Releases/releases/tag/imonitor-platform-v0.1.2
 
-### نصب یک‌مرحله‌ای Ubuntu / Debian — Installer v1.0.2
+### نصب یک‌مرحله‌ای Ubuntu / Debian — Installer v1.0.3
 
 روی سرور Linux اجرا کنید:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorPlatform-v1.0.2.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorPlatform-v1.0.3.sh | sudo bash
 ```
 
 Installer موارد زیر را خودکار انجام می‌دهد:
@@ -42,7 +42,7 @@ Installer موارد زیر را خودکار انجام می‌دهد:
 
 ### بروزرسانی خودکار
 
-Updater نسخه‌دار `Update-iMonitorPlatform-v1.0.2.sh` نصب می‌شود. Timer سیستم هر ۳۰ دقیقه manifest و GitHub Releases را بررسی می‌کند و Installer نسخه فعلی را با cache-busting دریافت می‌کند. خود Installer جدیدترین Release با پیشوند `imonitor-platform-v` را نصب می‌کند.
+Updater نسخه‌دار `Update-iMonitorPlatform-v1.0.3.sh` نصب می‌شود. Timer سیستم هر ۳۰ دقیقه manifest و GitHub Releases را بررسی می‌کند و Installer نسخه فعلی را با cache-busting دریافت می‌کند. خود Installer جدیدترین Release با پیشوند `imonitor-platform-v` را نصب می‌کند.
 
 بررسی وضعیت:
 
