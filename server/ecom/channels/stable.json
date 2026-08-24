@@ -1,6 +1,8 @@
 {
   "product": "imonitor-ecom-erp",
-  "channel": "stable",
-  "version": "0.0.1-stable",
-  "image": "ghcr.io/alimirzae/imonitor-ecom-erp:stable"
+  "channel": "master",
+  "version": "not-published",
+  "sourceSha": null,
+  "releaseTag": "imonitor-ecomerp-master-latest",
+  "publishedAt": null
 }

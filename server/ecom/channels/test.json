@@ -1,6 +1,8 @@
 {
   "product": "imonitor-ecom-erp",
   "channel": "test",
-  "version": "0.0.1-test",
-  "image": "ghcr.io/alimirzae/imonitor-ecom-erp:test"
+  "version": "not-published",
+  "sourceSha": null,
+  "releaseTag": "imonitor-ecomerp-test-latest",
+  "publishedAt": null
 }
