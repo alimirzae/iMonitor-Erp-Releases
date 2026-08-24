@@ -152,7 +152,11 @@ jobs:
           INSTALLER_NAME="Install-iMonitorPlatform-v${INSTALLER_VERSION}.sh"
           UPDATER_NAME="Update-iMonitorPlatform-v${INSTALLER_VERSION}.sh"
           mkdir -p dist
-          tar -czf "dist/iMonitor-Platform-source-v${VERSION}.tar.gz" -C work/source iMonitor-Platform
+          tar -czf "dist/iMonitor-Platform-source-v${VERSION}.tar.gz" \
+            --exclude='iMonitor-Platform/.git' \
+            --exclude='iMonitor-Platform/logs' \
+            --exclude='iMonitor-Platform/storage' \
+            -C work/source iMonitor-Platform
           mv "work/iMonitor-Platform-docker-images-v${VERSION}.tar.gz" dist/
           cp "$INSTALLER_PATH" "dist/$INSTALLER_NAME"
           cp "$UPDATER_PATH" "dist/$UPDATER_NAME"
