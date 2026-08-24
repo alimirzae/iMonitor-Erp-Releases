@@ -70,6 +70,7 @@ MYSQL_PROD_PASSWORD=$(random_secret)
 TEST_PORT=$TEST_PORT
 PROD_PORT=$PROD_PORT
 PHPMYADMIN_PORT=$PHPMYADMIN_PORT
+PHPMYADMIN_BIND=127.0.0.1
 EOF
   fi
   chmod 600 "$CREDENTIALS"
@@ -179,7 +180,7 @@ services:
       PMA_HOST: mysql
       PMA_PORT: 3306
       UPLOAD_LIMIT: 256M
-    ports: ["${PHPMYADMIN_PORT}:80"]
+    ports: ["${PHPMYADMIN_BIND:-127.0.0.1}:${PHPMYADMIN_PORT}:80"]
     networks: [imonitor]
 
   erp-test:
@@ -240,12 +241,13 @@ CREDS=/etc/imonitor-erp/credentials.env
 [[ $EUID -eq 0 ]] || { echo "Use sudo." >&2; exit 1; }
 set -a; source "$CREDS"; set +a
 cd "$ROOT"
+dc(){ docker compose --env-file "$CREDS" "$@"; }
 case "${1:-status}" in
-  status) docker compose ps ;;
-  start) docker compose up -d ;;
-  stop) docker compose stop ;;
-  restart) docker compose restart "${2:-}" ;;
-  logs) docker compose logs --tail="${2:-200}" "${3:-}" ;;
+  status) dc ps ;;
+  start) dc up -d ;;
+  stop) dc stop ;;
+  restart) dc restart "${2:-}" ;;
+  logs) dc logs --tail="${2:-200}" "${3:-}" ;;
   credentials)
     echo "Credentials file: $CREDS (root-only)"
     cat "$CREDS"
@@ -276,8 +278,8 @@ After=docker.service network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=$ROOT
-ExecStart=/usr/bin/docker compose up -d
-ExecStop=/usr/bin/docker compose stop
+ExecStart=/usr/bin/docker compose --env-file $CREDENTIALS up -d
+ExecStop=/usr/bin/docker compose --env-file $CREDENTIALS stop
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -327,7 +329,7 @@ health_check(){
   if [[ "$CHANNEL" == "both" || "$CHANNEL" == "master" ]]; then
     curl -fsS --retry 20 --retry-delay 3 "http://127.0.0.1:$PROD_PORT/" >/dev/null || failed=1
   fi
-  (( failed == 0 )) || { docker compose ps; docker compose logs --tail=150; fail "Health check failed."; }
+  (( failed == 0 )) || { docker compose --env-file "$CREDENTIALS" ps; docker compose --env-file "$CREDENTIALS" logs --tail=150; fail "Health check failed."; }
 }
 
 install_dependencies
