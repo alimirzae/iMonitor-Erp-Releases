@@ -225,3 +225,47 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\Install-iMonitorER
 ```text
 C:\ProgramData\iMonitorERP\config\mysql-credentials.json
 ```
+
+
+### Windows + Docker Desktop — نصب کامل برنامه و MySQL
+
+PowerShell را با دسترسی Administrator اجرا کنید:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Docker-v2.0.0.ps1 -OutFile $env:TEMP\Install-iMonitorERP-Docker.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\Install-iMonitorERP-Docker.ps1 -Channel Both
+```
+
+Installer قابلیت‌های WSL2 و Virtual Machine Platform را فعال و Docker Desktop را با backend مبتنی بر WSL2 نصب می‌کند. اگر Windows نیاز به Restart داشته باشد، Installer با پیام مشخص متوقف می‌شود؛ پس از Restart و اولین اجرای Docker Desktop، همان فرمان را دوباره اجرا کنید.
+
+این روش موارد زیر را هم‌زمان اجرا می‌کند:
+
+- ERP Test روی پورت 8080
+- ERP Production روی پورت 8081
+- MySQL 8.4 داخل Docker
+- phpMyAdmin روی `127.0.0.1:8082`
+- volumeهای پایدار MySQL، Data Protection و Diagnostics
+- بروزرسانی Test هر پنج دقیقه
+- بروزرسانی Production روزانه ساعت 02:30
+- checksum و rollback فایل‌های برنامه
+
+رمزهای MySQL در این فایل با ACL محدود به Administrators و SYSTEM ذخیره می‌شوند:
+
+```text
+C:\ProgramData\iMonitorERP-Docker\credentials.env
+```
+
+نمایش رمز root در PowerShell مدیر:
+
+```powershell
+Get-Content C:\ProgramData\iMonitorERP-Docker\credentials.env |
+    Select-String '^MYSQL_ROOT_PASSWORD='
+```
+
+وضعیت containerها:
+
+```powershell
+cd C:\ProgramData\iMonitorERP-Docker
+docker compose --env-file .\credentials.env ps
+docker compose --env-file .\credentials.env logs --tail 200
+```
