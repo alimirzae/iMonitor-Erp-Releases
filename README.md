@@ -87,18 +87,20 @@ sudo /usr/local/sbin/imonitor-platform-update
 - `iMonitor-EcomERP-win-x64.zip.sha256`
 - `manifest.json`
 
-## نصب ERP روی Ubuntu / Debian / WSL — v1.0.5
+## نصب ERP روی Ubuntu / Debian / WSL — v1.0.6
+
+نسخه 1.0.6 انتشارهای prerelease کانال `test` را نیز شناسایی می‌کند و وقتی ابزارهای پایه از قبل نصب باشند، از اجرای غیرضروری `apt-get update` صرف‌نظر می‌کند.
 
 نسخه تست:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.5.sh | sudo bash -s -- --channel test
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.6.sh | sudo bash -s -- --channel test
 ```
 
 نسخه پایدار:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.5.sh | sudo bash -s -- --channel master
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.6.sh | sudo bash -s -- --channel master
 ```
 
 ## نصب ERP روی Windows x64 — v1.0.5
