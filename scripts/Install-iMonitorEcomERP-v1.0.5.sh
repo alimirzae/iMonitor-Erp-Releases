@@ -31,8 +31,14 @@ if ! command -v dotnet >/dev/null 2>&1 || ! dotnet --list-runtimes 2>/dev/null |
   ln -sfn /opt/dotnet/dotnet /usr/local/bin/dotnet
 fi
 mkdir -p "$BASE" "$(dirname "$INSTALLER_PATH")"
-if [[ -r "${BASH_SOURCE[0]}" && "${BASH_SOURCE[0]}" != "$INSTALLER_PATH" ]]; then
-  install -m 0755 "${BASH_SOURCE[0]}" "$INSTALLER_PATH"
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
+if [[ -n "$SCRIPT_SOURCE" && -f "$SCRIPT_SOURCE" && "$SCRIPT_SOURCE" != "$INSTALLER_PATH" ]]; then
+  install -m 0755 "$SCRIPT_SOURCE" "$INSTALLER_PATH"
+elif [[ "$SCRIPT_SOURCE" != "$INSTALLER_PATH" ]]; then
+  curl -fsSL --retry 5 \
+    "https://raw.githubusercontent.com/${REPO}/main/scripts/Install-iMonitorEcomERP-v1.0.5.sh" \
+    -o "$INSTALLER_PATH"
+  chmod 0755 "$INSTALLER_PATH"
 fi
 release_json="$(curl -fsSL --retry 5 "$API")"
 tag="$(jq -r --arg prefix "imonitor-ecomerp-${CHANNEL}-v" '[.[] | select(.draft == false and .prerelease == false) | select(.tag_name | startswith($prefix))] | first | .tag_name // empty' <<<"$release_json")"
