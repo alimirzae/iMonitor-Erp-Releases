@@ -96,15 +96,44 @@ EOF
 }
 
 release_json(){
-  local channel="$1" prefix
+  local channel="$1" prefix api_json rel descriptor descriptor_channel release_tag release_version base
   prefix="imonitor-ecomerp-${channel}-v"
-  curl -fsSL --retry 8 --retry-all-errors --connect-timeout 15 \
-    "https://api.github.com/repos/$REPO/releases?per_page=100&cachebust=$(date +%s)" |
-    jq -c --arg prefix "$prefix" --arg channel "$channel" '
+
+  # Prefer GitHub API when it is reachable, but do not make installation depend on it.
+  if api_json="$(curl -fsSL --retry 3 --retry-all-errors --connect-timeout 8 \
+      "https://api.github.com/repos/$REPO/releases?per_page=100&cachebust=$(date +%s)" 2>/dev/null)"; then
+    rel="$(jq -c --arg prefix "$prefix" --arg channel "$channel" '
       [.[] | select(.draft == false)
        | select(.tag_name | startswith($prefix))
        | select(($channel == "test") or (.prerelease == false))]
-      | sort_by(.published_at // .created_at) | last'
+      | sort_by(.published_at // .created_at) | last' <<<"$api_json")"
+    if [[ -n "$rel" && "$rel" != "null" ]]; then
+      printf '%s\n' "$rel"
+      return
+    fi
+  else
+    log "GitHub API is unreachable; using the raw channel descriptor."
+  fi
+
+  descriptor_channel="$channel"
+  [[ "$channel" == "master" ]] && descriptor_channel="stable"
+  descriptor="$(curl -fsSL --retry 8 --retry-all-errors --connect-timeout 15 \
+    "https://raw.githubusercontent.com/$REPO/main/server/ecom/channels/${descriptor_channel}.json?cb=$(date +%s)")" \
+    || fail "Cannot read the $channel channel descriptor from raw.githubusercontent.com"
+  release_tag="$(jq -r '.releaseTag // empty' <<<"$descriptor")"
+  release_version="$(jq -r '.version // .sourceSha // empty' <<<"$descriptor")"
+  [[ -n "$release_tag" && -n "$release_version" ]] \
+    || fail "Channel $channel has not been published yet (releaseTag/version missing)"
+  base="https://github.com/$REPO/releases/download/$release_tag"
+  jq -cn --arg tag "$release_version" --arg base "$base" '{
+    tag_name:$tag,
+    assets:[
+      {name:"iMonitor-EcomERP-linux-x64.tar.gz",browser_download_url:($base+"/iMonitor-EcomERP-linux-x64.tar.gz")},
+      {name:"iMonitor-EcomERP-linux-x64.tar.gz.sha256",browser_download_url:($base+"/iMonitor-EcomERP-linux-x64.tar.gz.sha256")},
+      {name:"iMonitor-EcomERP-win-x64.zip",browser_download_url:($base+"/iMonitor-EcomERP-win-x64.zip")},
+      {name:"iMonitor-EcomERP-win-x64.zip.sha256",browser_download_url:($base+"/iMonitor-EcomERP-win-x64.zip.sha256")}
+    ]
+  }'
 }
 
 asset_url(){ jq -r --arg name "$2" '.assets[]? | select(.name == $name) | .browser_download_url' <<<"$1" | head -n1; }
