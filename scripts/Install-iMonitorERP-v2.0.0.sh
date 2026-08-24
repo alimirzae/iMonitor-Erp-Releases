@@ -122,7 +122,7 @@ release_json(){
     || fail "Cannot read the $channel channel descriptor from raw.githubusercontent.com"
   release_tag="$(jq -r '.releaseTag // empty' <<<"$descriptor")"
   release_version="$(jq -r '.version // .sourceSha // empty' <<<"$descriptor")"
-  [[ -n "$release_tag" && -n "$release_version" ]] \
+  [[ -n "$release_tag" && -n "$release_version" && "$release_version" != "not-published" ]] \
     || fail "Channel $channel has not been published yet (releaseTag/version missing)"
   base="https://github.com/$REPO/releases/download/$release_tag"
   jq -cn --arg tag "$release_version" --arg base "$base" '{
