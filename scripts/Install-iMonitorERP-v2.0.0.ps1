@@ -63,7 +63,7 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
     $prefix = "imonitor-ecomerp-$gitChannel-v"
     $matches = $releases | Where-Object {
         -not $_.draft -and $_.tag_name.StartsWith($prefix) -and ($gitChannel -eq 'test' -or -not $_.prerelease)
-    } | Sort-Object {[datetime]($_.published_at ?? $_.created_at)} -Descending
+    } | Sort-Object @{Expression={ if ($_.published_at) { [datetime]$_.published_at } else { [datetime]$_.created_at } }; Descending=$true}
     $release = $matches | Select-Object -First 1
     if (-not $release) { throw "No release found for $Name ($prefix)." }
 
