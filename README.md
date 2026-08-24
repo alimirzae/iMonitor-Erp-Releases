@@ -121,3 +121,107 @@ powershell -ExecutionPolicy Bypass -File $env:TEMP\Install-iMonitorERP.ps1 -Chan
 - هر نسخه iMonitor Platform در پوشه مستقل نصب می‌شود و symlink `current` به نسخه فعال اشاره می‌کند.
 - Docker volumes دیتابیس با تعویض نسخه حذف نمی‌شوند.
 - Windows Edge و Android Edge Releaseهای جدا دارند.
+
+
+---
+
+## نصب یکپارچه iMonitor ERP v2.0.0
+
+Installer نسخه 2 هر دو کانال Test و Production را هم‌زمان نصب و مدیریت می‌کند.
+
+### Linux / Ubuntu — Docker + MySQL + phpMyAdmin
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.0.sh | sudo bash
+```
+
+پورت‌های پیش‌فرض:
+
+| Service | Port |
+| --- | ---: |
+| ERP Test | 8080 |
+| ERP Production | 8081 |
+| phpMyAdmin | 8082 روی 127.0.0.1 |
+| MySQL | فقط شبکه داخلی Docker |
+
+برای تغییر پورت‌ها:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.0.sh \
+  | sudo bash -s -- --test-port 8080 --prod-port 8081 --phpmyadmin-port 8082
+```
+
+رمز root و کاربران مستقل MySQL در فایل زیر نگهداری می‌شوند:
+
+```text
+/etc/imonitor-erp/credentials.env
+```
+
+فایل فقط برای root قابل خواندن است. مشاهده امن اطلاعات:
+
+```bash
+sudo imonitor-erpctl credentials
+```
+
+ورود phpMyAdmin:
+
+- Server: `mysql`
+- User: `root`
+- Password: مقدار `MYSQL_ROOT_PASSWORD`
+
+phpMyAdmin به‌صورت پیش‌فرض فقط روی localhost باز است. برای دسترسی امن از کامپیوتر دیگر:
+
+```bash
+ssh -L 8082:127.0.0.1:8082 user@SERVER-IP
+```
+
+سپس `http://127.0.0.1:8082` را باز کنید. بازکردن مستقیم phpMyAdmin روی اینترنت توصیه نمی‌شود.
+
+فرمان‌های مدیریت:
+
+```bash
+sudo imonitor-erpctl status
+sudo imonitor-erpctl logs 200
+sudo imonitor-erpctl restart erp-test
+sudo imonitor-erpctl restart erp-production
+sudo imonitor-erpctl update-test
+sudo imonitor-erpctl update-production
+sudo imonitor-erpctl update-all
+sudo imonitor-erpctl mysql
+```
+
+زمان‌بندی خودکار:
+
+- Test: هر ۵ دقیقه
+- Production: روزانه در بازه ۲:۳۰ تا ۵:۳۰ بامداد
+- تمام containerها دارای restart policy هستند.
+- تنظیمات، داده MySQL، Data Protection keys و Diagnostics خارج از پوشه Release نگهداری می‌شوند.
+
+### Windows — نصب هم‌زمان Test و Production
+
+PowerShell را با دسترسی Administrator اجرا کنید:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.0.ps1 -OutFile $env:TEMP\Install-iMonitorERP.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\Install-iMonitorERP.ps1 -Channel Both
+```
+
+تنظیمات MySQL را می‌توان هنگام نصب تعیین کرد:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\Install-iMonitorERP.ps1 `
+  -Channel Both -MySqlServer 127.0.0.1 -MySqlPort 3306 `
+  -TestUser imonitor_test -TestPassword 'TEST_PASSWORD' `
+  -ProductionUser imonitor_production -ProductionPassword 'PRODUCTION_PASSWORD'
+```
+
+در Windows دو Service و دو Scheduled Task مستقل ساخته می‌شود:
+
+- `iMonitorERP-Test` روی پورت 8080؛ بررسی update هر ۵ دقیقه
+- `iMonitorERP-Production` روی پورت 8081؛ بررسی update روزانه ساعت ۲:۳۰
+
+اطلاعات MySQL با ACL محدود به Administrators و SYSTEM در این مسیر ذخیره می‌شود:
+
+```text
+C:\ProgramData\iMonitorERP\config\mysql-credentials.json
+```
