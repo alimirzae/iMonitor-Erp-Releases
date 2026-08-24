@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "product": "New_Win_Edge",
+  "channel": "preview",
+  "published": false,
+  "version": "0.1.0",
+  "publishedAt": null,
+  "url": null,
+  "archiveUrl": null,
+  "sha256": null,
+  "runtime": "win-x64",
+  "framework": "net472",
+  "headlessDefault": true,
+  "healthUrl": "http://127.0.0.1:17891/health",
+  "sourceSha": null
+}
