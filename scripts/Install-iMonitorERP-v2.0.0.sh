@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="2.0.0"
+VERSION="2.0.1"
 REPO="alimirzae/iMonitor-Erp-Releases"
 ROOT="/opt/imonitor-erp"
 CONFIG_ROOT="/etc/imonitor-erp"
@@ -76,6 +76,65 @@ EOF
   chmod 600 "$CREDENTIALS"
   # Preserve initially selected ports but allow explicit installer arguments to update them.
   sed -i -E "s/^TEST_PORT=.*/TEST_PORT=$TEST_PORT/;s/^PROD_PORT=.*/PROD_PORT=$PROD_PORT/;s/^PHPMYADMIN_PORT=.*/PHPMYADMIN_PORT=$PHPMYADMIN_PORT/" "$CREDENTIALS"
+  set -a; source "$CREDENTIALS"; set +a
+}
+
+configure_initial_setup(){
+  if grep -q '^INITIAL_SETUP_ENABLED=' "$CREDENTIALS"; then
+    set -a; source "$CREDENTIALS"; set +a
+    return
+  fi
+
+  if (( UPDATE_ONLY != 0 )) || [[ ! -r /dev/tty ]]; then
+    printf '%s\n' 'INITIAL_SETUP_ENABLED=false' >> "$CREDENTIALS"
+    set -a; source "$CREDENTIALS"; set +a
+    return
+  fi
+
+  log "Initial administrator and organization setup"
+  local national_code name family mobile password company_name branch_name book_name
+  while true; do
+    read -r -p "National code for the first SuperUser (10 digits): " national_code </dev/tty
+    [[ "$national_code" =~ ^[0-9]{10}$ ]] && break
+    echo "National code must contain exactly 10 digits." >/dev/tty
+  done
+  while true; do
+    read -r -p "First name: " name </dev/tty
+    [[ ${#name} -ge 3 ]] && break
+  done
+  while true; do
+    read -r -p "Family name: " family </dev/tty
+    [[ ${#family} -ge 3 ]] && break
+  done
+  while true; do
+    read -r -p "Mobile (09xxxxxxxxx): " mobile </dev/tty
+    [[ "$mobile" =~ ^09[0-9]{9}$ ]] && break
+  done
+  while true; do
+    read -r -s -p "Password for the first SuperUser (minimum 8 characters): " password </dev/tty
+    echo >/dev/tty
+    [[ ${#password} -ge 8 ]] && break
+    echo "Password is too short." >/dev/tty
+  done
+  read -r -p "Company name [شرکت اصلی]: " company_name </dev/tty
+  read -r -p "Branch name [شعبه مرکزی]: " branch_name </dev/tty
+  read -r -p "Book name [دفتر اصلی]: " book_name </dev/tty
+  company_name="${company_name:-شرکت اصلی}"
+  branch_name="${branch_name:-شعبه مرکزی}"
+  book_name="${book_name:-دفتر اصلی}"
+
+  {
+    printf 'INITIAL_SETUP_ENABLED=true\n'
+    printf 'INITIAL_ADMIN_NATIONAL_CODE=%q\n' "$national_code"
+    printf 'INITIAL_ADMIN_NAME=%q\n' "$name"
+    printf 'INITIAL_ADMIN_FAMILY=%q\n' "$family"
+    printf 'INITIAL_ADMIN_MOBILE=%q\n' "$mobile"
+    printf 'INITIAL_ADMIN_PASSWORD=%q\n' "$password"
+    printf 'INITIAL_COMPANY_NAME=%q\n' "$company_name"
+    printf 'INITIAL_BRANCH_NAME=%q\n' "$branch_name"
+    printf 'INITIAL_BOOK_NAME=%q\n' "$book_name"
+  } >> "$CREDENTIALS"
+  chmod 600 "$CREDENTIALS"
   set -a; source "$CREDENTIALS"; set +a
 }
 
@@ -172,12 +231,40 @@ install_channel(){
 }
 
 write_appsettings(){
-  cat > "$ROOT/config/test.json" <<EOF
-{"Database":{"Type":"MySql","MigrateOnStartup":true,"MySql":{"Server":"mysql","Port":3306,"UserId":"$MYSQL_TEST_USER","Password":"$MYSQL_TEST_PASSWORD","ConnectionString":"Server=mysql;Port=3306;Database=$MYSQL_TEST_DATABASE;User=$MYSQL_TEST_USER;Password=$MYSQL_TEST_PASSWORD;CharSet=utf8mb4;"}},"ConnectionStrings":{"MySql":"Server=mysql;Port=3306;Database=$MYSQL_TEST_DATABASE;User=$MYSQL_TEST_USER;Password=$MYSQL_TEST_PASSWORD;CharSet=utf8mb4;"},"Environment":{"Name":"Test","IsDevelopment":false,"IsProduction":false},"AllowedHosts":"*"}
-EOF
-  cat > "$ROOT/config/production.json" <<EOF
-{"Database":{"Type":"MySql","MigrateOnStartup":true,"MySql":{"Server":"mysql","Port":3306,"UserId":"$MYSQL_PROD_USER","Password":"$MYSQL_PROD_PASSWORD","ConnectionString":"Server=mysql;Port=3306;Database=$MYSQL_PROD_DATABASE;User=$MYSQL_PROD_USER;Password=$MYSQL_PROD_PASSWORD;CharSet=utf8mb4;"}},"ConnectionStrings":{"MySql":"Server=mysql;Port=3306;Database=$MYSQL_PROD_DATABASE;User=$MYSQL_PROD_USER;Password=$MYSQL_PROD_PASSWORD;CharSet=utf8mb4;"},"Environment":{"Name":"Production","IsDevelopment":false,"IsProduction":true},"AllowedHosts":"*"}
-EOF
+  local enabled="${INITIAL_SETUP_ENABLED:-false}"
+  for target in test production; do
+    local db user password environment is_production output
+    if [[ "$target" == "test" ]]; then
+      db="$MYSQL_TEST_DATABASE"; user="$MYSQL_TEST_USER"; password="$MYSQL_TEST_PASSWORD"
+      environment="Test"; is_production=false; output="$ROOT/config/test.json"
+    else
+      db="$MYSQL_PROD_DATABASE"; user="$MYSQL_PROD_USER"; password="$MYSQL_PROD_PASSWORD"
+      environment="Production"; is_production=true; output="$ROOT/config/production.json"
+    fi
+    jq -n \
+      --arg server "mysql" --arg db "$db" --arg user "$user" --arg password "$password" \
+      --arg environment "$environment" --argjson isProduction "$is_production" \
+      --argjson setupEnabled "$enabled" \
+      --arg nationalCode "${INITIAL_ADMIN_NATIONAL_CODE:-}" \
+      --arg adminPassword "${INITIAL_ADMIN_PASSWORD:-}" \
+      --arg adminName "${INITIAL_ADMIN_NAME:-}" \
+      --arg adminFamily "${INITIAL_ADMIN_FAMILY:-}" \
+      --arg adminMobile "${INITIAL_ADMIN_MOBILE:-}" \
+      --arg companyName "${INITIAL_COMPANY_NAME:-شرکت اصلی}" \
+      --arg branchName "${INITIAL_BRANCH_NAME:-شعبه مرکزی}" \
+      --arg bookName "${INITIAL_BOOK_NAME:-دفتر اصلی}" \
+      '{
+        Database:{Type:"MySql",MigrateOnStartup:true,MySql:{
+          Server:$server,Port:3306,UserId:$user,Password:$password,
+          ConnectionString:("Server=mysql;Port=3306;Database="+$db+";User="+$user+";Password="+$password+";CharSet=utf8mb4;")
+        }},
+        ConnectionStrings:{MySql:("Server=mysql;Port=3306;Database="+$db+";User="+$user+";Password="+$password+";CharSet=utf8mb4;")},
+        Environment:{Name:$environment,IsDevelopment:false,IsProduction:$isProduction},
+        InitialSetup:{Enabled:$setupEnabled,Admin:{NationalCode:$nationalCode,Password:$adminPassword,Name:$adminName,Family:$adminFamily,Mobile:$adminMobile},
+          CompanyName:$companyName,BranchName:$branchName,BookName:$bookName},
+        AllowedHosts:"*"
+      }' > "$output"
+  done
   chmod 600 "$ROOT/config/"*.json
 }
 
@@ -299,7 +386,7 @@ EOF
 
 install_self_and_timers(){
   mkdir -p /usr/local/lib/imonitor-erp
-  curl -fsSL --retry 5 "https://raw.githubusercontent.com/$REPO/main/scripts/Install-iMonitorERP-v2.0.0.sh?cb=$(date +%s)" -o /usr/local/lib/imonitor-erp/installer.sh
+  curl -fsSL --retry 5 "https://raw.githubusercontent.com/$REPO/main/scripts/Install-iMonitorERP-v2.0.1.sh?cb=$(date +%s)" -o /usr/local/lib/imonitor-erp/installer.sh
   chmod 750 /usr/local/lib/imonitor-erp/installer.sh
   cat > /etc/systemd/system/imonitor-erp.service <<EOF
 [Unit]
@@ -379,6 +466,7 @@ health_check(){
 
 install_dependencies
 create_credentials
+configure_initial_setup
 write_mysql_init
 [[ "$CHANNEL" == "both" || "$CHANNEL" == "test" ]] && install_channel test
 [[ "$CHANNEL" == "both" || "$CHANNEL" == "master" ]] && install_channel master
