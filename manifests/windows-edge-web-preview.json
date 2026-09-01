@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 2,
+  "product": "WindowsEdge.Web",
+  "channel": "preview",
+  "published": false,
+  "version": "1.4.0",
+  "sourceSha": null,
+  "publishedAt": null,
+  "url": null,
+  "archiveUrl": null,
+  "sha256": null,
+  "runtime": "win-x64",
+  "framework": "net8.0-windows",
+  "executable": "WindowsEdge.Web.exe",
+  "healthUrl": "http://127.0.0.1:9001/health"
+}
