@@ -2,6 +2,7 @@
 param(
     [ValidateSet('Both','Test','Production')][string]$Channel = 'Both',
     [string]$InstallRoot = 'C:\ProgramData\iMonitorERP',
+    [string]$PackageCacheDirectory = (Get-Location).Path,
     [int]$TestPort = 8081,
     [int]$ProductionPort = 8080,
     [string]$MySqlServer = '127.0.0.1',
@@ -261,14 +262,41 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
         $sumAsset = $release.assets | Where-Object name -eq "$assetName.sha256" | Select-Object -First 1
         if (-not $asset -or -not $sumAsset) { throw "Assets are incomplete in $($release.tag_name)." }
         $work = Join-Path $env:TEMP ("imonitor-" + [guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Force -Path $work | Out-Null
+        $releaseCache = Join-Path $PackageCacheDirectory $release.tag_name
+        New-Item -ItemType Directory -Force -Path $work,$releaseCache | Out-Null
         try {
-            $zip = Join-Path $work $assetName; $sum = "$zip.sha256"
-            Invoke-Download $asset.browser_download_url $zip "$Name package download"
+            $sum = Join-Path $releaseCache "$assetName.sha256"
             Invoke-Download $sumAsset.browser_download_url $sum "$Name checksum download"
             $expected = ((Get-Content $sum -Raw) -split '\s+')[0].ToLowerInvariant()
-            $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actual -ne $expected) { throw 'SHA-256 verification failed.' }
+
+            $versionedPackage = Join-Path $releaseCache $assetName
+            $manualPackage = Join-Path $PackageCacheDirectory $assetName
+            $zip = $null
+            foreach ($candidate in @($versionedPackage,$manualPackage)) {
+                if (-not (Test-Path $candidate -PathType Leaf)) { continue }
+                Write-Host "Checking cached package: $candidate"
+                $candidateHash = (Get-FileHash $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($candidateHash -eq $expected) {
+                    $zip = $candidate
+                    Write-Host "Using verified cached package; download skipped: $candidate"
+                    break
+                }
+                Write-Warning "Cached package does not match $($release.tag_name) and will not be used: $candidate"
+            }
+
+            if (-not $zip) {
+                $partialPackage = "$versionedPackage.partial"
+                Invoke-Download $asset.browser_download_url $partialPackage "$Name package download"
+                $actual = (Get-FileHash $partialPackage -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($actual -ne $expected) {
+                    Remove-Item $partialPackage -Force -ErrorAction SilentlyContinue
+                    throw 'SHA-256 verification failed for the downloaded package.'
+                }
+                Move-Item $partialPackage $versionedPackage -Force
+                $zip = $versionedPackage
+                Write-Host "Verified package cached at: $versionedPackage"
+            }
+
             $target = Join-Path $versions $release.tag_name
             if (Test-Path $target) { Remove-Item $target -Recurse -Force }
             Expand-Archive $zip $target -Force
