@@ -12,6 +12,9 @@ param(
     [string]$ProductionUser = 'imonitor_production',
     [string]$TestPassword,
     [string]$ProductionPassword,
+    [string]$MySqlAdminUser = 'root',
+    [string]$MySqlAdminPassword,
+    [switch]$SkipMySqlProvisioning,
     [switch]$UpdateOnly,
     [switch]$Force
 )
@@ -82,6 +85,98 @@ function Ensure-IIS {
 }
 Ensure-IIS
 
+function Find-MySqlClient {
+    $command = Get-Command mysql.exe -ErrorAction SilentlyContinue
+    if ($command) { return $command.Source }
+    foreach ($root in @($env:ProgramFiles)) {
+        $candidate = Get-ChildItem (Join-Path $root 'MySQL') -Filter mysql.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($candidate) { return $candidate.FullName }
+    }
+    return $null
+}
+function Invoke-MySql([string]$Client,[string]$Login,[string]$Password,[string]$Sql) {
+    $previous = $env:MYSQL_PWD
+    try {
+        $env:MYSQL_PWD = $Password
+        $result = $Sql | & $Client --protocol=TCP --host=$MySqlServer --port=$MySqlPort --user=$Login --batch --skip-column-names 2>&1
+        if ($LASTEXITCODE -ne 0) { throw ($result -join [Environment]::NewLine) }
+        return $result
+    } finally {
+        if ($null -eq $previous) { Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue } else { $env:MYSQL_PWD = $previous }
+    }
+}
+function Test-MySqlLogin([string]$Client,[string]$Database,[string]$User,[string]$Password) {
+    try { Invoke-MySql $Client $User $Password "USE \`$Database\`; SELECT 1;" | Out-Null; return $true } catch { return $false }
+}
+function Assert-MySqlName([string]$Value,[string]$Label) {
+    if ($Value -notmatch '^[A-Za-z0-9_]+$') { throw "$Label contains unsupported characters: $Value" }
+}
+function Ensure-MySqlChannel([string]$Client,[string]$Database,[string]$User,[string]$Password) {
+    Assert-MySqlName $Database 'Database name'
+    Assert-MySqlName $User 'MySQL user'
+    if (Test-MySqlLogin $Client $Database $User $Password) { Write-Host "MySQL login verified: $User -> $Database"; return }
+    if ($SkipMySqlProvisioning -or $UpdateOnly) { throw "MySQL login failed for $User/$Database. Run once without -UpdateOnly and provide administrator credentials." }
+    if ([string]::IsNullOrWhiteSpace($script:MySqlAdminPassword)) {
+        $secure = Read-Host "MySQL administrator password for $MySqlAdminUser" -AsSecureString
+        $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+        try { $script:MySqlAdminPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+    }
+    $escapedPassword = $Password.Replace("'", "''")
+    $sql = @"
+CREATE DATABASE IF NOT EXISTS \`$Database\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '$User'@'localhost' IDENTIFIED BY '$escapedPassword';
+CREATE USER IF NOT EXISTS '$User'@'127.0.0.1' IDENTIFIED BY '$escapedPassword';
+ALTER USER '$User'@'localhost' IDENTIFIED BY '$escapedPassword';
+ALTER USER '$User'@'127.0.0.1' IDENTIFIED BY '$escapedPassword';
+GRANT ALL PRIVILEGES ON \`$Database\`.* TO '$User'@'localhost';
+GRANT ALL PRIVILEGES ON \`$Database\`.* TO '$User'@'127.0.0.1';
+FLUSH PRIVILEGES;
+"@
+    Invoke-MySql $Client $MySqlAdminUser $script:MySqlAdminPassword $sql | Out-Null
+    if (-not (Test-MySqlLogin $Client $Database $User $Password)) { throw "MySQL provisioning completed but login verification failed for $User/$Database." }
+    Write-Host "MySQL database/user/grants provisioned and verified: $User -> $Database"
+}
+$mysqlClient = Find-MySqlClient
+if (-not $mysqlClient) { throw 'mysql.exe was not found. Install MySQL Server/Client 8 and rerun the installer.' }
+if ($Channel -in @('Both','Test')) { Ensure-MySqlChannel $mysqlClient $TestDatabase $TestUser $TestPassword }
+if ($Channel -in @('Both','Production')) { Ensure-MySqlChannel $mysqlClient $ProductionDatabase $ProductionUser $ProductionPassword }
+
+function Ensure-JsonObject([object]$Parent,[string]$Name) {
+    $property = $Parent.PSObject.Properties[$Name]
+    if (-not $property -or $null -eq $property.Value) {
+        $value = [pscustomobject]@{}
+        if ($property) { $property.Value = $value } else { $Parent | Add-Member -MemberType NoteProperty -Name $Name -Value $value }
+        return $value
+    }
+    return $property.Value
+}
+function Set-JsonValue([object]$Parent,[string]$Name,[object]$Value) {
+    $property = $Parent.PSObject.Properties[$Name]
+    if ($property) { $property.Value = $Value } else { $Parent | Add-Member -MemberType NoteProperty -Name $Name -Value $Value }
+}
+function Merge-AppSettings([string]$Path,[string]$Name,[string]$Database,[string]$User,[string]$Password) {
+    if (Test-Path $Path) { $settings = Get-Content $Path -Raw | ConvertFrom-Json } else { $settings = [pscustomobject]@{} }
+    $databaseSettings = Ensure-JsonObject $settings 'Database'
+    Set-JsonValue $databaseSettings 'Type' 'MySql'
+    Set-JsonValue $databaseSettings 'MigrateOnStartup' $true
+    Set-JsonValue $databaseSettings 'AutoMigrate' $true
+    $mysql = Ensure-JsonObject $databaseSettings 'MySql'
+    $connectionString = "Server=$MySqlServer;Port=$MySqlPort;Database=$Database;User=$User;Password=$Password;CharSet=utf8mb4;"
+    Set-JsonValue $mysql 'Server' $MySqlServer
+    Set-JsonValue $mysql 'Port' $MySqlPort
+    Set-JsonValue $mysql 'UserId' $User
+    Set-JsonValue $mysql 'Password' $Password
+    Set-JsonValue $mysql 'ConnectionString' $connectionString
+    $connections = Ensure-JsonObject $settings 'ConnectionStrings'
+    Set-JsonValue $connections 'MySql' $connectionString
+    $environment = Ensure-JsonObject $settings 'Environment'
+    Set-JsonValue $environment 'Name' $Name
+    Set-JsonValue $environment 'IsDevelopment' $false
+    Set-JsonValue $environment 'IsProduction' ($Name -eq 'Production')
+    Set-JsonValue $settings 'AllowedHosts' '*'
+    $settings | ConvertTo-Json -Depth 100 | Set-Content $Path -Encoding UTF8
+}
+
 $releases = Invoke-RestMethod -Headers @{Accept='application/vnd.github+json'} -Uri "https://api.github.com/repos/$repo/releases?per_page=100&cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
 
 function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$User,[string]$Password) {
@@ -104,6 +199,7 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
     }
     New-Item -ItemType Directory -Force -Path $base,$versions | Out-Null
     $installed = if (Test-Path $versionFile) {(Get-Content $versionFile -Raw).Trim()} else {''}
+    if ($UpdateOnly -and -not (Test-Path (Join-Path $current 'Ecomm.dll'))) { throw "$Name is not installed. Run once without -UpdateOnly." }
 
     if ($Force -or $installed -ne $release.tag_name) {
         $asset = $release.assets | Where-Object name -eq $assetName | Select-Object -First 1
@@ -128,16 +224,7 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
         } finally { Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
-    $config = @{
-      Database=@{Type='MySql';MigrateOnStartup=$true;MySql=@{
-        Server=$MySqlServer;Port=$MySqlPort;UserId=$User;Password=$Password;
-        ConnectionString="Server=$MySqlServer;Port=$MySqlPort;Database=$Database;User=$User;Password=$Password;CharSet=utf8mb4;"
-      }}
-      ConnectionStrings=@{MySql="Server=$MySqlServer;Port=$MySqlPort;Database=$Database;User=$User;Password=$Password;CharSet=utf8mb4;"}
-      Environment=@{Name=$Name;IsDevelopment=$false;IsProduction=($Name -eq 'Production')}
-      AllowedHosts='*'
-    } | ConvertTo-Json -Depth 8
-    Set-Content (Join-Path $current 'appsettings.json') $config -Encoding UTF8
+    Merge-AppSettings (Join-Path $current 'appsettings.json') $Name $Database $User $Password
 
     # Remove the legacy Windows service. IIS is now the only process manager.
     $legacyService = "iMonitorERP-$Name"
@@ -220,8 +307,16 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
     Write-Host "$Name installed and verified in IIS Manager: $($release.tag_name), $url"
 }
 
-if ($Channel -in @('Both','Test')) { Install-Channel Test $TestPort $TestDatabase $TestUser $TestPassword }
-if ($Channel -in @('Both','Production')) { Install-Channel Production $ProductionPort $ProductionDatabase $ProductionUser $ProductionPassword }
+$channelErrors = [System.Collections.Generic.List[string]]::new()
+if ($Channel -in @('Both','Test')) {
+    try { Install-Channel Test $TestPort $TestDatabase $TestUser $TestPassword }
+    catch { $channelErrors.Add("Test: $($_.Exception.Message)"); Write-Error "Test installation failed: $($_.Exception.Message)" -ErrorAction Continue }
+}
+if ($Channel -in @('Both','Production')) {
+    try { Install-Channel Production $ProductionPort $ProductionDatabase $ProductionUser $ProductionPassword }
+    catch { $channelErrors.Add("Production: $($_.Exception.Message)"); Write-Error "Production installation failed: $($_.Exception.Message)" -ErrorAction Continue }
+}
+if ($channelErrors.Count -gt 0) { throw ("One or more channels failed:" + [Environment]::NewLine + " - " + ($channelErrors -join ([Environment]::NewLine + " - "))) }
 
 $self = Join-Path $installerHome 'Install-iMonitorERP.ps1'
 Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/$repo/main/scripts/Install-iMonitorERP-v2.0.0.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" -OutFile $self
