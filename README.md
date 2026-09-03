@@ -215,10 +215,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\Install-iMonitorER
   -ProductionUser imonitor_production -ProductionPassword 'PRODUCTION_PASSWORD'
 ```
 
-در Windows دو Service و دو Scheduled Task مستقل ساخته می‌شود:
+در Windows، IIS و ASP.NET Core Hosting Bundle در صورت نیاز نصب می‌شوند. دو Website و دو Application Pool مستقل در IIS Manager ساخته می‌شود و فقط بعد از پاسخ موفق HTTP، نصب موفق اعلام می‌شود:
 
-- `iMonitorERP-Test` روی پورت 8080؛ بررسی update هر ۵ دقیقه
-- `iMonitorERP-Production` روی پورت 8081؛ بررسی update روزانه ساعت ۲:۳۰
+- `iMonitorERP-Production` روی پورت 8080؛ بررسی update روزانه ساعت ۲:۳۰
+- `iMonitorERP-Test` روی پورت 8081؛ بررسی update هر ۵ دقیقه
+- Ruleهای Windows Firewall برای هر دو پورت ساخته می‌شوند.
+- سرویس‌های قدیمی `iMonitorERP-Test` و `iMonitorERP-Production` حذف و مدیریت پردازش کاملاً به IIS سپرده می‌شود.
 
 اطلاعات MySQL با ACL محدود به Administrators و SYSTEM در این مسیر ذخیره می‌شود:
 
