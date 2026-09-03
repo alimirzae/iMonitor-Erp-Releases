@@ -106,7 +106,7 @@ function Invoke-MySql([string]$Client,[string]$Login,[string]$Password,[string]$
     }
 }
 function Test-MySqlLogin([string]$Client,[string]$Database,[string]$User,[string]$Password) {
-    try { Invoke-MySql $Client $User $Password "USE \`$Database\`; SELECT 1;" | Out-Null; return $true } catch { return $false }
+    try { Invoke-MySql $Client $User $Password "USE $Database; SELECT 1;" | Out-Null; return $true } catch { return $false }
 }
 function Assert-MySqlName([string]$Value,[string]$Label) {
     if ($Value -notmatch '^[A-Za-z0-9_]+$') { throw "$Label contains unsupported characters: $Value" }
@@ -123,13 +123,13 @@ function Ensure-MySqlChannel([string]$Client,[string]$Database,[string]$User,[st
     }
     $escapedPassword = $Password.Replace("'", "''")
     $sql = @"
-CREATE DATABASE IF NOT EXISTS \`$Database\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS $Database CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '$User'@'localhost' IDENTIFIED BY '$escapedPassword';
 CREATE USER IF NOT EXISTS '$User'@'127.0.0.1' IDENTIFIED BY '$escapedPassword';
 ALTER USER '$User'@'localhost' IDENTIFIED BY '$escapedPassword';
 ALTER USER '$User'@'127.0.0.1' IDENTIFIED BY '$escapedPassword';
-GRANT ALL PRIVILEGES ON \`$Database\`.* TO '$User'@'localhost';
-GRANT ALL PRIVILEGES ON \`$Database\`.* TO '$User'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON $Database.* TO '$User'@'localhost';
+GRANT ALL PRIVILEGES ON $Database.* TO '$User'@'127.0.0.1';
 FLUSH PRIVILEGES;
 "@
     Invoke-MySql $Client $MySqlAdminUser $script:MySqlAdminPassword $sql | Out-Null
