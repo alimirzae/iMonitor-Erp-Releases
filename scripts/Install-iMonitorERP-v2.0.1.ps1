@@ -266,26 +266,27 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
         $releaseCache = Join-Path $PackageCacheDirectory $release.tag_name
         New-Item -ItemType Directory -Force -Path $work,$releaseCache | Out-Null
         try {
-            $sum = Join-Path $releaseCache "$assetName.sha256"
-            Invoke-Download $sumAsset.browser_download_url $sum "$Name checksum download"
-            $expected = ((Get-Content $sum -Raw) -split '\s+')[0].ToLowerInvariant()
-
             $versionedPackage = Join-Path $releaseCache $assetName
             $manualPackage = Join-Path $PackageCacheDirectory $assetName
             $zip = $null
-            foreach ($candidate in @($versionedPackage,$manualPackage)) {
-                if (-not (Test-Path $candidate -PathType Leaf)) { continue }
-                Write-Host "Checking cached package: $candidate"
-                $candidateHash = (Get-FileHash $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
-                if ($candidateHash -eq $expected) {
-                    $zip = $candidate
-                    Write-Host "Using verified cached package; download skipped: $candidate"
-                    break
-                }
-                Write-Warning "Cached package does not match $($release.tag_name) and will not be used: $candidate"
+            
+            # First check if a cached package exists in the versioned cache directory
+            if (Test-Path $versionedPackage -PathType Leaf) {
+                Write-Host "Using cached package from versioned cache: $versionedPackage"
+                $zip = $versionedPackage
             }
-
+            # Then check if a cached package exists in the root cache directory
+            elseif (Test-Path $manualPackage -PathType Leaf) {
+                Write-Host "Using cached package from root cache: $manualPackage"
+                $zip = $manualPackage
+            }
+            
+            # If no cached package found, download it
             if (-not $zip) {
+                $sum = Join-Path $releaseCache "$assetName.sha256"
+                Invoke-Download $sumAsset.browser_download_url $sum "$Name checksum download"
+                $expected = ((Get-Content $sum -Raw) -split '\s+')[0].ToLowerInvariant()
+                
                 $partialPackage = "$versionedPackage.partial"
                 Invoke-Download $asset.browser_download_url $partialPackage "$Name package download"
                 $actual = (Get-FileHash $partialPackage -Algorithm SHA256).Hash.ToLowerInvariant()
