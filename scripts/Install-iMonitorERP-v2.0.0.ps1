@@ -177,6 +177,23 @@ function Merge-AppSettings([string]$Path,[string]$Name,[string]$Database,[string
     $settings | ConvertTo-Json -Depth 100 | Set-Content $Path -Encoding UTF8
 }
 
+function Invoke-Download([string]$Uri,[string]$OutFile,[string]$Label) {
+    $lastError = $null
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+        try {
+            Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+            Write-Host "$Label (attempt $attempt/5)..."
+            Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $OutFile -TimeoutSec 120
+            if (-not (Test-Path $OutFile) -or (Get-Item $OutFile).Length -eq 0) { throw 'Downloaded file is empty.' }
+            return
+        } catch {
+            $lastError = $_.Exception.Message
+            if ($attempt -lt 5) { Start-Sleep -Seconds ([Math]::Min(2 * $attempt, 8)) }
+        }
+    }
+    throw "$Label failed after 5 attempts. URL: $Uri. Last error: $lastError"
+}
+
 $releases = Invoke-RestMethod -Headers @{Accept='application/vnd.github+json'} -Uri "https://api.github.com/repos/$repo/releases?per_page=100&cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
 
 function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$User,[string]$Password) {
@@ -195,7 +212,8 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
     $siteName = "iMonitorERP-$Name"
     $poolName = "iMonitorERP-$Name"
     if (Test-Path "IIS:\AppPools\$poolName") {
-        Stop-WebAppPool -Name $poolName -ErrorAction SilentlyContinue
+        $poolState = (Get-WebAppPoolState -Name $poolName).Value
+        if ($poolState -ne 'Stopped') { Stop-WebAppPool -Name $poolName }
     }
     New-Item -ItemType Directory -Force -Path $base,$versions | Out-Null
     $installed = if (Test-Path $versionFile) {(Get-Content $versionFile -Raw).Trim()} else {''}
@@ -209,8 +227,8 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
         New-Item -ItemType Directory -Force -Path $work | Out-Null
         try {
             $zip = Join-Path $work $assetName; $sum = "$zip.sha256"
-            Invoke-WebRequest -UseBasicParsing $asset.browser_download_url -OutFile $zip
-            Invoke-WebRequest -UseBasicParsing $sumAsset.browser_download_url -OutFile $sum
+            Invoke-Download $asset.browser_download_url $zip "$Name package download"
+            Invoke-Download $sumAsset.browser_download_url $sum "$Name checksum download"
             $expected = ((Get-Content $sum -Raw) -split '\s+')[0].ToLowerInvariant()
             $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($actual -ne $expected) { throw 'SHA-256 verification failed.' }
@@ -227,9 +245,11 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
     Merge-AppSettings (Join-Path $current 'appsettings.json') $Name $Database $User $Password
 
     # Remove the legacy Windows service. IIS is now the only process manager.
-    $legacyService = "iMonitorERP-$Name"
-    & sc.exe stop $legacyService 2>$null | Out-Null
-    & sc.exe delete $legacyService 2>$null | Out-Null
+    $legacyService = Get-Service -Name "iMonitorERP-$Name" -ErrorAction SilentlyContinue
+    if ($legacyService) {
+        if ($legacyService.Status -ne 'Stopped') { Stop-Service -Name $legacyService.Name -Force -ErrorAction SilentlyContinue }
+        & sc.exe delete $legacyService.Name | Out-Null
+    }
 
     if (-not (Test-Path (Join-Path $current 'web.config'))) {
         $webConfig = @'
@@ -273,8 +293,8 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
 
     New-Website -Name $siteName -PhysicalPath $current -Port $Port -IPAddress '*' -ApplicationPool $poolName | Out-Null
     Set-ItemProperty "IIS:\Sites\$siteName" -Name applicationDefaults.preloadEnabled -Value $true
-    Start-WebAppPool -Name $poolName
-    Start-Website -Name $siteName
+    if ((Get-WebAppPoolState -Name $poolName).Value -ne 'Started') { Start-WebAppPool -Name $poolName }
+    if ((Get-WebsiteState -Name $siteName).Value -ne 'Started') { Start-Website -Name $siteName }
 
     if (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue) {
         $firewallName = "iMonitor ERP $Name TCP $Port"
