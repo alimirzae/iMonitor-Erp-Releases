@@ -1,3 +1,4 @@
+# Verified package cache defaults to the caller's current directory.
 [CmdletBinding()]
 param(
     [ValidateSet('Both','Test','Production')][string]$Channel = 'Both',
