@@ -72,7 +72,9 @@ sudo /usr/local/sbin/imonitor-platform-update
 
 ## iMonitor ERP / Ecomm ERP
 
-### نصب پیشنهادی Windows x64 — IIS و MySQL
+### نصب پیشنهادی Windows x64 — Installer v2.0.1، IIS و MySQL
+
+> نسخه‌های Installer تغییرناپذیرند. برای جلوگیری از Cache، همیشه فایل نسخه جدید `Install-iMonitorERP-v2.0.1.ps1` را استفاده کنید؛ فایل‌های نسخه قبلی فقط برای سازگاری باقی مانده‌اند.
 
 PowerShell را با **Run as Administrator** باز کنید و فقط این دستور را اجرا کنید:
 
@@ -81,7 +83,7 @@ $installer = Join-Path $env:TEMP 'Install-iMonitorERP.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 Invoke-WebRequest `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.0.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.1.ps1?cb=$cacheBust" `
   -UseBasicParsing `
   -OutFile $installer
 
