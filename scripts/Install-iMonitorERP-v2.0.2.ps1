@@ -41,10 +41,9 @@ $replacement = "Set-JsonValue `$databaseSettings 'MigrateOnStartup' `$false"
 if (-not $text.Contains($needle)) { throw 'Compatibility check failed: MigrateOnStartup assignment was not found in v2.0.1.' }
 $text = $text.Replace($needle, $replacement)
 
-# The normal root page can depend on company/book state. During a raw install it is
-# the wrong liveness probe. The OTP recovery page is deliberately database-lazy.
+# Health must remain independent of company/book state and Blazor navigation.
 $healthNeedle = '$url = "http://127.0.0.1:$Port/"'
-$healthReplacement = '$url = "http://127.0.0.1:$Port/Admin/Database/Migrate"'
+$healthReplacement = '$url = "http://127.0.0.1:$Port/health"'
 if (-not $text.Contains($healthNeedle)) { throw 'Compatibility check failed: IIS health URL was not found in v2.0.1.' }
 $text = $text.Replace($healthNeedle, $healthReplacement)
 Set-Content $baseInstaller $text -Encoding UTF8
@@ -71,13 +70,35 @@ function Ensure-Object([object]$Parent,[string]$Name) {
 function Set-Value([object]$Parent,[string]$Name,[object]$Value) {
     $p=$Parent.PSObject.Properties[$Name]; if($p){$p.Value=$Value}else{$Parent|Add-Member NoteProperty $Name $Value}
 }
+function Find-InstalledMySqlClient {
+    $command = Get-Command mysql.exe -ErrorAction SilentlyContinue
+    if ($command) { return $command.Source }
+    foreach ($root in @($env:ProgramFiles)) {
+        if (-not $root) { continue }
+        $mysqlRoot = Join-Path $root 'MySQL'
+        if (-not (Test-Path $mysqlRoot)) { continue }
+        $candidate = Get-ChildItem $mysqlRoot -Filter mysql.exe -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($candidate) { return $candidate.FullName }
+    }
+    return $null
+}
+$mysqlClientPath = Find-InstalledMySqlClient
+
 function Harden-Config([string]$Name) {
     $path=Join-Path $InstallRoot (Join-Path $Name.ToLowerInvariant() 'current\appsettings.json')
     if(-not(Test-Path $path)){return}
     $settings=Get-Content $path -Raw|ConvertFrom-Json
-    $database=Ensure-Object $settings 'Database'; Set-Value $database 'MigrateOnStartup' $false; Set-Value $database 'AutoMigrate' $false
-    $maintenance=Ensure-Object $settings 'Maintenance'; Set-Value $maintenance 'OtpExpiryMinutes' 5; Set-Value $maintenance 'AuthorizationMinutes' 15; Set-Value $maintenance 'MaxOtpAttempts' 5; Set-Value $maintenance 'ResendCooldownSeconds' 60
-    $sms=Ensure-Object $settings 'SMS'; Set-Value $sms 'AllowSystemFallbackWhenDatabaseUnavailable' $true
+    $database=Ensure-Object $settings 'Database'
+    Set-Value $database 'MigrateOnStartup' $false
+    Set-Value $database 'AutoMigrate' $false
+    if($mysqlClientPath){Set-Value $database 'MySqlClientPath' $mysqlClientPath}
+    $maintenance=Ensure-Object $settings 'Maintenance'
+    Set-Value $maintenance 'OtpExpiryMinutes' 5
+    Set-Value $maintenance 'AuthorizationMinutes' 15
+    Set-Value $maintenance 'MaxOtpAttempts' 5
+    Set-Value $maintenance 'ResendCooldownSeconds' 60
+    $sms=Ensure-Object $settings 'SMS'
+    Set-Value $sms 'AllowSystemFallbackWhenDatabaseUnavailable' $true
     $bootstrap=Ensure-Object $settings 'BootstrapAdmin'
     if($BootstrapAdminNationalCode){Set-Value $bootstrap 'NationalCode' $BootstrapAdminNationalCode.Trim()}
     if($BootstrapAdminMobile){Set-Value $bootstrap 'Mobile' $BootstrapAdminMobile.Trim()}
@@ -93,7 +114,8 @@ foreach($name in @('Test','Production')){
     if(Test-Path "IIS:\AppPools\$pool"){Restart-WebAppPool -Name $pool}
 }
 
-$installerHome=Join-Path $InstallRoot 'installer'; New-Item -ItemType Directory -Force -Path $installerHome|Out-Null
+$installerHome=Join-Path $InstallRoot 'installer'
+New-Item -ItemType Directory -Force -Path $installerHome|Out-Null
 $self=Join-Path $installerHome 'Install-iMonitorERP-v2.0.2.ps1'
 Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/$repo/main/scripts/Install-iMonitorERP-v2.0.2.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" -OutFile $self
 $testAction="powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -Channel Test -UpdateOnly"
@@ -104,4 +126,4 @@ $prodAction="powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -
 Write-Host 'iMonitor ERP installer v2.0.2 completed.'
 Write-Host "Production: http://localhost:$ProductionPort"
 Write-Host "Test: http://localhost:$TestPort"
-Write-Host 'Emergency recovery: /Admin/Database/Migrate or /Account/Reset'
+Write-Host 'Emergency recovery: /Admin/Database/Migrate, /Admin/Database/Recovery or /Account/Reset'
