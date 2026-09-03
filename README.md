@@ -72,208 +72,120 @@ sudo /usr/local/sbin/imonitor-platform-update
 
 ## iMonitor ERP / Ecomm ERP
 
-### کانال‌های انتشار
+### نصب پیشنهادی Windows x64 — IIS و MySQL
 
-| Source branch | Release tag | Port |
-| --- | --- | --- |
-| `test` | `imonitor-ecomerp-test-vX.Y.Z` | 8080 |
-| `master` | `imonitor-ecomerp-master-vX.Y.Z` | 80 |
-
-هر Release استاندارد ERP شامل این فایل‌هاست:
-
-- `iMonitor-EcomERP-linux-x64.tar.gz`
-- `iMonitor-EcomERP-linux-x64.tar.gz.sha256`
-- `iMonitor-EcomERP-win-x64.zip`
-- `iMonitor-EcomERP-win-x64.zip.sha256`
-- `manifest.json`
-
-## نصب ERP روی Ubuntu / Debian / WSL — v1.0.6
-
-نسخه 1.0.6 انتشارهای prerelease کانال `test` را نیز شناسایی می‌کند و وقتی ابزارهای پایه از قبل نصب باشند، از اجرای غیرضروری `apt-get update` صرف‌نظر می‌کند.
-
-نسخه تست:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.6.sh | sudo bash -s -- --channel test
-```
-
-نسخه پایدار:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.6.sh | sudo bash -s -- --channel master
-```
-
-## نصب ERP روی Windows x64 — v1.0.5
-
-PowerShell را با دسترسی Administrator اجرا کنید:
+PowerShell را با **Run as Administrator** باز کنید و فقط این دستور را اجرا کنید:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorEcomERP-v1.0.5.ps1 -OutFile $env:TEMP\Install-iMonitorERP.ps1
-powershell -ExecutionPolicy Bypass -File $env:TEMP\Install-iMonitorERP.ps1 -Channel test
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP.ps1'
+$cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
+Invoke-WebRequest `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.0.ps1?cb=$cacheBust" `
+  -UseBasicParsing `
+  -OutFile $installer
+
+powershell.exe `
+  -NoProfile `
+  -ExecutionPolicy Bypass `
+  -File $installer `
+  -Channel Both
 ```
 
-برای نسخه پایدار مقدار `-Channel master` را بدهید.
+خروجی نصب:
 
-## امنیت و Rollback
+| کانال | آدرس | IIS Site / App Pool | مسیر برنامه |
+|---|---|---|---|
+| Production | http://localhost:8080 | `iMonitorERP-Production` | `C:\ProgramData\iMonitorERP\production\current` |
+| Test | http://localhost:8081 | `iMonitorERP-Test` | `C:\ProgramData\iMonitorERP\test\current` |
 
-- Assetها با SHA-256 اعتبارسنجی می‌شوند.
-- تنظیمات و Secretها خارج از Release نگهداری می‌شوند.
-- هر نسخه iMonitor Platform در پوشه مستقل نصب می‌شود و symlink `current` به نسخه فعال اشاره می‌کند.
-- Docker volumes دیتابیس با تعویض نسخه حذف نمی‌شوند.
-- Windows Edge و Android Edge Releaseهای جدا دارند.
+Installer در اولین نصب این کارها را انجام می‌دهد:
 
+- نصب و فعال‌سازی IIS Manager و ASP.NET Core Hosting Bundle 8
+- دریافت آخرین Releaseهای `master` و `test` و کنترل SHA-256
+- ایجاد Database، User و Grant مستقل MySQL برای هر کانال
+- تست واقعی ورود هر User به Database مربوط به خودش
+- merge کردن تنظیمات دیتابیس داخل `appsettings.json`؛ تنظیمات SMS، AI، Sync و Logging حذف نمی‌شوند
+- ایجاد Site و Application Pool مستقل در IIS Manager
+- نصب Test و Production به‌صورت مستقل؛ خطای یک کانال مانع تلاش برای نصب کانال دیگر نمی‌شود
+- Health Check واقعی هر دو سایت و ثبت Auto Update
 
----
-
-## نصب یکپارچه iMonitor ERP v2.0.0
-
-Installer نسخه 2 هر دو کانال Test و Production را هم‌زمان نصب و مدیریت می‌کند.
-
-### Linux / Ubuntu — Docker + MySQL + phpMyAdmin
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.0.sh | sudo bash
-```
-
-پورت‌های پیش‌فرض:
-
-| Service | Port |
-| --- | ---: |
-| ERP Test | 8080 |
-| ERP Production | 8081 |
-| phpMyAdmin | 8082 روی 127.0.0.1 |
-| MySQL | فقط شبکه داخلی Docker |
-
-برای تغییر پورت‌ها:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.0.sh \
-  | sudo bash -s -- --test-port 8080 --prod-port 8081 --phpmyadmin-port 8082
-```
-
-رمز root و کاربران مستقل MySQL در فایل زیر نگهداری می‌شوند:
-
-```text
-/etc/imonitor-erp/credentials.env
-```
-
-فایل فقط برای root قابل خواندن است. مشاهده امن اطلاعات:
-
-```bash
-sudo imonitor-erpctl credentials
-```
-
-ورود phpMyAdmin:
-
-- Server: `mysql`
-- User: `root`
-- Password: مقدار `MYSQL_ROOT_PASSWORD`
-
-phpMyAdmin به‌صورت پیش‌فرض فقط روی localhost باز است. برای دسترسی امن از کامپیوتر دیگر:
-
-```bash
-ssh -L 8082:127.0.0.1:8082 user@SERVER-IP
-```
-
-سپس `http://127.0.0.1:8082` را باز کنید. بازکردن مستقیم phpMyAdmin روی اینترنت توصیه نمی‌شود.
-
-فرمان‌های مدیریت:
-
-```bash
-sudo imonitor-erpctl status
-sudo imonitor-erpctl logs 200
-sudo imonitor-erpctl restart erp-test
-sudo imonitor-erpctl restart erp-production
-sudo imonitor-erpctl update-test
-sudo imonitor-erpctl update-production
-sudo imonitor-erpctl update-all
-sudo imonitor-erpctl mysql
-```
-
-زمان‌بندی خودکار:
-
-- Test: هر ۵ دقیقه
-- Production: روزانه در بازه ۲:۳۰ تا ۵:۳۰ بامداد
-- تمام containerها دارای restart policy هستند.
-- تنظیمات، داده MySQL، Data Protection keys و Diagnostics خارج از پوشه Release نگهداری می‌شوند.
-
-### Windows — نصب هم‌زمان Test و Production
-
-PowerShell را با دسترسی Administrator اجرا کنید:
-
-```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.0.ps1 -OutFile $env:TEMP\Install-iMonitorERP.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\Install-iMonitorERP.ps1 -Channel Both
-```
-
-تنظیمات MySQL را می‌توان هنگام نصب تعیین کرد:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\Install-iMonitorERP.ps1 `
-  -Channel Both -MySqlServer 127.0.0.1 -MySqlPort 3306 `
-  -TestUser imonitor_test -TestPassword 'TEST_PASSWORD' `
-  -ProductionUser imonitor_production -ProductionPassword 'PRODUCTION_PASSWORD'
-```
-
-در Windows، IIS و ASP.NET Core Hosting Bundle در صورت نیاز نصب می‌شوند. دو Website و دو Application Pool مستقل در IIS Manager ساخته می‌شود و فقط بعد از پاسخ موفق HTTP، نصب موفق اعلام می‌شود:
-
-- `iMonitorERP-Production` روی پورت 8080؛ بررسی update روزانه ساعت ۲:۳۰
-- `iMonitorERP-Test` روی پورت 8081؛ بررسی update هر ۵ دقیقه
-- Ruleهای Windows Firewall برای هر دو پورت ساخته می‌شوند.
-- سرویس‌های قدیمی `iMonitorERP-Test` و `iMonitorERP-Production` حذف و مدیریت پردازش کاملاً به IIS سپرده می‌شود.
-
-اطلاعات MySQL با ACL محدود به Administrators و SYSTEM در این مسیر ذخیره می‌شود:
+اگر Userهای MySQL هنوز وجود نداشته باشند، Installer رمز مدیر MySQL (پیش‌فرض: `root`) را به‌صورت امن درخواست می‌کند. این رمز ذخیره نمی‌شود. رمزهای سرویس ERP در مسیر زیر نگهداری می‌شوند و فقط Administrators و SYSTEM به آن دسترسی دارند:
 
 ```text
 C:\ProgramData\iMonitorERP\config\mysql-credentials.json
 ```
 
-
-### Windows + Docker Desktop — نصب کامل برنامه و MySQL
-
-PowerShell را با دسترسی Administrator اجرا کنید:
+برای نام متفاوت مدیر MySQL:
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-Docker-v2.0.0.ps1 -OutFile $env:TEMP\Install-iMonitorERP-Docker.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File $env:TEMP\Install-iMonitorERP-Docker.ps1 -Channel Both
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
+  -Channel Both `
+  -MySqlAdminUser root
 ```
 
-Installer قابلیت‌های WSL2 و Virtual Machine Platform را فعال و Docker Desktop را با backend مبتنی بر WSL2 نصب می‌کند. اگر Windows نیاز به Restart داشته باشد، Installer با پیام مشخص متوقف می‌شود؛ پس از Restart و اولین اجرای Docker Desktop، همان فرمان را دوباره اجرا کنید.
-
-این روش موارد زیر را هم‌زمان اجرا می‌کند:
-
-- ERP Test روی پورت 8080
-- ERP Production روی پورت 8081
-- MySQL 8.4 داخل Docker
-- phpMyAdmin روی `127.0.0.1:8082`
-- volumeهای پایدار MySQL، Data Protection و Diagnostics
-- بروزرسانی Test هر پنج دقیقه
-- بروزرسانی Production روزانه ساعت 02:30
-- checksum و rollback فایل‌های برنامه
-
-رمزهای MySQL در این فایل با ACL محدود به Administrators و SYSTEM ذخیره می‌شوند:
+### ساختار نصب Windows
 
 ```text
-C:\ProgramData\iMonitorERP-Docker\credentials.env
+C:\ProgramData\iMonitorERP\
+├── config\mysql-credentials.json
+├── installer\Install-iMonitorERP.ps1
+├── state\
+├── dotnet\
+├── production\
+│   ├── current\
+│   └── releases\
+└── test\
+    ├── current\
+    └── releases\
 ```
 
-نمایش رمز root در PowerShell مدیر:
+### نصب یا بروزرسانی یک کانال
 
 ```powershell
-Get-Content C:\ProgramData\iMonitorERP-Docker\credentials.env |
-    Select-String '^MYSQL_ROOT_PASSWORD='
+# نصب/ترمیم Production
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Production -Force
+
+# نصب/ترمیم Test
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Test -Force
+
+# بروزرسانی فقط روی نصب موجود
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both -UpdateOnly
 ```
 
-وضعیت containerها:
+`-UpdateOnly` نصب اولیه انجام نمی‌دهد و اگر کانالی قبلاً نصب نشده باشد، خطای روشن برمی‌گرداند.
+
+### عیب‌یابی IIS و خطاهای 500.30 / 503
 
 ```powershell
-cd C:\ProgramData\iMonitorERP-Docker
-docker compose --env-file .\credentials.env ps
-docker compose --env-file .\credentials.env logs --tail 200
+Import-Module WebAdministration
+
+Get-Website | Select-Object Name, State, PhysicalPath, Bindings
+Get-WebAppPoolState 'iMonitorERP-Production'
+Get-WebAppPoolState 'iMonitorERP-Test'
+
+Get-WinEvent -LogName Application -MaxEvents 100 |
+  Where-Object ProviderName -in @('IIS AspNetCore Module V2','IIS-W3SVC-WP','.NET Runtime') |
+  Select-Object TimeCreated, ProviderName, Id, Message |
+  Format-List
 ```
 
+لاگ‌های اجرای IIS:
 
----
+```text
+C:\ProgramData\iMonitorERP\production\current\logs
+C:\ProgramData\iMonitorERP\test\current\logs
+```
+
+### Linux / Ubuntu
+
+نصب Linux همچنان با Installer نسخه‌دار انجام می‌شود:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.0.sh | sudo bash -s -- --channel both
+```
+
+در Windows، مرجع رسمی پورت‌ها همیشه Production روی `8080` و Test روی `8081` است.
 
 ## New_Win_Edge — فاز یک چاپ مستقیم بارکد
 
