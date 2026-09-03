@@ -2,8 +2,8 @@
 param(
     [ValidateSet('Both','Test','Production')][string]$Channel = 'Both',
     [string]$InstallRoot = 'C:\ProgramData\iMonitorERP',
-    [int]$TestPort = 8080,
-    [int]$ProductionPort = 8081,
+    [int]$TestPort = 8081,
+    [int]$ProductionPort = 8080,
     [string]$MySqlServer = '127.0.0.1',
     [int]$MySqlPort = 3306,
     [string]$TestDatabase = 'imonitor_erp_test',
@@ -56,6 +56,31 @@ if (-not $hasRuntime) {
     $dotnetExe = Join-Path $runtime 'dotnet.exe'
 } else { $dotnetExe = $dotnet.Source }
 
+function Ensure-IIS {
+    $iisFeature = Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole -ErrorAction SilentlyContinue
+    if ($iisFeature -and $iisFeature.State -ne 'Enabled') {
+        Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole,IIS-WebServer,IIS-ManagementConsole,IIS-StaticContent,IIS-DefaultDocument,IIS-HttpErrors,IIS-HttpLogging,IIS-RequestFiltering -All -NoRestart | Out-Null
+    } elseif (-not $iisFeature -and (Get-Command Install-WindowsFeature -ErrorAction SilentlyContinue)) {
+        Install-WindowsFeature Web-Server,Web-Mgmt-Console -IncludeManagementTools | Out-Null
+    }
+    Import-Module WebAdministration -ErrorAction Stop
+
+    $ancm = Get-WebGlobalModule -Name AspNetCoreModuleV2 -ErrorAction SilentlyContinue
+    if (-not $ancm) {
+        $hostingInstaller = Join-Path $env:TEMP 'dotnet-hosting-8.exe'
+        Invoke-WebRequest -UseBasicParsing 'https://aka.ms/dotnet/8.0/dotnet-hosting-win.exe' -OutFile $hostingInstaller
+        $process = Start-Process -FilePath $hostingInstaller -ArgumentList '/install','/quiet','/norestart' -Wait -PassThru
+        if ($process.ExitCode -notin @(0,3010,1641)) { throw "ASP.NET Core Hosting Bundle installation failed (exit $($process.ExitCode))." }
+        Import-Module WebAdministration -Force
+        if (-not (Get-WebGlobalModule -Name AspNetCoreModuleV2 -ErrorAction SilentlyContinue)) {
+            throw 'ASP.NET Core Module V2 was not registered in IIS. Restart Windows, then rerun the installer.'
+        }
+    }
+    Set-Service W3SVC -StartupType Automatic
+    Start-Service W3SVC
+}
+Ensure-IIS
+
 $releases = Invoke-RestMethod -Headers @{Accept='application/vnd.github+json'} -Uri "https://api.github.com/repos/$repo/releases?per_page=100&cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
 
 function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$User,[string]$Password) {
@@ -71,6 +96,11 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
     $current = Join-Path $base 'current'
     $versions = Join-Path $base 'releases'
     $versionFile = Join-Path $state "$gitChannel-version"
+    $siteName = "iMonitorERP-$Name"
+    $poolName = "iMonitorERP-$Name"
+    if (Test-Path "IIS:\AppPools\$poolName") {
+        Stop-WebAppPool -Name $poolName -ErrorAction SilentlyContinue
+    }
     New-Item -ItemType Directory -Force -Path $base,$versions | Out-Null
     $installed = if (Test-Path $versionFile) {(Get-Content $versionFile -Raw).Trim()} else {''}
 
@@ -108,15 +138,84 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
     } | ConvertTo-Json -Depth 8
     Set-Content (Join-Path $current 'appsettings.json') $config -Encoding UTF8
 
-    $serviceName = "iMonitorERP-$Name"
-    & sc.exe stop $serviceName 2>$null | Out-Null
-    & sc.exe delete $serviceName 2>$null | Out-Null
-    Start-Sleep -Seconds 1
-    $bin = ('"{0}" "{1}" --urls http://0.0.0.0:{2}' -f $dotnetExe,(Join-Path $current 'Ecomm.dll'),$Port)
-    & sc.exe create $serviceName "binPath= $bin" start= auto "DisplayName= iMonitor ERP $Name" | Out-Null
-    & sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
-    & sc.exe start $serviceName | Out-Null
-    Write-Host "$Name installed: $($release.tag_name), port $Port"
+    # Remove the legacy Windows service. IIS is now the only process manager.
+    $legacyService = "iMonitorERP-$Name"
+    & sc.exe stop $legacyService 2>$null | Out-Null
+    & sc.exe delete $legacyService 2>$null | Out-Null
+
+    if (-not (Test-Path (Join-Path $current 'web.config'))) {
+        $webConfig = @'
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <location path="." inheritInChildApplications="false">
+    <system.webServer>
+      <handlers>
+        <add name="aspNetCore" path="*" verb="*" modules="AspNetCoreModuleV2" resourceType="Unspecified" />
+      </handlers>
+      <aspNetCore processPath="dotnet" arguments=".\Ecomm.dll" stdoutLogEnabled="true" stdoutLogFile=".\logs\stdout" hostingModel="inprocess" />
+    </system.webServer>
+  </location>
+</configuration>
+'@
+        Set-Content (Join-Path $current 'web.config') $webConfig -Encoding UTF8
+    }
+    New-Item -ItemType Directory -Force -Path (Join-Path $current 'logs') | Out-Null
+    $poolAclRead = "IIS AppPool\" + $poolName + ":(OI)(CI)RX"
+    $poolAclModify = "IIS AppPool\" + $poolName + ":(OI)(CI)M"
+    & icacls $current /grant:r $poolAclRead /T /C | Out-Null
+    & icacls (Join-Path $current 'logs') /grant:r $poolAclModify /T /C | Out-Null
+
+    if (Test-Path "IIS:\Sites\$siteName") { Remove-Website -Name $siteName }
+    if (-not (Test-Path "IIS:\AppPools\$poolName")) { New-WebAppPool -Name $poolName | Out-Null }
+    Set-ItemProperty "IIS:\AppPools\$poolName" -Name managedRuntimeVersion -Value ''
+    Set-ItemProperty "IIS:\AppPools\$poolName" -Name managedPipelineMode -Value Integrated
+    Set-ItemProperty "IIS:\AppPools\$poolName" -Name processModel.identityType -Value ApplicationPoolIdentity
+    Set-ItemProperty "IIS:\AppPools\$poolName" -Name startMode -Value AlwaysRunning
+    Set-ItemProperty "IIS:\AppPools\$poolName" -Name recycling.periodicRestart.time -Value ([TimeSpan]::Zero)
+
+    $binding = "*:" + $Port + ":"
+    $conflict = Get-WebBinding -Protocol http | Where-Object {
+        $_.bindingInformation -eq $binding -and $_.ItemXPath -notlike "*site[@name='$siteName']*"
+    }
+    if ($conflict) {
+        $owners = ($conflict | ForEach-Object { $_.ItemXPath }) -join ', '
+        throw "Port $Port already has an IIS binding: $owners"
+    }
+
+    New-Website -Name $siteName -PhysicalPath $current -Port $Port -IPAddress '*' -ApplicationPool $poolName | Out-Null
+    Set-ItemProperty "IIS:\Sites\$siteName" -Name applicationDefaults.preloadEnabled -Value $true
+    Start-WebAppPool -Name $poolName
+    Start-Website -Name $siteName
+
+    if (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue) {
+        $firewallName = "iMonitor ERP $Name TCP $Port"
+        if (-not (Get-NetFirewallRule -DisplayName $firewallName -ErrorAction SilentlyContinue)) {
+            New-NetFirewallRule -DisplayName $firewallName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port | Out-Null
+        }
+    }
+
+    $url = "http://127.0.0.1:$Port/"
+    $healthy = $false
+    $lastError = $null
+    for ($attempt = 1; $attempt -le 30; $attempt++) {
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 5
+            if ([int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 500) {
+                $healthy = $true
+                break
+            }
+        } catch {
+            $lastError = $_.Exception.Message
+        }
+        Start-Sleep -Seconds 2
+    }
+    if (-not $healthy) {
+        $poolState = (Get-WebAppPoolState -Name $poolName).Value
+        $siteState = (Get-WebsiteState -Name $siteName).Value
+        throw "$Name IIS health check failed at $url (site=$siteState, pool=$poolState). Last error: $lastError. Check $current\logs."
+    }
+
+    Write-Host "$Name installed and verified in IIS Manager: $($release.tag_name), $url"
 }
 
 if ($Channel -in @('Both','Test')) { Install-Channel Test $TestPort $TestDatabase $TestUser $TestPassword }
