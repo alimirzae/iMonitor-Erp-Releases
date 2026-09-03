@@ -2,105 +2,46 @@
 
 مرکز عمومی انتشار و نصب خودکار محصولات iMonitor برای Windows و Linux.
 
-## iMonitor Platform — پایش، رهگیری، Vision، FTP، RFID و IIoT
+## iMonitor Platform
 
-نسخه Linux کل سامانه iMonitor از مخزن `alimirzae/iTrack` به صورت Release مستقل منتشر می‌شود و شامل Backend، Frontend، FTP، Celery، MySQL، Redis، Nginx، پلاک‌خوان، Face/QR، Demo Lab، Automation و IIoT است.
-
-**صفحه انتشارها:** https://github.com/alimirzae/iMonitor-Erp-Releases/releases
-
-**آخرین انتشار iMonitor Platform:** https://github.com/alimirzae/iMonitor-Erp-Releases/releases/tag/imonitor-platform-v0.1.2
-
-### نصب یک‌مرحله‌ای Ubuntu / Debian — Installer v1.0.3
-
-روی سرور Linux اجرا کنید:
+نسخه Linux سامانه iMonitor از Releaseهای همین مخزن نصب می‌شود. نصب Ubuntu / Debian:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorPlatform-v1.0.3.sh | sudo bash
 ```
 
-Installer موارد زیر را خودکار انجام می‌دهد:
-
-- نصب وابستگی‌های پایه و Docker/Compose در صورت نیاز
-- پیدا کردن جدیدترین Release با پیشوند `imonitor-platform-v`
-- دانلود بسته Source و Docker imageهای از پیش ساخته‌شده
-- کنترل SHA-256 قبل از نصب
-- نگهداری تنظیمات و Secretها در `/etc/imonitor-platform/imonitor.env`
-- نصب نسخه‌ها در `/opt/imonitor-platform/releases/<version>` و سوییچ اتمیک `current`
-- اجرای کل Stack با Docker Compose
-- Bind سرویس‌های عمومی روی `0.0.0.0` و باز کردن پورت‌های لازم در UFW در صورت فعال بودن آن
-- بررسی واقعی Backend و Frontend بعد از `docker compose up`
-- اگر Container از کار افتاده، Restart loop داشته باشد یا سرویس در مهلت مقرر بالا نیاید، چاپ خودکار `docker compose ps -a` و ۲۰۰ خط آخر log تمام سرویس‌ها در همان Terminal
-- ایجاد سرویس startup و Timer بروزرسانی خودکار
-
-پس از نصب:
-
-- Web UI: `http://SERVER-IP:3000`
-- Gateway/Nginx: `http://SERVER-IP:80`
-- API: `http://SERVER-IP:8000`
-- FTP: `SERVER-IP:21`
-- FTP Passive: `30000-30010/tcp`
-
-### بروزرسانی خودکار
-
-Updater نسخه‌دار `Update-iMonitorPlatform-v1.0.3.sh` نصب می‌شود. Timer سیستم هر ۳۰ دقیقه manifest و GitHub Releases را بررسی می‌کند و Installer نسخه فعلی را با cache-busting دریافت می‌کند. خود Installer جدیدترین Release با پیشوند `imonitor-platform-v` را نصب می‌کند.
-
-بررسی وضعیت:
-
-```bash
-systemctl status imonitor-platform.service
-systemctl status imonitor-platform-update.timer
-docker compose -f /opt/imonitor-platform/current/docker-compose.yml ps
-```
-
-مشاهده Logها در صورت نیاز:
-
-```bash
-cd /opt/imonitor-platform/current
-docker compose ps -a
-docker compose logs --tail=200
-```
-
-اجرای دستی Update:
-
-```bash
-sudo /usr/local/sbin/imonitor-platform-update
-```
-
-هر بار Installer یا Updater تغییر اساسی کند با نام نسخه جدید منتشر می‌شود (`v1.0.0`, `v1.0.1`, ...)، بنابراین URL قدیمی cache نمی‌شود. فایل `manifests/imonitor-platform-release.json` همیشه نام Installer فعلی را مشخص می‌کند و Updater برای دریافت manifest و script از cache-busting استفاده می‌کند.
+خروجی معمول Platform شامل Web UI روی `3000`، Gateway روی `80`، API روی `8000` و سرویس‌های Docker/Compose است. تنظیمات و Secretها در `/etc/imonitor-platform/imonitor.env` نگهداری می‌شوند.
 
 ---
 
 ## iMonitor ERP / Ecomm ERP
 
-### نصب پیشنهادی Windows x64 — Installer v2.0.1، IIS و MySQL
+### Windows x64 — Installer رسمی v2.0.2
 
-> نسخه‌های Installer تغییرناپذیرند. برای جلوگیری از Cache، همیشه فایل نسخه جدید `Install-iMonitorERP-v2.0.1.ps1` را استفاده کنید؛ فایل‌های نسخه قبلی فقط برای سازگاری باقی مانده‌اند.
-
-PowerShell را با **Run as Administrator** باز کنید و فقط این دستور را اجرا کنید:
+برای جلوگیری از مشکل cache همیشه Installer نسخه‌دار جدید را دریافت کنید. PowerShell را با **Run as Administrator** باز کنید:
 
 ```powershell
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.2.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 Invoke-WebRequest `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.1.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.2.ps1?cb=$cacheBust" `
   -UseBasicParsing `
   -OutFile $installer
 
-powershell.exe `
-  -NoProfile `
-  -ExecutionPolicy Bypass `
-  -File $installer `
-  -Channel Both
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both
 ```
 
-اگر فایل `iMonitor-EcomERP-win-x64.zip` را با مرورگر دانلود کرده‌اید، آن را در همان پوشه‌ای قرار دهید که PowerShell از آن اجرا می‌شود. مثلاً:
+پورت‌های رسمی Windows:
 
-```text
-D:\erp_ins\iMonitor-EcomERP-win-x64.zip
-```
+| کانال | آدرس | IIS Site / App Pool | مسیر برنامه |
+|---|---|---|---|
+| Production | `http://localhost:8080` | `iMonitorERP-Production` | `C:\ProgramData\iMonitorERP\production\current` |
+| Test | `http://localhost:8081` | `iMonitorERP-Test` | `C:\ProgramData\iMonitorERP\test\current` |
 
-سپس نصب را از همان مسیر اجرا کنید یا مسیر Cache را صریح تعیین کنید:
+### استفاده از ZIP از قبل دانلودشده
+
+اگر `iMonitor-EcomERP-win-x64.zip` را با مرورگر دانلود کرده‌اید، آن را در پوشه کاری، مثلاً `D:\erp_ins` قرار دهید:
 
 ```powershell
 Set-Location D:\erp_ins
@@ -110,46 +51,75 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
   -Force
 ```
 
-Installer ابتدا SHA-256 فایل محلی را با checksum آخرین Release مقایسه می‌کند. اگر یکسان باشد دانلود ZIP کاملاً رد می‌شود؛ در غیر این صورت فایل محلی دست‌نخورده می‌ماند و نسخه صحیح در زیرپوشه نام Release دانلود می‌شود.
+Installer checksum آخرین Release را می‌گیرد و SHA-256 فایل محلی را بررسی می‌کند. اگر فایل معتبر و مربوط به همان Release باشد، دانلود Package کاملاً رد می‌شود.
 
-خروجی نصب:
+### MySQL
 
-| کانال | آدرس | IIS Site / App Pool | مسیر برنامه |
-|---|---|---|---|
-| Production | http://localhost:8080 | `iMonitorERP-Production` | `C:\ProgramData\iMonitorERP\production\current` |
-| Test | http://localhost:8081 | `iMonitorERP-Test` | `C:\ProgramData\iMonitorERP\test\current` |
+Installer برای Test و Production دیتابیس، User و Grant جداگانه ایجاد و ورود واقعی همان User به Database را تست می‌کند. اگر حساب‌ها هنوز وجود نداشته باشند، رمز مدیر MySQL به‌صورت تعاملی و SecureString درخواست می‌شود و ذخیره نمی‌شود.
 
-Installer در اولین نصب این کارها را انجام می‌دهد:
-
-- نصب و فعال‌سازی IIS Manager و ASP.NET Core Hosting Bundle 8
-- دریافت آخرین Releaseهای `master` و `test` و کنترل SHA-256
-- ایجاد Database، User و Grant مستقل MySQL برای هر کانال
-- تست واقعی ورود هر User به Database مربوط به خودش
-- merge کردن تنظیمات دیتابیس داخل `appsettings.json`؛ تنظیمات SMS، AI، Sync و Logging حذف نمی‌شوند
-- ایجاد Site و Application Pool مستقل در IIS Manager
-- نصب Test و Production به‌صورت مستقل؛ خطای یک کانال مانع تلاش برای نصب کانال دیگر نمی‌شود
-- Health Check واقعی هر دو سایت و ثبت Auto Update
-
-اگر Userهای MySQL هنوز وجود نداشته باشند، Installer رمز مدیر MySQL (پیش‌فرض: `root`) را به‌صورت امن درخواست می‌کند. این رمز ذخیره نمی‌شود. رمزهای سرویس ERP در مسیر زیر نگهداری می‌شوند و فقط Administrators و SYSTEM به آن دسترسی دارند:
+رمزهای حساب سرویس ERP در فایل زیر نگهداری می‌شوند و ACL آن فقط برای Administrators و SYSTEM است:
 
 ```text
 C:\ProgramData\iMonitorERP\config\mysql-credentials.json
 ```
 
-برای نام متفاوت مدیر MySQL:
+نام پیش‌فرض دیتابیس‌ها و Userها:
+
+```text
+Test       imonitor_erp_test        imonitor_test
+Production imonitor_erp_production  imonitor_production
+```
+
+### راه‌اندازی اولیه و Recovery
+
+در v2.0.2، `Database:MigrateOnStartup` عمداً خاموش است. بنابراین خرابی Migration نباید IIS Worker را قبل از بالا آمدن رابط بازیابی متوقف کند. Migration در حالت خرابی از مسیر نگهداری انجام می‌شود:
+
+```text
+/Admin/Database/Migrate
+/Account/Reset
+```
+
+این مسیر با OTP پیامکی محافظت می‌شود. شماره و شناسه مدیر بازیابی را در سورس قرار ندهید؛ روی سرور از Environment Variable استفاده کنید:
+
+```powershell
+[Environment]::SetEnvironmentVariable('IMONITOR_BOOTSTRAP_NATIONAL_CODE', '<bootstrap-id>', 'Machine')
+[Environment]::SetEnvironmentVariable('IMONITOR_BOOTSTRAP_MOBILE', '<mobile>', 'Machine')
+```
+
+یا هنگام اجرای Installer مقدارها را با پارامترهای زیر بدهید:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
   -Channel Both `
-  -MySqlAdminUser root
+  -BootstrapAdminNationalCode '<bootstrap-id>' `
+  -BootstrapAdminMobile '<mobile>'
 ```
+
+تنظیمات OTP: اعتبار ۵ دقیقه، حداکثر ۵ تلاش، فاصله ارسال مجدد ۶۰ ثانیه و دسترسی نگهداری ۱۵ دقیقه. پیامک System Recovery می‌تواند در زمان خرابی ApplicationDbContext مستقیماً از Provider ابری تنظیم‌شده استفاده کند؛ پیامک‌های وابسته به Company همچنان fail-closed می‌مانند.
+
+پس از Migration، برای نصب خام به `/Account/Setup` بروید تا مدیر، شرکت، شعبه و دفتر اصلی ایجاد شوند.
+
+### نصب و بروزرسانی مستقل کانال‌ها
+
+```powershell
+# Production
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Production -Force
+
+# Test
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Test -Force
+
+# فقط بروزرسانی نصب موجود
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both -UpdateOnly
+```
+
+Test و Production مستقل نصب می‌شوند؛ خطای یکی مانع تلاش برای کانال دیگر نمی‌شود. Scheduled Task مربوط به Test هر ۵ دقیقه و Production روزانه اجرا می‌شود و v2.0.2 را با cache-busting دریافت می‌کند.
 
 ### ساختار نصب Windows
 
 ```text
 C:\ProgramData\iMonitorERP\
 ├── config\mysql-credentials.json
-├── installer\Install-iMonitorERP.ps1
+├── installer\Install-iMonitorERP-v2.0.2.ps1
 ├── state\
 ├── dotnet\
 ├── production\
@@ -160,26 +130,10 @@ C:\ProgramData\iMonitorERP\
     └── releases\
 ```
 
-### نصب یا بروزرسانی یک کانال
-
-```powershell
-# نصب/ترمیم Production
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Production -Force
-
-# نصب/ترمیم Test
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Test -Force
-
-# بروزرسانی فقط روی نصب موجود
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both -UpdateOnly
-```
-
-`-UpdateOnly` نصب اولیه انجام نمی‌دهد و اگر کانالی قبلاً نصب نشده باشد، خطای روشن برمی‌گرداند.
-
-### عیب‌یابی IIS و خطاهای 500.30 / 503
+### عیب‌یابی IIS و 500.30 / 503
 
 ```powershell
 Import-Module WebAdministration
-
 Get-Website | Select-Object Name, State, PhysicalPath, Bindings
 Get-WebAppPoolState 'iMonitorERP-Production'
 Get-WebAppPoolState 'iMonitorERP-Test'
@@ -190,45 +144,35 @@ Get-WinEvent -LogName Application -MaxEvents 100 |
   Format-List
 ```
 
-لاگ‌های اجرای IIS:
+لاگ‌های IIS:
 
 ```text
 C:\ProgramData\iMonitorERP\production\current\logs
 C:\ProgramData\iMonitorERP\test\current\logs
 ```
 
-### Linux / Ubuntu
-
-نصب Linux همچنان با Installer نسخه‌دار انجام می‌شود:
+### Linux / Ubuntu ERP
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.0.sh | sudo bash -s -- --channel both
 ```
 
-در Windows، مرجع رسمی پورت‌ها همیشه Production روی `8080` و Test روی `8081` است.
+---
 
-## New_Win_Edge — فاز یک چاپ مستقیم بارکد
+## New_Win_Edge
 
-این برنامه روی همان رایانه Windows که پرینتر به آن متصل است نصب می‌شود و API محلی زیر را بدون نمایش فرم اجرا می‌کند:
+فاز چاپ مستقیم Windows Edge روی رایانه متصل به چاپگر اجرا می‌شود. Endpointهای اصلی:
 
-- Health: `http://127.0.0.1:17891/health`
-- Printer discovery: `http://127.0.0.1:17891/api/printers`
-- Direct barcode print: `POST http://127.0.0.1:17891/api/labels/print`
+```text
+Health             http://127.0.0.1:17891/health
+Printer discovery  http://127.0.0.1:17891/api/printers
+Direct label print POST http://127.0.0.1:17891/api/labels/print
+```
 
-### نصب One-Click روی Windows
-
-PowerShell معمولی را باز و این فرمان را اجرا کنید:
+نصب One-Click:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-New-Win-Edge.ps1 | iex"
 ```
 
-Installer بسته را از `manifests/new-win-edge-preview.json` دریافت، SHA-256 را بررسی و در مسیر زیر نصب می‌کند:
-
-```text
-%LOCALAPPDATA%\iMonitor\New_Win_Edge\current
-```
-
-برنامه در Startup کاربر ثبت می‌شود، Headless اجرا می‌شود و چاپ مستقیم از پنجره «چاپ برچسب کالا» در Ecomm انجام می‌گیرد. برای نمایش رابط نگهداری می‌توان فایل اجرایی را با `--show-ui` اجرا کرد.
-
-> تا وقتی manifest مقدار `published: true` نداشته باشد، installer عمداً نصب را متوقف می‌کند. workflow مخزن `New_Windows_Edge` پس از build موفق بسته و manifest را منتشر می‌کند.
+بسته در `%LOCALAPPDATA%\iMonitor\New_Win_Edge\current` نصب می‌شود. انتشار نهایی وابسته به `published: true` در manifest مربوط به New Windows Edge است.
