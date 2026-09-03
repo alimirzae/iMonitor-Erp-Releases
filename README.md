@@ -92,6 +92,24 @@ powershell.exe `
   -Channel Both
 ```
 
+اگر فایل `iMonitor-EcomERP-win-x64.zip` را با مرورگر دانلود کرده‌اید، آن را در همان پوشه‌ای قرار دهید که PowerShell از آن اجرا می‌شود. مثلاً:
+
+```text
+D:\erp_ins\iMonitor-EcomERP-win-x64.zip
+```
+
+سپس نصب را از همان مسیر اجرا کنید یا مسیر Cache را صریح تعیین کنید:
+
+```powershell
+Set-Location D:\erp_ins
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
+  -Channel Both `
+  -PackageCacheDirectory 'D:\erp_ins' `
+  -Force
+```
+
+Installer ابتدا SHA-256 فایل محلی را با checksum آخرین Release مقایسه می‌کند. اگر یکسان باشد دانلود ZIP کاملاً رد می‌شود؛ در غیر این صورت فایل محلی دست‌نخورده می‌ماند و نسخه صحیح در زیرپوشه نام Release دانلود می‌شود.
+
 خروجی نصب:
 
 | کانال | آدرس | IIS Site / App Pool | مسیر برنامه |
