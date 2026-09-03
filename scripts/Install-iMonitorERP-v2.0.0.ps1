@@ -57,11 +57,12 @@ if (-not $hasRuntime) {
 } else { $dotnetExe = $dotnet.Source }
 
 function Ensure-IIS {
-    $iisFeature = Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole -ErrorAction SilentlyContinue
-    if ($iisFeature -and $iisFeature.State -ne 'Enabled') {
+    if (Get-Command Enable-WindowsOptionalFeature -ErrorAction SilentlyContinue) {
         Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole,IIS-WebServer,IIS-ManagementConsole,IIS-StaticContent,IIS-DefaultDocument,IIS-HttpErrors,IIS-HttpLogging,IIS-RequestFiltering -All -NoRestart | Out-Null
-    } elseif (-not $iisFeature -and (Get-Command Install-WindowsFeature -ErrorAction SilentlyContinue)) {
+    } elseif (Get-Command Install-WindowsFeature -ErrorAction SilentlyContinue) {
         Install-WindowsFeature Web-Server,Web-Mgmt-Console -IncludeManagementTools | Out-Null
+    } else {
+        throw 'This Windows edition does not expose IIS installation cmdlets.'
     }
     Import-Module WebAdministration -ErrorAction Stop
 
@@ -160,13 +161,14 @@ function Install-Channel([string]$Name,[int]$Port,[string]$Database,[string]$Use
         Set-Content (Join-Path $current 'web.config') $webConfig -Encoding UTF8
     }
     New-Item -ItemType Directory -Force -Path (Join-Path $current 'logs') | Out-Null
+
+    if (Test-Path "IIS:\Sites\$siteName") { Remove-Website -Name $siteName }
+    if (-not (Test-Path "IIS:\AppPools\$poolName")) { New-WebAppPool -Name $poolName | Out-Null }
+
     $poolAclRead = "IIS AppPool\" + $poolName + ":(OI)(CI)RX"
     $poolAclModify = "IIS AppPool\" + $poolName + ":(OI)(CI)M"
     & icacls $current /grant:r $poolAclRead /T /C | Out-Null
     & icacls (Join-Path $current 'logs') /grant:r $poolAclModify /T /C | Out-Null
-
-    if (Test-Path "IIS:\Sites\$siteName") { Remove-Website -Name $siteName }
-    if (-not (Test-Path "IIS:\AppPools\$poolName")) { New-WebAppPool -Name $poolName | Out-Null }
     Set-ItemProperty "IIS:\AppPools\$poolName" -Name managedRuntimeVersion -Value ''
     Set-ItemProperty "IIS:\AppPools\$poolName" -Name managedPipelineMode -Value Integrated
     Set-ItemProperty "IIS:\AppPools\$poolName" -Name processModel.identityType -Value ApplicationPoolIdentity
