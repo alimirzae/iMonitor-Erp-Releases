@@ -40,6 +40,13 @@ $needle = "Set-JsonValue `$databaseSettings 'MigrateOnStartup' `$true"
 $replacement = "Set-JsonValue `$databaseSettings 'MigrateOnStartup' `$false"
 if (-not $text.Contains($needle)) { throw 'Compatibility check failed: MigrateOnStartup assignment was not found in v2.0.1.' }
 $text = $text.Replace($needle, $replacement)
+
+# The normal root page can depend on company/book state. During a raw install it is
+# the wrong liveness probe. The OTP recovery page is deliberately database-lazy.
+$healthNeedle = '$url = "http://127.0.0.1:$Port/"'
+$healthReplacement = '$url = "http://127.0.0.1:$Port/Admin/Database/Migrate"'
+if (-not $text.Contains($healthNeedle)) { throw 'Compatibility check failed: IIS health URL was not found in v2.0.1.' }
+$text = $text.Replace($healthNeedle, $healthReplacement)
 Set-Content $baseInstaller $text -Encoding UTF8
 
 $invoke = @{
