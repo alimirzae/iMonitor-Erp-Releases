@@ -180,15 +180,52 @@ function Merge-AppSettings([string]$Path,[string]$Name,[string]$Database,[string
 function Invoke-Download([string]$Uri,[string]$OutFile,[string]$Label) {
     $lastError = $null
     for ($attempt = 1; $attempt -le 5; $attempt++) {
+        $client = $null
+        $response = $null
+        $inputStream = $null
+        $outputStream = $null
         try {
             Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
             Write-Host "$Label (attempt $attempt/5)..."
-            Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $OutFile -TimeoutSec 120
-            if (-not (Test-Path $OutFile) -or (Get-Item $OutFile).Length -eq 0) { throw 'Downloaded file is empty.' }
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
+
+            $handler = New-Object System.Net.Http.HttpClientHandler
+            $handler.AllowAutoRedirect = $true
+            $handler.AutomaticDecompression = [Net.DecompressionMethods]::GZip -bor [Net.DecompressionMethods]::Deflate
+            $client = New-Object System.Net.Http.HttpClient($handler)
+            $client.Timeout = [TimeSpan]::FromMinutes(15)
+            $client.DefaultRequestHeaders.UserAgent.ParseAdd('iMonitorERP-Installer/2.0')
+
+            $response = $client.GetAsync($Uri, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+            $response.EnsureSuccessStatusCode()
+            $expectedBytes = $response.Content.Headers.ContentLength
+            if ($expectedBytes) { Write-Host ("Downloading {0:N1} MB via HTTP stream..." -f ($expectedBytes / 1MB)) }
+
+            $inputStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+            $outputStream = New-Object System.IO.FileStream($OutFile, [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::None, 1048576, [IO.FileOptions]::SequentialScan)
+            $inputStream.CopyTo($outputStream, 1048576)
+            $outputStream.Flush()
+            $downloadedBytes = (Get-Item $OutFile).Length
+
+            if ($downloadedBytes -eq 0) { throw 'Downloaded file is empty.' }
+            if ($expectedBytes -and $downloadedBytes -ne $expectedBytes) {
+                throw "Incomplete download: received $downloadedBytes of $expectedBytes bytes."
+            }
+            Write-Host ("$Label completed: {0:N1} MB" -f ($downloadedBytes / 1MB))
             return
         } catch {
-            $lastError = $_.Exception.Message
-            if ($attempt -lt 5) { Start-Sleep -Seconds ([Math]::Min(2 * $attempt, 8)) }
+            $lastError = $_.Exception.GetBaseException().Message
+            Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+            if ($attempt -lt 5) {
+                Write-Warning "$Label failed: $lastError. Retrying..."
+                Start-Sleep -Seconds ([Math]::Min(2 * $attempt, 8))
+            }
+        } finally {
+            if ($outputStream) { $outputStream.Dispose() }
+            if ($inputStream) { $inputStream.Dispose() }
+            if ($response) { $response.Dispose() }
+            if ($client) { $client.Dispose() }
         }
     }
     throw "$Label failed after 5 attempts. URL: $Uri. Last error: $lastError"
