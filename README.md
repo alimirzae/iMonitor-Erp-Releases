@@ -16,21 +16,23 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.3
+### Windows x64 — Installer رسمی v2.0.4
 
 برای جلوگیری از مشکل cache همیشه Installer نسخه‌دار جدید را دریافت کنید. PowerShell را با **Run as Administrator** باز کنید:
 
 ```powershell
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.3.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.4.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 Invoke-WebRequest `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.3.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.4.ps1?cb=$cacheBust" `
   -UseBasicParsing `
   -OutFile $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both
 ```
+
+> v2.0.4 خطای Parser پاورشل در v2.0.3 (`$path:` داخل رشته) را رفع می‌کند و همان رفتار persistence تنظیمات MySQL را حفظ می‌کند.
 
 پورت‌های رسمی Windows:
 
@@ -63,7 +65,7 @@ Installer برای Test و Production دیتابیس، User و Grant جداگا�
 C:\ProgramData\iMonitorERP\config\mysql-credentials.json
 ```
 
-در v2.0.3 این فایل منبع پایدار تنظیمات اتصال برای بروزرسانی‌های خودکار است و این موارد را نگه می‌دارد:
+در v2.0.4 این فایل منبع پایدار تنظیمات اتصال برای بروزرسانی‌های خودکار است و این موارد را نگه می‌دارد:
 
 ```text
 Server
@@ -76,7 +78,7 @@ ProductionUser
 ProductionPassword
 ```
 
-اولویت انتخاب تنظیمات در v2.0.3:
+اولویت انتخاب تنظیمات در v2.0.4:
 
 ```text
 پارامتر صریح خط فرمان
@@ -121,7 +123,7 @@ C:\ProgramData\iMonitorERP\production\current\appsettings.json
 
 ### راه‌اندازی اولیه و Recovery
 
-در v2.0.3، مانند v2.0.2، `Database:MigrateOnStartup` عمداً خاموش است. بنابراین خرابی Migration نباید IIS Worker را قبل از بالا آمدن رابط بازیابی متوقف کند. Migration در حالت خرابی از مسیر نگهداری انجام می‌شود:
+در v2.0.4، مانند v2.0.2، `Database:MigrateOnStartup` عمداً خاموش است. بنابراین خرابی Migration نباید IIS Worker را قبل از بالا آمدن رابط بازیابی متوقف کند. Migration در حالت خرابی از مسیر نگهداری انجام می‌شود:
 
 ```text
 /Admin/Database/Migrate
@@ -144,8 +146,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
   -BootstrapAdminMobile '<mobile>'
 ```
 
-تنظیمات OTP: اعتبار ۵ دقیقه، حداکثر ۵ تلاش، فاصله ارسال مجدد ۶۰ ثانیه و دسترسی نگهداری ۱۵ دقیقه. پیامک System Recovery می‌تواند در زمان خرابی ApplicationDbContext مستقیماً از Provider ابری تنظیم‌شده استفاده کند؛ پیامک‌های وابسته به Company همچنان fail-closed می‌مانند.
-
 پس از Migration، برای نصب خام به `/Account/Setup` بروید تا مدیر، شرکت، شعبه و دفتر اصلی ایجاد شوند.
 
 ### نصب و بروزرسانی مستقل کانال‌ها
@@ -161,14 +161,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Test
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both -UpdateOnly
 ```
 
-Test و Production مستقل نصب می‌شوند؛ خطای یکی مانع تلاش برای کانال دیگر نمی‌شود. Scheduled Task مربوط به Test هر ۵ دقیقه و Production روزانه اجرا می‌شود و v2.0.3 را با cache-busting دریافت می‌کند. Scheduled Task فقط `Channel` و `UpdateOnly` را می‌فرستد و v2.0.3 تنظیمات کامل اتصال را از فایل امن credentials بازیابی می‌کند.
+Test و Production مستقل نصب می‌شوند. Scheduled Task مربوط به Test هر ۵ دقیقه و Production روزانه اجرا می‌شود و v2.0.4 را با cache-busting دریافت می‌کند. Scheduled Task فقط `Channel` و `UpdateOnly` را می‌فرستد و v2.0.4 تنظیمات کامل اتصال را از فایل امن credentials بازیابی می‌کند.
 
 ### ساختار نصب Windows
 
 ```text
 C:\ProgramData\iMonitorERP\
 ├── config\mysql-credentials.json
-├── installer\Install-iMonitorERP-v2.0.3.ps1
+├── installer\Install-iMonitorERP-v2.0.4.ps1
 ├── state\
 ├── dotnet\
 ├── production\
