@@ -83,6 +83,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Ecomm publish failed.' }
           if (-not (Test-Path (Join-Path $out 'Ecomm.dll'))) { throw 'Ecomm.dll is missing from publish output.' }
           if (-not (Test-Path (Join-Path $out 'wwwroot'))) { throw 'Published wwwroot is missing.' }
+          if (-not (Test-Path (Join-Path $out 'Reports\Invoice.mrt'))) { throw 'Published Invoice.mrt is missing.' }
+          if (-not (Test-Path (Join-Path $out 'Reports\Label.mrt'))) { throw 'Published Label.mrt is missing.' }
 
       - name: Zip and checksum
         shell: powershell
@@ -107,12 +109,22 @@ jobs:
           $version = "2.0.$env:SOURCE_RUN_NUMBER"
           $tag = "imonitor-ecomerp-$channel-v$version"
           $title = "iMonitor Ecomm ERP $channel $version"
-          $notes = "Verified Windows release from $env:SOURCE_REPO@$env:SOURCE_SHA. Full solution build and tests passed on Ecomm self-hosted runner before this dispatch. Startup packaging also guards null WebRootPath and verifies wwwroot is present."
+          $notes = "Verified Windows release from $env:SOURCE_REPO@$env:SOURCE_SHA. Full solution build and tests passed on Ecomm self-hosted runner before this dispatch. Package validation verifies Ecomm.dll, wwwroot and report templates before release."
           $zip = Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
           $shaFile = "$zip.sha256"
 
-          & gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
-          if ($LASTEXITCODE -eq 0) {
+          $oldPreference = $ErrorActionPreference
+          try {
+            $ErrorActionPreference = 'Continue'
+            & gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+            $releaseExists = ($LASTEXITCODE -eq 0)
+            $global:LASTEXITCODE = 0
+          }
+          finally {
+            $ErrorActionPreference = $oldPreference
+          }
+
+          if ($releaseExists) {
             & gh release upload $tag $zip $shaFile --clobber --repo $env:GITHUB_REPOSITORY
             if ($LASTEXITCODE -ne 0) { throw 'Release asset refresh failed.' }
           }
