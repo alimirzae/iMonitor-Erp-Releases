@@ -14,77 +14,71 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.9
+### Windows x64 — Installer رسمی v2.0.11
 
 PowerShell را با **Run as Administrator** باز کنید:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.9.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.11.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
-Invoke-WebRequest `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.9.ps1?cb=$cacheBust" `
-  -UseBasicParsing `
-  -OutFile $installer
+curl.exe -4 --http1.1 -fL `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.11.ps1?cb=$cacheBust" `
+  -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File $installer `
   -Channel Both `
-  -UpdateOnly `
+  -Force `
   -PackageCacheDirectory 'D:\erp_ins'
 ```
 
-`v2.0.9` نسخه رسمی فعلی است. فایل `v2.0.8` موجود در همین مخزن به v2.0.9 forward می‌شود تا اجرای دستور قدیمی نیز منطق جدید را بگیرد.
+`v2.0.11` نسخه رسمی فعلی است.
 
-### تغییر مهم v2.0.9
+### تغییر مهم v2.0.11 — انتشار امن روی IIS
 
-Test و Production مستقل Update می‌شوند. اجرای child updater دیگر با `Start-Process -ArgumentList` انجام نمی‌شود و آرگومان‌ها مستقیماً به `powershell.exe` داده می‌شوند تا مشکل quoting در PowerShell ویندوز حذف شود.
-
-اگر credential دیتابیس Production خراب باشد:
-
-- Update کانال Test ادامه پیدا می‌کند.
-- Production فقط Skip می‌شود.
-- stack trace طولانی MySQL/PowerShell برای Production نمایش داده نمی‌شود.
-- Warning کوتاه و قابل‌فهم نمایش داده می‌شود.
-
-اگر خود Test شکست بخورد، v2.0.9 به‌جای مخفی‌کردن علت، چند خط انتهایی diagnostic را بعد از حذف اطلاعات حساس چاپ می‌کند تا خطای واقعی قابل تشخیص باشد.
-
-نمونه موفق با Production خراب:
+هنگام Update دیگر فقط AppPool متوقف نمی‌شود. ترتیب Activation به شکل زیر است:
 
 ```text
-Test: update completed.
-WARNING: Production: MySQL credentials are invalid ... Production was skipped.
-iMonitor ERP installer/updater v2.0.9 completed.
+Validate package
+→ Stage new release
+→ Stop IIS Site
+→ Stop IIS AppPool
+→ Wait/retry for file handles to be released
+→ Atomic swap current
+→ Start AppPool
+→ Start Site
+→ Health check
+→ Rollback automatically if health fails
 ```
 
-### Mirror داخلی ایران و Fallback خودکار
-
-مسیرهای اصلی Mirror:
+این تغییر خطای زیر را هنگام جایگزینی `current` رفع می‌کند:
 
 ```text
-https://testerp.imonitor.ir/downloads/erp/test/latest.json
-https://testerp.imonitor.ir/downloads/erp/test/iMonitor-EcomERP-win-x64.zip
-https://testerp.imonitor.ir/downloads/erp/test/iMonitor-EcomERP-win-x64.zip.sha256.txt
-https://testerp.imonitor.ir/downloads/erp/master/latest.json
-https://testerp.imonitor.ir/downloads/erp/master/iMonitor-EcomERP-win-x64.zip
-https://testerp.imonitor.ir/downloads/erp/install/Install-iMonitorERP-v2.0.9.ps1.txt
+The process cannot access the file because it is being used by another process.
+Move-Item ... current ...
 ```
 
-Installer ابتدا Mirror داخلی و GitHub را بررسی می‌کند. اگر Mirror آماده نباشد، GitHub با IPv4 (`curl -4`) fallback است. خراب بودن Mirror نباید نصب یا Update را متوقف کند.
+قبل از فعال‌سازی وجود این موارد اجباری است:
 
-برای bootstrap از GitHub:
-
-```powershell
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.9.ps1'
-$cb = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-Invoke-WebRequest `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.9.ps1?cb=$cb" `
-  -UseBasicParsing `
-  -OutFile $installer
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both -UpdateOnly
+```text
+Ecomm.dll
+web.config
+wwwroot
+Reports
+Reports\Invoice.mrt
+Reports\Label.mrt
 ```
+
+Package ناقص فعال نمی‌شود و در صورت شکست، `current` قبلی بازیابی می‌شود.
+
+### تشخیص آخرین Release
+
+GitHub Release از طریق IPv4 مرجع تشخیص نسخه است. بنابراین mirror داخلی قدیمی دیگر باعث باقی ماندن کلاینت روی نسخه قبلی نمی‌شود.
+
+ZIP دانلودشده در `D:\erp_ins` با SHA-256 کنترل می‌شود. اگر همان نسخه قبلاً کامل دانلود شده باشد، دانلود مجدد انجام نمی‌شود.
 
 ### پورت‌ها و مسیرهای Windows
 
@@ -101,18 +95,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both
 C:\ProgramData\iMonitorERP\config\mysql-credentials.json
 ```
 
-اولویت تنظیمات:
-
-```text
-پارامتر صریح خط فرمان
-    ↓
-mysql-credentials.json
-    ↓
-appsettings.json نصب موجود
-    ↓
-مقدار پیش‌فرض Installer
-```
-
 فایل runtime واقعی هر کانال:
 
 ```text
@@ -120,43 +102,22 @@ C:\ProgramData\iMonitorERP\test\current\appsettings.json
 C:\ProgramData\iMonitorERP\production\current\appsettings.json
 ```
 
-برای اصلاح پایدار credential Production، یک بار Installer را بدون `-UpdateOnly` و با اطلاعات صحیح اجرا کنید.
-
-### استفاده از ZIP از قبل دانلودشده
-
-اگر `iMonitor-EcomERP-win-x64.zip` در `D:\erp_ins` وجود داشته باشد:
-
-```powershell
-Set-Location D:\erp_ins
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File $installer `
-  -Channel Test `
-  -UpdateOnly `
-  -PackageCacheDirectory 'D:\erp_ins'
-```
-
-اگر checksum فایل محلی با آخرین Release یکی باشد، دانلود مجدد Package انجام نمی‌شود.
-
 ### Scheduled Taskها
 
-بعد از اجرای موفق v2.0.9:
+بعد از اجرای موفق v2.0.11:
 
 ```text
-C:\ProgramData\iMonitorERP\installer\Install-iMonitorERP-v2.0.9.ps1
+C:\ProgramData\iMonitorERP\installer\Install-iMonitorERP-v2.0.11.ps1
 ```
 
-و Taskها:
+Taskها:
 
 ```text
 iMonitorERP-Update-Test
 iMonitorERP-Update-Production
 ```
 
-هر کانال هر ۵ دقیقه و مستقل از کانال دیگر بررسی می‌شود.
-
-### راه‌اندازی اولیه / Recovery
-
-در وضعیت فعلی، `/Account/Setup` عمداً از مسیر اصلی سیستم خارج شده تا روی بوت Dashboard و Login اثر نگذارد. برای Migration و Recovery از ابزارهای مدیریتی فعال سیستم استفاده کنید.
+هر کانال هر ۵ دقیقه مستقل بررسی می‌شود.
 
 ### Linux / Ubuntu ERP
 
