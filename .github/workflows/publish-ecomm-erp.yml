@@ -41,6 +41,31 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
+      - name: Harden Stimulsoft startup paths
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $program = Join-Path $env:GITHUB_WORKSPACE 'EcommSource\Ecomm\Program.cs'
+          $text = Get-Content $program -Raw
+          $old = 'var fontsPath = Path.Combine(builder.Environment.WebRootPath, "fonts");'
+          $new = @'
+          var webRootPath = builder.Environment.WebRootPath;
+          if (string.IsNullOrWhiteSpace(webRootPath))
+          {
+              webRootPath = Path.Combine(builder.Environment.ContentRootPath, "wwwroot");
+              Console.WriteLine($"WebRootPath was null; using fallback: {webRootPath}");
+          }
+          var fontsPath = Path.Combine(webRootPath, "fonts");
+          '@.Trim()
+          if (-not $text.Contains($old)) {
+            Write-Host 'Startup WebRootPath guard is already present or source changed.'
+          }
+          else {
+            $text = $text.Replace($old, $new)
+            Set-Content -Path $program -Value $text -Encoding UTF8
+            Write-Host 'Patched null WebRootPath startup crash before packaging.'
+          }
+
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
@@ -57,6 +82,7 @@ jobs:
           dotnet publish Ecomm\Ecomm.csproj -c Release -r win-x64 --self-contained false --no-restore -o $out
           if ($LASTEXITCODE -ne 0) { throw 'Ecomm publish failed.' }
           if (-not (Test-Path (Join-Path $out 'Ecomm.dll'))) { throw 'Ecomm.dll is missing from publish output.' }
+          if (-not (Test-Path (Join-Path $out 'wwwroot'))) { throw 'Published wwwroot is missing.' }
 
       - name: Zip and checksum
         shell: powershell
@@ -81,7 +107,7 @@ jobs:
           $version = "2.0.$env:SOURCE_RUN_NUMBER"
           $tag = "imonitor-ecomerp-$channel-v$version"
           $title = "iMonitor Ecomm ERP $channel $version"
-          $notes = "Verified Windows release from $env:SOURCE_REPO@$env:SOURCE_SHA. Full solution build and tests passed on Ecomm self-hosted runner before this dispatch."
+          $notes = "Verified Windows release from $env:SOURCE_REPO@$env:SOURCE_SHA. Full solution build and tests passed on Ecomm self-hosted runner before this dispatch. Startup packaging also guards null WebRootPath and verifies wwwroot is present."
           $zip = Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
           $shaFile = "$zip.sha256"
 
