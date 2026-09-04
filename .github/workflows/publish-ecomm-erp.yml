@@ -36,8 +36,10 @@ jobs:
         with:
           repository: alimirzae/Ecomm
           ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.RELEASE_REPO_TOKEN }}
           path: EcommSource
           persist-credentials: false
+          fetch-depth: 1
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
