@@ -16,16 +16,16 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.2
+### Windows x64 — Installer رسمی v2.0.3
 
 برای جلوگیری از مشکل cache همیشه Installer نسخه‌دار جدید را دریافت کنید. PowerShell را با **Run as Administrator** باز کنید:
 
 ```powershell
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.2.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.3.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 Invoke-WebRequest `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.2.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.3.ps1?cb=$cacheBust" `
   -UseBasicParsing `
   -OutFile $installer
 
@@ -57,22 +57,71 @@ Installer checksum آخرین Release را می‌گیرد و SHA-256 فایل �
 
 Installer برای Test و Production دیتابیس، User و Grant جداگانه ایجاد و ورود واقعی همان User به Database را تست می‌کند. اگر حساب‌ها هنوز وجود نداشته باشند، رمز مدیر MySQL به‌صورت تعاملی و SecureString درخواست می‌شود و ذخیره نمی‌شود.
 
-رمزهای حساب سرویس ERP در فایل زیر نگهداری می‌شوند و ACL آن فقط برای Administrators و SYSTEM است:
+تنظیمات پایدار MySQL در فایل زیر نگهداری می‌شوند و ACL آن فقط برای Administrators و SYSTEM است:
 
 ```text
 C:\ProgramData\iMonitorERP\config\mysql-credentials.json
 ```
 
-نام پیش‌فرض دیتابیس‌ها و Userها:
+در v2.0.3 این فایل منبع پایدار تنظیمات اتصال برای بروزرسانی‌های خودکار است و این موارد را نگه می‌دارد:
+
+```text
+Server
+Port
+TestDatabase
+TestUser
+TestPassword
+ProductionDatabase
+ProductionUser
+ProductionPassword
+```
+
+اولویت انتخاب تنظیمات در v2.0.3:
+
+```text
+پارامتر صریح خط فرمان
+    ↓
+mysql-credentials.json
+    ↓
+appsettings.json نصب موجود
+    ↓
+مقدار پیش‌فرض Installer
+```
+
+بنابراین اجرای Scheduled Task با `-UpdateOnly` دیگر نام Database/User سفارشی را به `imonitor_erp_test` یا `imonitor_test` برنمی‌گرداند.
+
+نام‌های پیش‌فرض فقط برای نصب اولیه‌ای هستند که هنوز تنظیم ذخیره‌شده‌ای ندارد:
 
 ```text
 Test       imonitor_erp_test        imonitor_test
 Production imonitor_erp_production  imonitor_production
 ```
 
+برای تغییر پایدار دیتابیس Test می‌توانید یک بار Installer را با مقادیر صریح اجرا کنید:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
+  -Channel Test `
+  -TestDatabase 'your_test_database' `
+  -TestUser 'your_test_user' `
+  -TestPassword 'your_password' `
+  -UpdateOnly
+```
+
+پس از آن مقادیر در `mysql-credentials.json` ذخیره می‌شوند و بروزرسانی‌های بعدی همان مقادیر را استفاده می‌کنند. برای امنیت، Password داخل Command Line مربوط به Scheduled Task ذخیره نمی‌شود.
+
+فایل runtime واقعی هر کانال:
+
+```text
+C:\ProgramData\iMonitorERP\test\current\appsettings.json
+C:\ProgramData\iMonitorERP\production\current\appsettings.json
+```
+
+در زمان نصب/بروزرسانی، Installer این فایل‌ها را بر اساس تنظیمات پایدار بالا merge می‌کند. اگر فقط `appsettings.json` را دستی تغییر دهید ولی `mysql-credentials.json` مقدار دیگری داشته باشد، بروزرسانی بعدی مقدار ذخیره‌شده در credentials را دوباره اعمال می‌کند.
+
 ### راه‌اندازی اولیه و Recovery
 
-در v2.0.2، `Database:MigrateOnStartup` عمداً خاموش است. بنابراین خرابی Migration نباید IIS Worker را قبل از بالا آمدن رابط بازیابی متوقف کند. Migration در حالت خرابی از مسیر نگهداری انجام می‌شود:
+در v2.0.3، مانند v2.0.2، `Database:MigrateOnStartup` عمداً خاموش است. بنابراین خرابی Migration نباید IIS Worker را قبل از بالا آمدن رابط بازیابی متوقف کند. Migration در حالت خرابی از مسیر نگهداری انجام می‌شود:
 
 ```text
 /Admin/Database/Migrate
@@ -112,14 +161,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Test
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both -UpdateOnly
 ```
 
-Test و Production مستقل نصب می‌شوند؛ خطای یکی مانع تلاش برای کانال دیگر نمی‌شود. Scheduled Task مربوط به Test هر ۵ دقیقه و Production روزانه اجرا می‌شود و v2.0.2 را با cache-busting دریافت می‌کند.
+Test و Production مستقل نصب می‌شوند؛ خطای یکی مانع تلاش برای کانال دیگر نمی‌شود. Scheduled Task مربوط به Test هر ۵ دقیقه و Production روزانه اجرا می‌شود و v2.0.3 را با cache-busting دریافت می‌کند. Scheduled Task فقط `Channel` و `UpdateOnly` را می‌فرستد و v2.0.3 تنظیمات کامل اتصال را از فایل امن credentials بازیابی می‌کند.
 
 ### ساختار نصب Windows
 
 ```text
 C:\ProgramData\iMonitorERP\
 ├── config\mysql-credentials.json
-├── installer\Install-iMonitorERP-v2.0.2.ps1
+├── installer\Install-iMonitorERP-v2.0.3.ps1
 ├── state\
 ├── dotnet\
 ├── production\
