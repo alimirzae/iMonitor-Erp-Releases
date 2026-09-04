@@ -14,18 +14,18 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.8
+### Windows x64 — Installer رسمی v2.0.9
 
 PowerShell را با **Run as Administrator** باز کنید:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.8.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.9.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 Invoke-WebRequest `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.8.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.9.ps1?cb=$cacheBust" `
   -UseBasicParsing `
   -OutFile $installer
 
@@ -36,24 +36,27 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -PackageCacheDirectory 'D:\erp_ins'
 ```
 
-`v2.0.8` نسخه رسمی فعلی است. اگر هنوز دستور `v2.0.7` را اجرا کنید، فایل v2.0.7 موجود در همین مخزن به‌صورت خودکار v2.0.8 را دریافت و اجرا می‌کند.
+`v2.0.9` نسخه رسمی فعلی است. فایل `v2.0.8` موجود در همین مخزن به v2.0.9 forward می‌شود تا اجرای دستور قدیمی نیز منطق جدید را بگیرد.
 
-### تغییر مهم v2.0.8
+### تغییر مهم v2.0.9
 
-Test و Production کاملاً مستقل Update می‌شوند. اگر مثلاً credential دیتابیس Production خراب باشد:
+Test و Production مستقل Update می‌شوند. اجرای child updater دیگر با `Start-Process -ArgumentList` انجام نمی‌شود و آرگومان‌ها مستقیماً به `powershell.exe` داده می‌شوند تا مشکل quoting در PowerShell ویندوز حذف شود.
+
+اگر credential دیتابیس Production خراب باشد:
 
 - Update کانال Test ادامه پیدا می‌کند.
 - Production فقط Skip می‌شود.
-- stack trace طولانی PowerShell/MySQL روی کنسول نمایش داده نمی‌شود.
-- فقط Warning کوتاه و قابل‌فهم نمایش داده می‌شود.
-- Scheduled Taskها بعد از اجرای موفق به `Install-iMonitorERP-v2.0.8.ps1` اشاره می‌کنند.
+- stack trace طولانی MySQL/PowerShell برای Production نمایش داده نمی‌شود.
+- Warning کوتاه و قابل‌فهم نمایش داده می‌شود.
 
-نمونه خروجی مورد انتظار در صورت خراب بودن credential Production:
+اگر خود Test شکست بخورد، v2.0.9 به‌جای مخفی‌کردن علت، چند خط انتهایی diagnostic را بعد از حذف اطلاعات حساس چاپ می‌کند تا خطای واقعی قابل تشخیص باشد.
+
+نمونه موفق با Production خراب:
 
 ```text
 Test: update completed.
 WARNING: Production: MySQL credentials are invalid ... Production was skipped.
-iMonitor ERP installer/updater v2.0.8 completed.
+iMonitor ERP installer/updater v2.0.9 completed.
 ```
 
 ### Mirror داخلی ایران و Fallback خودکار
@@ -66,24 +69,22 @@ https://testerp.imonitor.ir/downloads/erp/test/iMonitor-EcomERP-win-x64.zip
 https://testerp.imonitor.ir/downloads/erp/test/iMonitor-EcomERP-win-x64.zip.sha256.txt
 https://testerp.imonitor.ir/downloads/erp/master/latest.json
 https://testerp.imonitor.ir/downloads/erp/master/iMonitor-EcomERP-win-x64.zip
-https://testerp.imonitor.ir/downloads/erp/install/Install-iMonitorERP-v2.0.8.ps1.txt
+https://testerp.imonitor.ir/downloads/erp/install/Install-iMonitorERP-v2.0.9.ps1.txt
 ```
 
 Installer ابتدا Mirror داخلی و GitHub را بررسی می‌کند. اگر Mirror آماده نباشد، GitHub با IPv4 (`curl -4`) fallback است. خراب بودن Mirror نباید نصب یا Update را متوقف کند.
 
-برای bootstrap از Mirror داخلی:
+برای bootstrap از GitHub:
 
 ```powershell
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.8.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.9.ps1'
 $cb = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 Invoke-WebRequest `
-  "https://testerp.imonitor.ir/downloads/erp/install/Install-iMonitorERP-v2.0.8.ps1.txt?cb=$cb" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.9.ps1?cb=$cb" `
   -UseBasicParsing `
   -OutFile $installer
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both -UpdateOnly
 ```
-
-اگر Mirror 404 باشد، دستور GitHub بالا را اجرا کنید.
 
 ### پورت‌ها و مسیرهای Windows
 
@@ -119,19 +120,7 @@ C:\ProgramData\iMonitorERP\test\current\appsettings.json
 C:\ProgramData\iMonitorERP\production\current\appsettings.json
 ```
 
-اگر فقط `appsettings.json` را دستی تغییر دهید ولی `mysql-credentials.json` مقدار دیگری داشته باشد، updater ممکن است مقدار ذخیره‌شده credentials را دوباره اعمال کند. برای اصلاح پایدار credential، یک بار Installer را بدون `-UpdateOnly` و با اطلاعات صحیح اجرا کنید.
-
-نمونه اصلاح فقط Production:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File $installer `
-  -Channel Production `
-  -ProductionDatabase 'imonitor_erp_production' `
-  -ProductionUser 'imonitor_production'
-```
-
-در صورت نیاز Installer رمز مدیر MySQL را به‌صورت تعاملی درخواست می‌کند.
+برای اصلاح پایدار credential Production، یک بار Installer را بدون `-UpdateOnly` و با اطلاعات صحیح اجرا کنید.
 
 ### استفاده از ZIP از قبل دانلودشده
 
@@ -150,10 +139,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 ### Scheduled Taskها
 
-بعد از اجرای v2.0.8:
+بعد از اجرای موفق v2.0.9:
 
 ```text
-C:\ProgramData\iMonitorERP\installer\Install-iMonitorERP-v2.0.8.ps1
+C:\ProgramData\iMonitorERP\installer\Install-iMonitorERP-v2.0.9.ps1
 ```
 
 و Taskها:
@@ -167,28 +156,7 @@ iMonitorERP-Update-Production
 
 ### راه‌اندازی اولیه / Recovery
 
-در وضعیت فعلی، `/Account/Setup` عمداً از مسیر اصلی سیستم خارج شده تا روی بوت Dashboard و Login اثر نگذارد. برای Migration و Recovery از ابزارهای مدیریتی فعال سیستم استفاده کنید. تا زمانی که طراحی Recovery جدید نهایی نشده، README نباید نصب اولیه را به `/Account/Setup` وابسته بداند.
-
-### عیب‌یابی IIS
-
-```powershell
-Import-Module WebAdministration
-Get-Website | Select-Object Name, State, PhysicalPath, Bindings
-Get-WebAppPoolState 'iMonitorERP-Production'
-Get-WebAppPoolState 'iMonitorERP-Test'
-
-Get-WinEvent -LogName Application -MaxEvents 100 |
-  Where-Object ProviderName -in @('IIS AspNetCore Module V2','IIS-W3SVC-WP','.NET Runtime') |
-  Select-Object TimeCreated, ProviderName, Id, Message |
-  Format-List
-```
-
-لاگ‌ها:
-
-```text
-C:\ProgramData\iMonitorERP\production\current\logs
-C:\ProgramData\iMonitorERP\test\current\logs
-```
+در وضعیت فعلی، `/Account/Setup` عمداً از مسیر اصلی سیستم خارج شده تا روی بوت Dashboard و Login اثر نگذارد. برای Migration و Recovery از ابزارهای مدیریتی فعال سیستم استفاده کنید.
 
 ### Linux / Ubuntu ERP
 
