@@ -60,6 +60,12 @@ function Get-VersionFromTag([string]$Tag) {
     return [version]'0.0.0'
 }
 
+function Get-PublishedDate([object]$Release) {
+    if ($Release.published_at) { return [datetime]$Release.published_at }
+    if ($Release.created_at) { return [datetime]$Release.created_at }
+    return [datetime]::MinValue
+}
+
 function Get-LatestRelease([object[]]$Catalog,[string]$GitChannel) {
     $prefix = "imonitor-ecomerp-$GitChannel-v"
     $items = @($Catalog | Where-Object {
@@ -68,7 +74,7 @@ function Get-LatestRelease([object[]]$Catalog,[string]$GitChannel) {
         ($GitChannel -eq 'test' -or -not $_.prerelease)
     })
     if (-not $items) { throw "No published release found for channel $GitChannel." }
-    return $items | Sort-Object @{Expression={ Get-VersionFromTag ([string]$_.tag_name) };Descending=$true}, @{Expression={ [datetime]($_.published_at ?? $_.created_at) };Descending=$true} | Select-Object -First 1
+    return $items | Sort-Object @{Expression={ Get-VersionFromTag ([string]$_.tag_name) };Descending=$true}, @{Expression={ Get-PublishedDate $_ };Descending=$true} | Select-Object -First 1
 }
 
 function Test-PackageLayout([string]$Root) {
@@ -210,7 +216,7 @@ function Install-Channel([string]$Name,[int]$Port,[object[]]$Catalog) {
         Write-Host "$Name activated successfully: $tag" -ForegroundColor Green
     } catch {
         Write-Warning "$Name activation failed: $($_.Exception.Message)"
-        if (Test-Path $current -and Test-Path $backup) {
+        if ((Test-Path $current) -and (Test-Path $backup)) {
             Remove-Item $current -Recurse -Force -ErrorAction SilentlyContinue
         }
         if (Test-Path $backup) {
