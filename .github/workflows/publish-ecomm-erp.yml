@@ -1,0 +1,100 @@
+name: Publish Ecomm ERP Windows Release
+
+on:
+  repository_dispatch:
+    types: [ecomm-erp-release]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ecomm-erp-release-${{ github.event.client_payload.branch }}
+  cancel-in-progress: true
+
+jobs:
+  package-and-release:
+    name: Package and release verified Ecomm SHA
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      SOURCE_REPO: alimirzae/Ecomm
+      ASSET_NAME: iMonitor-EcomERP-win-x64.zip
+      SOURCE_SHA: ${{ github.event.client_payload.sha }}
+      SOURCE_BRANCH: ${{ github.event.client_payload.branch }}
+      SOURCE_RUN_NUMBER: ${{ github.event.client_payload.run_number }}
+    steps:
+      - name: Validate dispatch payload
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:SOURCE_BRANCH -notin @('test','master')) { throw "Unsupported branch: $env:SOURCE_BRANCH" }
+          if ($env:SOURCE_SHA -notmatch '^[0-9a-fA-F]{40}$') { throw 'Invalid source SHA.' }
+          if ($env:SOURCE_RUN_NUMBER -notmatch '^\d+$') { throw 'Invalid source run number.' }
+
+      - name: Checkout exact verified Ecomm commit
+        uses: actions/checkout@v4
+        with:
+          repository: alimirzae/Ecomm
+          ref: ${{ env.SOURCE_SHA }}
+          path: EcommSource
+          persist-credentials: false
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish Windows package only
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location "$env:GITHUB_WORKSPACE\EcommSource"
+          dotnet restore Ecomm\Ecomm.csproj -r win-x64
+          if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
+          $out = Join-Path $env:RUNNER_TEMP 'ecomm-publish'
+          dotnet publish Ecomm\Ecomm.csproj -c Release -r win-x64 --self-contained false --no-restore -o $out
+          if ($LASTEXITCODE -ne 0) { throw 'Ecomm publish failed.' }
+          if (-not (Test-Path (Join-Path $out 'Ecomm.dll'))) { throw 'Ecomm.dll is missing from publish output.' }
+
+      - name: Zip and checksum
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:RUNNER_TEMP 'ecomm-publish'
+          $zip = Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "$out\*" -DestinationPath $zip -CompressionLevel Optimal -Force
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $env:ASSET_NAME" | Set-Content "$zip.sha256" -Encoding ASCII
+          Write-Host "ZIP=$zip"
+          Write-Host "SHA256=$hash"
+
+      - name: Create or refresh release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $channel = if ($env:SOURCE_BRANCH -eq 'master') { 'master' } else { 'test' }
+          $version = "2.0.$env:SOURCE_RUN_NUMBER"
+          $tag = "imonitor-ecomerp-$channel-v$version"
+          $title = "iMonitor Ecomm ERP $channel $version"
+          $notes = "Verified Windows release from $env:SOURCE_REPO@$env:SOURCE_SHA. Full solution build and tests passed on Ecomm self-hosted runner before this dispatch."
+          $zip = Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
+          $shaFile = "$zip.sha256"
+
+          & gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            & gh release upload $tag $zip $shaFile --clobber --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE -ne 0) { throw 'Release asset refresh failed.' }
+          }
+          else {
+            $args = @('release','create',$tag,$zip,$shaFile,'--repo',$env:GITHUB_REPOSITORY,'--target','main','--title',$title,'--notes',$notes)
+            if ($channel -eq 'test') { $args += '--prerelease' } else { $args += '--latest' }
+            & gh @args
+            if ($LASTEXITCODE -ne 0) { throw 'Release creation failed.' }
+          }
+
+          "channel=$channel" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "version=$version" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "source=$env:SOURCE_REPO@$env:SOURCE_SHA" | Add-Content $env:GITHUB_STEP_SUMMARY
