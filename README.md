@@ -34,6 +34,49 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both
 
 > v2.0.5 علاوه بر حفظ تنظیمات پایدار MySQL، خودش را در `C:\ProgramData\iMonitorERP\installer` تازه‌سازی می‌کند و Scheduled Task هر دو کانال Test و Production را روی بازه ۵ دقیقه بازسازی می‌کند.
 
+### Mirror داخلی ایران و Fallback خودکار
+
+برای کاهش وابستگی به اینترنت بین‌الملل و جلوگیری از مشکل IPv6، نسخه‌های ERP علاوه بر GitHub روی سرور داخلی `testerp.imonitor.ir` نیز Mirror می‌شوند. Installer/Updater مسیرهای موجود را با timeout کوتاه بررسی می‌کند، منبع سالم و سریع‌تر را انتخاب می‌کند و در صورت خرابی منبع انتخاب‌شده به منبع دوم برمی‌گردد. دسترسی GitHub در مسیرهای مبتنی بر `curl.exe` با IPv4 (`-4`) انجام می‌شود.
+
+مسیرهای اصلی Mirror داخلی:
+
+```text
+https://testerp.imonitor.ir/downloads/erp/test/latest.json
+https://testerp.imonitor.ir/downloads/erp/test/iMonitor-EcomERP-win-x64.zip
+https://testerp.imonitor.ir/downloads/erp/master/latest.json
+https://testerp.imonitor.ir/downloads/erp/master/iMonitor-EcomERP-win-x64.zip
+https://testerp.imonitor.ir/downloads/erp/reports/official-reports.zip
+https://testerp.imonitor.ir/downloads/erp/install/Install-iMonitorERP-v2.0.5.ps1.txt
+```
+
+فایل `latest.json` هر کانال شامل version/tag، SHA-256، commit مبدا و زمان انتشار است. بسته دانلودشده قبل از نصب با SHA-256 اعتبارسنجی می‌شود؛ بنابراین Mirror داخلی فقط یک cache ساده نیست و همان کنترل صحت Release را حفظ می‌کند.
+
+منبع ترجیحی انتخاب‌شده در این فایل ذخیره می‌شود:
+
+```text
+C:\ProgramData\iMonitorERP\state\download-source.txt
+```
+
+منطق انتخاب منبع:
+
+```text
+Mirror داخلی سالم + GitHub سالم  -> سریع‌ترین منبع سالم
+Mirror داخلی سالم + GitHub خراب  -> Mirror داخلی
+Mirror داخلی خراب + GitHub سالم  -> GitHub با IPv4
+اینترنت بین‌الملل قطع + Mirror سالم -> ادامه Update از داخل ایران
+```
+
+برای bootstrap روی سروری که دسترسی GitHub آن مشکل دارد می‌توان Installer را مستقیماً از Mirror داخلی دریافت کرد. پسوند `.txt` عمداً برای سرو ساده و بدون وابستگی به MIME خاص استفاده شده است:
+
+```powershell
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.5.ps1'
+$cb = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+Invoke-WebRequest "https://testerp.imonitor.ir/downloads/erp/install/Install-iMonitorERP-v2.0.5.ps1.txt?cb=$cb" -UseBasicParsing -OutFile $installer
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Both -UpdateOnly
+```
+
+اگر Mirror داخلی در دسترس نباشد، bootstrap GitHub همچنان قابل استفاده است و برای دانلودهای GitHub داخل updater مسیر IPv4 ترجیح داده می‌شود.
+
 پورت‌های رسمی Windows:
 
 | کانال | آدرس | IIS Site / App Pool | مسیر برنامه |
@@ -170,6 +213,7 @@ C:\ProgramData\iMonitorERP\
 ├── config\mysql-credentials.json
 ├── installer\Install-iMonitorERP-v2.0.5.ps1
 ├── state\
+│   └── download-source.txt
 ├── dotnet\
 ├── production\
 │   ├── current\
