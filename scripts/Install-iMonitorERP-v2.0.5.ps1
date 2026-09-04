@@ -30,10 +30,13 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 $repo = 'alimirzae/iMonitor-Erp-Releases'
+$mirrorRoot = 'https://testerp.imonitor.ir/downloads/erp'
 $configRoot = Join-Path $InstallRoot 'config'
 $credentialFile = Join-Path $configRoot 'mysql-credentials.json'
 $installerHome = Join-Path $InstallRoot 'installer'
-New-Item -ItemType Directory -Force -Path $InstallRoot,$configRoot,$installerHome | Out-Null
+$stateRoot = Join-Path $InstallRoot 'state'
+$sourcePreferenceFile = Join-Path $stateRoot 'download-source.txt'
+New-Item -ItemType Directory -Force -Path $InstallRoot,$configRoot,$installerHome,$stateRoot | Out-Null
 
 function Get-SavedProperty([object]$Object,[string]$Name) {
     if ($null -eq $Object) { return $null }
@@ -49,6 +52,66 @@ function First-NonEmpty([object[]]$Values) {
         if (-not [string]::IsNullOrWhiteSpace($text)) { return $value }
     }
     return $null
+}
+
+function Test-UrlLatency([string]$Uri,[bool]$ForceIpv4=$false) {
+    try {
+        $sw=[Diagnostics.Stopwatch]::StartNew()
+        $curl=Get-Command curl.exe -ErrorAction SilentlyContinue
+        if($curl){
+            $args=@('--silent','--show-error','--fail','--location','--head','--connect-timeout','3','--max-time','6')
+            if($ForceIpv4){$args=@('-4')+$args}
+            & $curl.Source @args $Uri | Out-Null
+            if($LASTEXITCODE -ne 0){return [double]::PositiveInfinity}
+        } else {
+            Invoke-WebRequest -UseBasicParsing -Method Head -Uri $Uri -TimeoutSec 6 | Out-Null
+        }
+        $sw.Stop(); return $sw.Elapsed.TotalMilliseconds
+    } catch { return [double]::PositiveInfinity }
+}
+
+function Get-PreferredSource {
+    $mirrorProbe="$mirrorRoot/test/latest.json?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+    $githubProbe="https://api.github.com/repos/$repo/releases?per_page=1&cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+    $mirrorMs=Test-UrlLatency $mirrorProbe $false
+    $githubMs=Test-UrlLatency $githubProbe $true
+    Write-Host ("Download source probe: mirror={0} ms, github-ipv4={1} ms" -f ([math]::Round($mirrorMs)),([math]::Round($githubMs)))
+    if([double]::IsPositiveInfinity($mirrorMs) -and [double]::IsPositiveInfinity($githubMs)){
+        if(Test-Path $sourcePreferenceFile){return (Get-Content $sourcePreferenceFile -Raw).Trim()}
+        return 'mirror'
+    }
+    $selected=if($mirrorMs -le $githubMs){'mirror'}else{'github'}
+    Set-Content $sourcePreferenceFile $selected -Encoding ASCII
+    return $selected
+}
+
+function Invoke-SourceDownload([string]$MirrorUri,[string]$GithubUri,[string]$OutFile,[string]$Label) {
+    $preferred=Get-PreferredSource
+    $sources=if($preferred -eq 'mirror'){@(@('mirror',$MirrorUri,$false),@('github',$GithubUri,$true))}else{@(@('github',$GithubUri,$true),@('mirror',$MirrorUri,$false))}
+    $last=$null
+    foreach($source in $sources){
+        $name=$source[0]; $uri=$source[1]; $ipv4=[bool]$source[2]
+        try {
+            Write-Host "$Label via $name..."
+            $curl=Get-Command curl.exe -ErrorAction SilentlyContinue
+            if($curl){
+                $args=@('--http1.1','--fail','--location','--connect-timeout','8','--max-time','120','--retry','3','--retry-all-errors',$uri,'-o',$OutFile)
+                if($ipv4){$args=@('-4')+$args}
+                & $curl.Source @args
+                if($LASTEXITCODE -ne 0){throw "curl exit code $LASTEXITCODE"}
+            } else {
+                Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $OutFile -TimeoutSec 120
+            }
+            if(!(Test-Path $OutFile) -or (Get-Item $OutFile).Length -eq 0){throw 'Downloaded file is empty.'}
+            Set-Content $sourcePreferenceFile $name -Encoding ASCII
+            return
+        } catch {
+            $last=$_.Exception.Message
+            Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+            Write-Warning "$Label via $name failed: $last"
+        }
+    }
+    throw "$Label failed from domestic mirror and GitHub IPv4. Last error: $last"
 }
 
 function Get-RuntimeConfigValue([string]$ChannelName,[string]$PropertyName) {
@@ -119,8 +182,10 @@ $credentialSnapshot | ConvertTo-Json | Set-Content $credentialFile -Encoding UTF
 & icacls $configRoot /inheritance:r /grant:r 'Administrators:(OI)(CI)F' 'SYSTEM:(OI)(CI)F' | Out-Null
 
 $baseInstaller = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.2-base.ps1'
-$uri = "https://raw.githubusercontent.com/$repo/main/scripts/Install-iMonitorERP-v2.0.2.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
-Invoke-WebRequest -UseBasicParsing $uri -OutFile $baseInstaller
+Invoke-SourceDownload `
+    "$mirrorRoot/install/Install-iMonitorERP-v2.0.2.ps1.txt?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" `
+    "https://raw.githubusercontent.com/$repo/main/scripts/Install-iMonitorERP-v2.0.2.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" `
+    $baseInstaller 'Base installer download'
 
 $invoke = @{
     Channel = $Channel
@@ -151,10 +216,11 @@ try {
     Remove-Item $baseInstaller -Force -ErrorAction SilentlyContinue
 }
 
-# Self-refresh the versioned updater and repoint scheduled tasks to it on every run.
-# Passwords are never placed on task command lines; v2.0.5 reloads them from the protected credential file.
 $self = Join-Path $installerHome 'Install-iMonitorERP-v2.0.5.ps1'
-Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/$repo/main/scripts/Install-iMonitorERP-v2.0.5.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" -OutFile $self
+Invoke-SourceDownload `
+    "$mirrorRoot/install/Install-iMonitorERP-v2.0.5.ps1.txt?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" `
+    "https://raw.githubusercontent.com/$repo/main/scripts/Install-iMonitorERP-v2.0.5.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" `
+    $self 'Installer self-refresh'
 
 $testAction = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -Channel Test -UpdateOnly"
 $prodAction = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -Channel Production -UpdateOnly"
@@ -164,7 +230,8 @@ $prodAction = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`"
 Write-Host ''
 Write-Host 'iMonitor ERP installer/updater v2.0.5 completed.'
 Write-Host "Persistent MySQL settings: $credentialFile"
+Write-Host "Preferred download source: $sourcePreferenceFile"
 Write-Host "Production: http://localhost:$ProductionPort"
 Write-Host "Test: http://localhost:$TestPort"
 Write-Host 'Automatic update checks: Test every 5 minutes; Production every 5 minutes.'
-Write-Host 'Every scheduled run refreshes this updater before recreating the schedules.'
+Write-Host 'Domestic mirror and GitHub IPv4 are probed; the faster healthy source is preferred and the other is automatic fallback.'
