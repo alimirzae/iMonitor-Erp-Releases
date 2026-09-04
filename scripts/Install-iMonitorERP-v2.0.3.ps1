@@ -162,11 +162,12 @@ Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/$repo/main
 $testAction = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -Channel Test -UpdateOnly"
 $prodAction = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -Channel Production -UpdateOnly"
 & schtasks.exe /Create /F /TN 'iMonitorERP-Update-Test' /SC MINUTE /MO 5 /RU SYSTEM /TR $testAction | Out-Null
-& schtasks.exe /Create /F /TN 'iMonitorERP-Update-Production' /SC DAILY /ST 02:30 /RU SYSTEM /TR $prodAction | Out-Null
+& schtasks.exe /Create /F /TN 'iMonitorERP-Update-Production' /SC MINUTE /MO 5 /RU SYSTEM /TR $prodAction | Out-Null
 
 Write-Host ''
 Write-Host 'iMonitor ERP installer v2.0.3 completed.'
 Write-Host "Persistent MySQL settings: $credentialFile"
 Write-Host "Production: http://localhost:$ProductionPort"
 Write-Host "Test: http://localhost:$TestPort"
+Write-Host 'Automatic update checks: Test every 5 minutes; Production every 5 minutes.'
 Write-Host 'Future UpdateOnly runs preserve Server/Port/Database/User/Password unless explicitly overridden.'
