@@ -1,0 +1,57 @@
+name: Guard Posiran ERP White-label Branches
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  restore-overlay:
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: [posiran_test, posiran_production]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout canonical release repository
+        uses: actions/checkout@v4
+        with:
+          path: ReleaseCenter
+
+      - name: Checkout Posiran branch
+        uses: actions/checkout@v4
+        with:
+          repository: alimirzae/Ecomm
+          ref: ${{ matrix.branch }}
+          token: ${{ secrets.RELEASE_REPO_TOKEN }}
+          path: EcommSource
+          fetch-depth: 0
+
+      - name: Reapply canonical white-label overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp -f ReleaseCenter/posiran/overlay/Ecomm/wwwroot/posiran-brand.css EcommSource/Ecomm/wwwroot/posiran-brand.css
+          mkdir -p EcommSource/Ecomm/wwwroot/img
+          cp -f ReleaseCenter/posiran/overlay/Ecomm/wwwroot/img/posiran-logo.svg EcommSource/Ecomm/wwwroot/img/posiran-logo.svg
+          cp -f ReleaseCenter/posiran/overlay/Ecomm/wwwroot/build-info.css EcommSource/Ecomm/wwwroot/build-info.css
+          grep -q 'پوزایران ERP' EcommSource/Ecomm/wwwroot/posiran-brand.css
+          grep -q 'posiran.ir' EcommSource/Ecomm/wwwroot/posiran-brand.css
+
+      - name: Commit recovery only when needed
+        shell: bash
+        working-directory: EcommSource
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Ecomm/wwwroot/posiran-brand.css Ecomm/wwwroot/img/posiran-logo.svg Ecomm/wwwroot/build-info.css; then
+            echo "Posiran overlay is intact on ${{ matrix.branch }}"
+            exit 0
+          fi
+          git config user.name 'Posiran ERP Brand Guard'
+          git config user.email 'actions@users.noreply.github.com'
+          git add Ecomm/wwwroot/posiran-brand.css Ecomm/wwwroot/img/posiran-logo.svg Ecomm/wwwroot/build-info.css
+          git commit -m 'chore(posiran): restore protected white-label overlay'
+          git push origin HEAD:${{ matrix.branch }}
