@@ -4,20 +4,20 @@
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.20
+### Windows x64 — Installer رسمی v2.0.21
 
 PowerShell را با **Run as Administrator** باز کنید:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.20.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.21.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
 curl.exe -4 --http1.1 -fL `
   -H "Cache-Control: no-cache" `
   -H "Pragma: no-cache" `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.20.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.21.ps1?cb=$cacheBust" `
   -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -28,31 +28,78 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Force
 ```
 
-`v2.0.20` علاوه بر رفتار مستقل Test/Production نسخه `v2.0.19`، مشکل `Bad Request - Invalid Hostname` در IIS را هم هدف قرار می‌دهد.
+`v2.0.21` نسخه رسمی فعلی Windows است و اصلاحات نسخه‌های قبلی شامل MySQL موجود، استقلال Test/Production، رفع cache، انتخاب Release صحیح، Binding بدون Hostname و `AllowedHosts="*"` را حفظ می‌کند.
 
-### اصلاحات IIS در v2.0.20
+### اصلاح 503 / AppPool در v2.0.21
 
-Installer بعد از deploy این موارد را برای هر کانال normalize می‌کند:
+اگر اجرای مستقیم زیر سالم باشد ولی IIS خطای `503 Service Unavailable` بدهد:
 
-```text
-Test       -> IIS site iMonitorERP-Test       -> *:8081:  (بدون Host Header)
-Production -> IIS site iMonitorERP-Production -> *:8080:  (بدون Host Header)
+```powershell
+cd D:\erp_ins\test\current
+dotnet .\Ecomm.dll
 ```
 
-همچنین:
+مشکل معمولاً در App Pool، مجوز فایل‌ها، ANCM یا startup process همان سایت است. `v2.0.21` بعد از deploy برای هر کانال این موارد را اصلاح و بررسی می‌کند:
 
 ```text
-AllowedHosts = "*"
 AppPool .NET CLR Version = No Managed Code
-AppPool Pipeline = Integrated
-web.config hostingModel = inprocess
+AppPool Pipeline         = Integrated
+AppPool startMode        = AlwaysRunning
+AppPool autoStart        = true
+AppPool Identity         = ApplicationPoolIdentity
+Load User Profile        = true
+Site serverAutoStart     = true
+Binding                  = *:<port>:  بدون Host Header
+AllowedHosts             = "*"
+web.config hostingModel  = inprocess
 ```
 
-بنابراین درخواست‌های `localhost`، `127.0.0.1`، IP سیستم و نام کامپیوتر نباید به علت Host Header رد شوند.
+همچنین برای مسیر برنامه به Identity اختصاصی App Pool دسترسی `Modify` داده می‌شود تا `App_Data` و لاگ‌های ASP.NET Core قابل استفاده باشند.
+
+### ANCM stdout diagnostics
+
+در `v2.0.21` برای تشخیص startup failure، stdout logging در `web.config` فعال می‌شود:
+
+```text
+stdoutLogEnabled = true
+stdoutLogFile    = .\logs\stdout
+```
+
+مسیر دقیق لاگ Test:
+
+```text
+D:\erp_ins\test\current\logs\stdout_*.log
+```
+
+مسیر Production:
+
+```text
+D:\erp_ins\production\current\logs\stdout_*.log
+```
+
+Installer بعد از Start کردن سایت و App Pool، چند بار endpoint `/health` را بررسی می‌کند. اگر App Pool هنگام startup متوقف شود یا health check موفق نشود، آخرین رخدادهای IIS / ASP.NET Core / .NET Runtime / WAS / W3SVC را همان‌جا در کنسول چاپ می‌کند.
+
+### IIS Binding و Invalid Hostname
+
+برای هر کانال Binding به شکل زیر normalize می‌شود:
+
+```text
+Test       -> iMonitorERP-Test       -> *:8081:
+Production -> iMonitorERP-Production -> *:8080:
+```
+
+Host Header خالی است. بنابراین این آدرس‌ها باید قابل استفاده باشند:
+
+```text
+http://127.0.0.1:8081/
+http://localhost:8081/
+http://127.0.0.1:8080/
+http://localhost:8080/
+```
 
 ### MySQL
 
-Installer هیچ بسته MySQL را دانلود، نصب یا به‌روزرسانی نمی‌کند. MySQL باید از قبل نصب باشد.
+Installer هیچ MySQL را دانلود، نصب یا به‌روزرسانی نمی‌کند.
 
 ```text
 Test DB       ecomm_dev
@@ -65,8 +112,8 @@ Migration و Seed همچنان در Installer غیرفعال‌اند.
 
 ```text
 Test success + Production success -> نصب کامل
-Test success + Production failure -> Test فعال می‌ماند؛ Production بعداً retry می‌شود
-Test failure                       -> نصب ناموفق
+Test success + Production failure -> Test فعال می‌ماند؛ Production updater بعداً retry می‌کند
+Production success + Test failure -> Production فعال می‌ماند؛ Test updater بعداً retry می‌کند
 ```
 
 Scheduled Taskها هر ۵ دقیقه اجرا می‌شوند:
@@ -76,70 +123,100 @@ iMonitorERP-Update-Test
 iMonitorERP-Update-Production
 ```
 
-### عیب‌یابی IIS اگر هنوز خطا وجود داشت
+فایل پایدار Installer:
 
-اگر بعد از `v2.0.20` هنوز IIS خطا داشت، این خروجی‌ها را ارسال کنید:
+```text
+<InstallRoot>\installer\Install-iMonitorERP-v2.0.21.ps1
+```
+
+### اگر Test هنوز 503 بود
+
+ابتدا App Pool را بررسی کنید:
 
 ```powershell
 Import-Module WebAdministration
 
-Get-WebBinding -Name 'iMonitorERP-Test' |
-  Format-Table protocol,bindingInformation,sslFlags -AutoSize
+Get-Website -Name 'iMonitorERP-Test' |
+  Format-List Name,State,PhysicalPath,ApplicationPool,Bindings
+
+Get-WebAppPoolState 'iMonitorERP-Test'
 
 Get-ItemProperty 'IIS:\AppPools\iMonitorERP-Test' |
-  Select-Object managedRuntimeVersion,managedPipelineMode,state
-
-Get-Content 'D:\erp_ins\test\current\web.config'
-
-Get-Content 'D:\erp_ins\test\current\appsettings.json' -Raw
+  Select-Object managedRuntimeVersion,managedPipelineMode,startMode,autoStart,
+    @{N='IdentityType';E={$_.processModel.identityType}},
+    @{N='LoadUserProfile';E={$_.processModel.loadUserProfile}},
+    @{N='RapidFailProtection';E={$_.failure.rapidFailProtection}}
 ```
 
-برای بررسی Runtime/Hosting Bundle:
+آخرین stdout:
+
+```powershell
+$log = Get-ChildItem 'D:\erp_ins\test\current\logs\stdout_*.log' `
+  -ErrorAction SilentlyContinue |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+
+if ($log) {
+  Write-Host $log.FullName
+  Get-Content $log.FullName -Tail 200
+}
+```
+
+خطاهای Application Event Log:
+
+```powershell
+Get-WinEvent -FilterHashtable @{
+  LogName='Application'
+  StartTime=(Get-Date).AddMinutes(-30)
+} -ErrorAction SilentlyContinue |
+Where-Object {
+  $_.ProviderName -match 'IIS|AspNetCore|Application Error|\.NET Runtime'
+} |
+Select-Object TimeCreated,ProviderName,Id,LevelDisplayName,Message |
+Format-List
+```
+
+خطاهای WAS / W3SVC:
+
+```powershell
+Get-WinEvent -FilterHashtable @{
+  LogName='System'
+  StartTime=(Get-Date).AddMinutes(-30)
+} -ErrorAction SilentlyContinue |
+Where-Object {
+  $_.ProviderName -match 'WAS|W3SVC'
+} |
+Select-Object TimeCreated,ProviderName,Id,LevelDisplayName,Message |
+Format-List
+```
+
+### IIS access logs
+
+شناسه سایت Test:
+
+```powershell
+(Get-Website -Name 'iMonitorERP-Test').id
+```
+
+سپس:
+
+```text
+C:\inetpub\logs\LogFiles\W3SVC<SITE_ID>\
+```
+
+### بررسی .NET 8 Hosting Bundle / ANCM
 
 ```powershell
 dotnet --list-runtimes
 Test-Path 'C:\Program Files\IIS\Asp.Net Core Module\V2\aspnetcorev2.dll'
 ```
 
-خروجی مطلوب:
+خروجی مورد انتظار شامل موارد زیر است:
 
 ```text
 Microsoft.AspNetCore.App 8.x.x
 Microsoft.NETCore.App 8.x.x
 True
-```
-
-برای لاگ‌های ASP.NET Core Module، اگر stdout logging در `web.config` فعال باشد، فایل‌ها معمولاً در مسیر زیر هستند:
-
-```text
-D:\erp_ins\test\current\logs\stdout_*.log
-```
-
-برای لاگ IIS سایت Test نیز ابتدا این مسیر را بررسی کنید:
-
-```text
-C:\inetpub\logs\LogFiles\
-```
-
-فولدر دقیق سایت را می‌توان با این دستور پیدا کرد:
-
-```powershell
-Import-Module WebAdministration
-$site = Get-Website -Name 'iMonitorERP-Test'
-$site.id
-```
-
-سپس لاگ مربوطه معمولاً در این مسیر است:
-
-```text
-C:\inetpub\logs\LogFiles\W3SVC<SITE_ID>\
-```
-
-### آدرس‌های محلی
-
-```text
-Test       http://127.0.0.1:8081/
-Production http://127.0.0.1:8080/
 ```
 
 ---
