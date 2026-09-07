@@ -17,55 +17,19 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    throw 'Run PowerShell as Administrator.'
-}
-
-$InstallRoot=[IO.Path]::GetFullPath($InstallRoot)
-$PackageCacheDirectory=[IO.Path]::GetFullPath($PackageCacheDirectory)
-$installerHome=Join-Path $InstallRoot 'installer'
-New-Item -ItemType Directory -Force -Path $InstallRoot,$PackageCacheDirectory,$installerHome | Out-Null
-
-Write-Host 'iMonitor ERP Windows installer v2.0.15' -ForegroundColor Cyan
-Write-Host "Install root : $InstallRoot"
-Write-Host "Package cache: $PackageCacheDirectory"
-Write-Host "Channel      : $Channel"
-Write-Host 'MySQL        : existing installation; no MySQL package will be downloaded' -ForegroundColor Cyan
-
-$self = Join-Path $installerHome 'Install-iMonitorERP-v2.0.15.ps1'
-Copy-Item $PSCommandPath $self -Force
-
-function Register-Updaters {
-    $testAction = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -Channel Test -InstallRoot `"$InstallRoot`" -PackageCacheDirectory `"$PackageCacheDirectory`" -TestPort $TestPort -ProductionPort $ProductionPort -UpdateOnly"
-    $prodAction = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -Channel Production -InstallRoot `"$InstallRoot`" -PackageCacheDirectory `"$PackageCacheDirectory`" -TestPort $TestPort -ProductionPort $ProductionPort -UpdateOnly"
-    & schtasks.exe /Create /F /TN 'iMonitorERP-Update-Test' /SC MINUTE /MO 5 /RU SYSTEM /RL HIGHEST /TR $testAction | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not create iMonitorERP-Update-Test scheduled task.' }
-    & schtasks.exe /Create /F /TN 'iMonitorERP-Update-Production' /SC MINUTE /MO 5 /RU SYSTEM /RL HIGHEST /TR $prodAction | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw 'Could not create iMonitorERP-Update-Production scheduled task.' }
-    $global:LASTEXITCODE=0
-    Write-Host '[OK] Automatic updater tasks registered (every 5 minutes).' -ForegroundColor Green
-}
-
-Register-Updaters
-
-$machinePath=[Environment]::GetEnvironmentVariable('Path','Machine')
-$userPath=[Environment]::GetEnvironmentVariable('Path','User')
-$dotnetPath=Join-Path $env:ProgramFiles 'dotnet'
-$env:Path = (@($dotnetPath,$machinePath,$userPath) | Where-Object { $_ } | Select-Object -Unique) -join ';'
-if (Test-Path (Join-Path $dotnetPath 'dotnet.exe')) { Write-Host "Detected dotnet host: $(Join-Path $dotnetPath 'dotnet.exe')" }
+Write-Host 'v2.0.15 is retired; forwarding to installer v2.0.16...' -ForegroundColor Yellow
+Write-Host 'MySQL is existing-only; no MySQL package/update will be downloaded.' -ForegroundColor Cyan
 
 $repo='alimirzae/iMonitor-Erp-Releases'
-$core=Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.15-core.ps1'
-$cb=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-$uri="https://raw.githubusercontent.com/$repo/main/scripts/Install-iMonitorERP-v2.0.15-core.ps1?cb=$cb"
+$next=Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.16.ps1'
+$cb=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+$uri="https://raw.githubusercontent.com/$repo/main/scripts/Install-iMonitorERP-v2.0.16.ps1?cb=$cb"
 
-Write-Host 'Downloading installer core v2.0.15 over IPv4...'
-& curl.exe -4 --http1.1 --fail --location --connect-timeout 8 --max-time 300 --retry 3 --retry-all-errors $uri -o $core
-$curlExit=$LASTEXITCODE
-$global:LASTEXITCODE=0
-if($curlExit -ne 0 -or -not(Test-Path $core -PathType Leaf) -or (Get-Item $core).Length -le 0){throw "Could not download installer core. curl exit code=$curlExit"}
+& curl.exe -4 --http1.1 --silent --show-error --fail --location --connect-timeout 8 --max-time 300 --retry 3 --retry-all-errors $uri -o $next 2>$null
+$ec=$LASTEXITCODE; $global:LASTEXITCODE=0
+if($ec -ne 0 -or -not(Test-Path $next -PathType Leaf) -or (Get-Item $next).Length -le 0){throw "Could not download v2.0.16 bootstrap. curl exit=$ec"}
 
-$args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$core,'-Channel',$Channel,'-InstallRoot',$InstallRoot,'-PackageCacheDirectory',$PackageCacheDirectory,'-TestPort',[string]$TestPort,'-ProductionPort',[string]$ProductionPort)
+$args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$next,'-Channel',$Channel,'-InstallRoot',$InstallRoot,'-PackageCacheDirectory',$PackageCacheDirectory,'-TestPort',[string]$TestPort,'-ProductionPort',[string]$ProductionPort)
 if($MySqlBinPath){$args+=@('-MySqlBinPath',$MySqlBinPath)}
 if($MySqlHost){$args+=@('-MySqlHost',$MySqlHost)}
 if($MySqlPort -gt 0){$args+=@('-MySqlPort',[string]$MySqlPort)}
@@ -74,14 +38,6 @@ if($MySqlRootPassword){$args+=@('-MySqlRootPassword',$MySqlRootPassword)}
 if($Force){$args+='-Force'}
 if($UpdateOnly){$args+='-UpdateOnly'}
 
-try {
-    $p=Start-Process powershell.exe -ArgumentList $args -Wait -PassThru -NoNewWindow
-    if($p.ExitCode -ne 0){throw "Installer core returned exit code $($p.ExitCode)"}
-} finally {
-    Remove-Item $core -Force -ErrorAction SilentlyContinue
-    Register-Updaters
-}
-
-Write-Host 'iMonitor ERP v2.0.15 completed.' -ForegroundColor Green
-Write-Host "Installer: $self"
-Write-Host 'Automatic updates: every 5 minutes for Test and Production.'
+$p=Start-Process powershell.exe -ArgumentList $args -Wait -PassThru -NoNewWindow
+Remove-Item $next -Force -ErrorAction SilentlyContinue
+exit $p.ExitCode
