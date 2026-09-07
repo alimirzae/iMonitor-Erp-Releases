@@ -14,18 +14,20 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.16
+### Windows x64 — Installer رسمی v2.0.17
 
 PowerShell را با **Run as Administrator** باز کنید و وارد پوشه‌ای شوید که می‌خواهید ERP همان‌جا نصب شود:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.16.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.17.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
 curl.exe -4 --http1.1 -fL `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.16.ps1?cb=$cacheBust" `
+  -H "Cache-Control: no-cache" `
+  -H "Pragma: no-cache" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.17.ps1?cb=$cacheBust" `
   -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -36,7 +38,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Force
 ```
 
-`v2.0.16` نسخه رسمی نصب Windows است. نسخه‌های `v2.0.15` بازنشسته شده‌اند و در صورت اجرا به `v2.0.16` هدایت می‌شوند.
+`v2.0.17` نسخه رسمی نصب Windows است. نسخه‌های `v2.0.15` و `v2.0.16` بازنشسته شده‌اند. `v2.0.17` با نام فایل جدید و هدرهای `no-cache` ارائه شده تا کش نسخه‌های قبلی Core روی شبکه یا CDN باعث اجرای اسکریپت قدیمی نشود.
 
 ### MySQL موجود — بدون دانلود یا نصب MySQL
 
@@ -60,7 +62,7 @@ Password for MySQL user 'root'
 
 ### دیتابیس‌های از قبل ایجادشده
 
-Installer در `v2.0.16` دیتابیس یا User جدید ایجاد نمی‌کند و هیچ `CREATE DATABASE`، `CREATE USER`، `ALTER USER` یا `GRANT` اجرا نمی‌کند.
+Installer در `v2.0.17` دیتابیس یا User جدید ایجاد نمی‌کند و هیچ `CREATE DATABASE`، `CREATE USER`، `ALTER USER` یا `GRANT` اجرا نمی‌کند.
 
 نام دیتابیس‌های مورد انتظار:
 
@@ -84,6 +86,18 @@ CREATE DATABASE ecomm_dev
 ```
 
 Installer بعد از تست اتصال MySQL، وجود و دسترسی به دیتابیس مربوط به هر Channel را بررسی می‌کند. اگر دیتابیس وجود نداشته باشد یا قابل دسترسی نباشد، نصب با پیام واضح متوقف می‌شود.
+
+### Releaseهای ERP
+
+الگوی Releaseهای Windows:
+
+```text
+Test       imonitor-ecomerp-test-v*
+Production imonitor-ecomerp-master-v*
+Asset      iMonitor-EcomERP-win-x64.zip
+```
+
+در `v2.0.17` نام `tag_name` مستقیماً از JSON خام GitHub استخراج می‌شود تا رفتار متفاوت `ConvertFrom-Json` در Windows PowerShell 5.1 باعث خطای اشتباه `No release found` نشود.
 
 ### Migration فعلاً غیرفعال است
 
@@ -156,10 +170,10 @@ iMonitorERP-Update-Production
 فایل پایدار Installer:
 
 ```text
-<InstallRoot>\installer\Install-iMonitorERP-v2.0.16.ps1
+<InstallRoot>\installer\Install-iMonitorERP-v2.0.17.ps1
 ```
 
-Taskها با حساب `SYSTEM` و Highest Privileges اجرا می‌شوند و به `v2.0.16` اشاره می‌کنند. در اجرای خودکار، اطلاعات MySQL از `config\mysql-external.json` خوانده می‌شود و Prompt تعاملی نمایش داده نمی‌شود.
+Taskها با حساب `SYSTEM` و Highest Privileges اجرا می‌شوند و به `v2.0.17` اشاره می‌کنند. اجرای `v2.0.17` فایل‌های persisted مربوط به `v2.0.15` و `v2.0.16` را حذف می‌کند. در اجرای خودکار، اطلاعات MySQL از `config\mysql-external.json` خوانده می‌شود و Prompt تعاملی نمایش داده نمی‌شود.
 
 ### اجرای غیرتعاملی اختیاری
 
@@ -182,7 +196,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 ### Cache و IPv4
 
-دانلود Bootstrap/Core و Releaseهای ERP با `curl.exe -4 --http1.1` انجام می‌شوند. اگر ZIP معتبر Release در `PackageCacheDirectory` موجود باشد دوباره دانلود نمی‌شود.
+دانلود Bootstrap/Core و Releaseهای ERP با `curl.exe -4 --http1.1` انجام می‌شوند. Bootstrap/Core `v2.0.17` با نام فایل جدید، cache-buster میلی‌ثانیه‌ای و هدرهای `Cache-Control: no-cache` و `Pragma: no-cache` دریافت می‌شوند. فایل Core موقت نیز در هر اجرا نام GUID جدید دارد.
+
+اگر ZIP معتبر Release در `PackageCacheDirectory` موجود باشد دوباره دانلود نمی‌شود.
 
 **هیچ دانلود MySQL انجام نمی‌شود.**
 
