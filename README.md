@@ -4,20 +4,20 @@
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.23
+### Windows x64 — Installer رسمی v2.0.24
 
 PowerShell را با **Run as Administrator** باز کنید:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.23.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.24.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
 curl.exe -4 --http1.1 -fL `
   -H "Cache-Control: no-cache" `
   -H "Pragma: no-cache" `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.23.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.24.ps1?cb=$cacheBust" `
   -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -28,7 +28,50 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Force
 ```
 
-`v2.0.23` نسخه رسمی فعلی Windows است. این نسخه همه اصلاحات `v2.0.22-r2` شامل رفع 404، Parser fix، بازیابی IIS/AppPool، Binding بدون Host Header، `AllowedHosts="*"` و ANCM diagnostics را حفظ می‌کند.
+`v2.0.24` نسخه رسمی فعلی Windows است. این نسخه همه اصلاحات نسخه‌های قبلی شامل IPv4/no-cache، انتخاب Release صحیح، استقلال Test/Production، IIS/AppPool repair، Binding بدون Host Header، `AllowedHosts="*"` و ANCM diagnostics را حفظ می‌کند.
+
+### اصلاح Production activation و خطای file in use
+
+قبل از جایگزینی فایل‌های هر کانال، Installer سایت و AppPool همان کانال را متوقف می‌کند تا `w3wp.exe` فایل‌های `current` را قفل نگه ندارد. بنابراین خطای زیر نباید باعث نیمه‌کاره ماندن activation شود:
+
+```text
+The process cannot access the file because it is being used by another process.
+```
+
+ترتیب deployment در `v2.0.24`:
+
+```text
+1. Backup appsettings.json کانال فعلی
+2. Stop IIS Site + AppPool همان کانال
+3. Stage/Activate آخرین Release
+4. Restore/normalize تنظیمات MySQL
+5. Force Database.Type = MySql
+6. Disable startup migration/seed
+7. Start IIS Site + AppPool
+8. Verify /health
+```
+
+### MySQL enforcement
+
+این نصب فقط از MySQL موجود استفاده می‌کند و هیچ MySQL را دانلود، نصب یا به‌روزرسانی نمی‌کند.
+
+```text
+Test       -> Database.Type = MySql -> Database = ecomm_dev
+Production -> Database.Type = MySql -> Database = ecomm
+```
+
+اگر appsettings قدیمی یا package اشتباهاً `Database.Type=SqlServer` داشته باشد، Installer قبل از Start برنامه آن را به `MySql` اصلاح می‌کند. Connection string موجود MySQL حفظ می‌شود و فقط Database کانال به مقدار صحیح تنظیم می‌شود. اگر اطلاعات MySQL در اجرای interactive داده شده باشد همان مقادیر استفاده می‌شوند.
+
+Migration و Seed در Installer غیرفعال‌اند:
+
+```text
+AutoMigrate=false
+MigrateOnStartup=false
+UseBackgroundMigration=false
+EnsureCreatedIfNotExists=false
+SeedDataOnMigrate=false
+DropDatabaseOnStartup=false
+```
 
 ### Auto Update کانال Test — هر 1 دقیقه
 
@@ -50,12 +93,12 @@ Database : ecomm_dev
 IIS      : iMonitorERP-Test / port 8081
 ```
 
-یعنی سیستم هر یک دقیقه آخرین Release منتشرشده از شاخه `test` را بررسی می‌کند و اگر نسخه جدیدی در `alimirzae/iMonitor-Erp-Releases` منتشر شده باشد، همان کانال Test را به‌صورت خودکار update می‌کند. این کار بدون login کاربر و در پس‌زمینه سیستم انجام می‌شود.
+سیستم هر یک دقیقه آخرین Release منتشرشده از شاخه `test` را بررسی می‌کند و اگر نسخه جدیدی در `alimirzae/iMonitor-Erp-Releases` منتشر شده باشد، کانال Test را خودکار update می‌کند.
 
-Production مستقل باقی می‌ماند و هر 5 دقیقه بررسی می‌شود:
+Production مستقل است و هر 5 دقیقه بررسی می‌شود:
 
 ```text
-iMonitorERP-Update-Production  -> every 5 minutes
+iMonitorERP-Update-Production -> every 5 minutes
 ```
 
 برای بررسی Taskها:
@@ -68,7 +111,7 @@ schtasks /Query /TN "iMonitorERP-Update-Production" /V /FO LIST
 فایل پایدار Installer:
 
 ```text
-D:\erp_ins\installer\Install-iMonitorERP-v2.0.23.ps1
+D:\erp_ins\installer\Install-iMonitorERP-v2.0.24.ps1
 ```
 
 ### Release mapping
@@ -99,25 +142,12 @@ Test       -> iMonitorERP-Test       -> *:8081:
 Production -> iMonitorERP-Production -> *:8080:
 ```
 
-### MySQL
-
-Installer هیچ MySQL را دانلود، نصب یا به‌روزرسانی نمی‌کند.
-
-```text
-Test DB       ecomm_dev
-Production DB ecomm
-```
-
-Migration و Seed همچنان در Installer غیرفعال‌اند.
-
 ### ANCM stdout diagnostics
 
 ```text
 Test       D:\erp_ins\test\current\logs\stdout_*.log
 Production D:\erp_ins\production\current\logs\stdout_*.log
 ```
-
-در صورت خطای 503، Installer وضعیت AppPool و رخدادهای IIS / ASP.NET Core / .NET Runtime / WAS / W3SVC را بررسی و چاپ می‌کند.
 
 برای بررسی .NET 8 Hosting Bundle / ANCM:
 
