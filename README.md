@@ -31,11 +31,12 @@ curl.exe -4 --http1.1 -fL `
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File $installer `
   -Channel Both `
-  -Force `
-  -PackageCacheDirectory (Get-Location).Path
+  -InstallRoot 'D:\erp_ins' `
+  -PackageCacheDirectory 'D:\erp_ins' `
+  -Force
 ```
 
-در این حالت `InstallRoot` به‌صورت پیش‌فرض همان پوشه جاری است. برای مثال اگر دستور از `D:\erp_ins` اجرا شود:
+در این حالت فایل‌ها در مسیرهای زیر قرار می‌گیرند:
 
 ```text
 D:\erp_ins\test\current
@@ -44,20 +45,9 @@ D:\erp_ins\state
 D:\erp_ins\installer
 ```
 
-در صورت نیاز می‌توان مسیر نصب را صریح مشخص کرد:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File $installer `
-  -Channel Both `
-  -InstallRoot 'D:\erp_ins' `
-  -PackageCacheDirectory 'D:\erp_ins' `
-  -Force
-```
-
 `v2.0.12` نسخه رسمی فعلی نصب Windows است.
 
-### نصب خودکار پیش‌نیازها در v2.0.12
+### نصب خودکار پیش‌نیازها
 
 Installer قبل از نصب/به‌روزرسانی برنامه این موارد را بررسی و در صورت نیاز ایجاد یا نصب می‌کند:
 
@@ -80,6 +70,34 @@ Scheduled Tasks برای بررسی خودکار نسخه‌ها
 | Production | `http://127.0.0.1:8080` | `D:\erp_ins\production\current` |
 | Test | `http://127.0.0.1:8081` | `D:\erp_ins\test\current` |
 
+### مهاجرت خودکار نصب قبلی از C:\ProgramData
+
+اگر قبلاً ERP در مسیر قدیمی نصب شده باشد:
+
+```text
+C:\ProgramData\iMonitorERP\test\current
+C:\ProgramData\iMonitorERP\production\current
+```
+
+و اکنون Installer با `InstallRoot` جدید، مثلاً `D:\erp_ins` اجرا شود، در اولین فعال‌سازی هر Channel در صورتی که مسیر جدید هنوز تنظیمات پایدار نداشته باشد، Installer این موارد را از نصب قبلی منتقل می‌کند:
+
+```text
+appsettings.json
+App_Data\...
+```
+
+هدف این است که Connection String، تنظیمات MySQL و سایر داده‌های محلی نصب قبلی از بین نرود و برنامه با تنظیمات پیش‌فرض Package جایگزین نشود.
+
+قواعد مهاجرت:
+
+1. اگر `current` مسیر جدید دارای `appsettings.json` یا `App_Data` باشد، همان اطلاعات جدید در اولویت است.
+2. فقط وقتی مسیر جدید فاقد داده پایدار باشد، Legacy path بررسی می‌شود.
+3. نصب قبلی در `C:\ProgramData\iMonitorERP` حذف یا تغییر داده نمی‌شود.
+4. پس از Health Check موفق، نسخه جدید فعال می‌شود و از آن پس updater روی `InstallRoot` جدید کار می‌کند.
+5. در صورت شکست Health Check، Rollback انجام می‌شود و نسخه قبلی مسیر جدید برگردانده می‌شود.
+
+### IIS Site موجود
+
 اگر روی پورت موردنظر یک IIS Site موجود باشد، Installer تا جای ممکن همان Site را برای کانال مربوطه استفاده و AppPool/PhysicalPath آن را اصلاح می‌کند. در صورت وجود چند Binding متعارض روی یک پورت، نصب متوقف می‌شود تا از خراب شدن سایت‌های دیگر جلوگیری شود.
 
 ### انتشار امن و Rollback
@@ -89,13 +107,15 @@ Scheduled Tasks برای بررسی خودکار نسخه‌ها
 ```text
 Validate package
 → Stage new release
+→ Preserve current persistent data
+→ If needed migrate legacy persistent data
 → Stop IIS Site
 → Stop IIS AppPool
-→ Wait/retry for file handles
 → Atomic swap current
 → Start AppPool
 → Start Site
 → Health check
+→ Write installed version only after success
 → Rollback automatically if health fails
 ```
 
@@ -114,23 +134,23 @@ Package ناقص فعال نمی‌شود.
 
 ### تشخیص خطای IIS / HTTP 500
 
-از v2.0.12 اگر `/health` پس از Activation سالم نشود، Installer قبل از Rollback اطلاعات تشخیصی چاپ می‌کند:
+اگر `/health` پس از Activation سالم نشود، Installer قبل از Rollback اطلاعات تشخیصی چاپ می‌کند:
 
 ```text
 IIS Site state / physical path
 Application Pool state
 Installed .NET runtimes
-ASP.NET Core stdout logs (در صورت وجود)
+ASP.NET Core stdout/stderr captured by ANCM when available
 Recent IIS / AspNetCore / .NET Runtime events from Windows Event Log
 ```
 
-این اطلاعات برای تشخیص خطاهای `500.19`، `500.30`، نبود Hosting Bundle، startup failure و خطاهای runtime استفاده می‌شود.
+این اطلاعات برای تشخیص خطاهای `500.19`، `500.30`، نبود Hosting Bundle، startup failure و خطاهای runtime/database استفاده می‌شود.
 
 ### دانلود و Cache
 
 GitHub Release از طریق IPv4 مرجع تشخیص نسخه است. ZIP دانلودشده با SHA-256 کنترل می‌شود. اگر همان نسخه قبلاً در `PackageCacheDirectory` وجود داشته باشد و checksum صحیح باشد، دانلود مجدد انجام نمی‌شود.
 
-### Scheduled Taskها
+### Scheduled Taskها / Automatic Updater
 
 پس از نصب موفق، نسخه Installer در مسیر زیر کپی می‌شود:
 
@@ -145,7 +165,7 @@ iMonitorERP-Update-Test
 iMonitorERP-Update-Production
 ```
 
-هر کانال هر ۵ دقیقه مستقل بررسی می‌شود و مسیر `InstallRoot` و `PackageCacheDirectory` همان نصب اولیه را حفظ می‌کند.
+هر کانال هر ۵ دقیقه مستقل بررسی می‌شود. `InstallRoot` و `PackageCacheDirectory` همان مسیر نصب اولیه حفظ می‌شوند؛ بنابراین اگر نصب با `D:\erp_ins` انجام شده باشد، آپدیت‌های بعدی نیز روی همان مسیر انجام می‌شوند و به `C:\ProgramData\iMonitorERP` برنمی‌گردند.
 
 ### Linux / Ubuntu ERP
 
