@@ -15,6 +15,14 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     throw 'Run PowerShell as Administrator.'
 }
 
+# Refresh PATH so prerequisites installed by a previous run are visible to this process
+# and to the child PowerShell process that executes the installer core.
+$machinePath = [Environment]::GetEnvironmentVariable('Path','Machine')
+$userPath = [Environment]::GetEnvironmentVariable('Path','User')
+$dotnetPath = Join-Path $env:ProgramFiles 'dotnet'
+$pathParts = @($dotnetPath,$machinePath,$userPath) | Where-Object { $_ -and $_.Trim() }
+$env:Path = ($pathParts -join ';')
+
 $repo = 'alimirzae/iMonitor-Erp-Releases'
 $core = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.12-core.ps1'
 $cb = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
@@ -26,6 +34,10 @@ $curlExit = $LASTEXITCODE
 $global:LASTEXITCODE = 0
 if ($curlExit -ne 0 -or -not (Test-Path $core -PathType Leaf) -or (Get-Item $core).Length -le 0) {
     throw "Could not download installer core. curl exit code=$curlExit"
+}
+
+if (Test-Path (Join-Path $dotnetPath 'dotnet.exe')) {
+    Write-Host "Detected dotnet host: $(Join-Path $dotnetPath 'dotnet.exe')"
 }
 
 $argsList = @(
