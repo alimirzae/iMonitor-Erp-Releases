@@ -4,20 +4,20 @@
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.21
+### Windows x64 — Installer رسمی v2.0.22
 
 PowerShell را با **Run as Administrator** باز کنید:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.21.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.22.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
 curl.exe -4 --http1.1 -fL `
   -H "Cache-Control: no-cache" `
   -H "Pragma: no-cache" `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.21.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.22.ps1?cb=$cacheBust" `
   -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -28,9 +28,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Force
 ```
 
-`v2.0.21` نسخه رسمی فعلی Windows است و اصلاحات نسخه‌های قبلی شامل MySQL موجود، استقلال Test/Production، رفع cache، انتخاب Release صحیح، Binding بدون Hostname و `AllowedHosts="*"` را حفظ می‌کند.
+`v2.0.22` نسخه رسمی فعلی Windows است. این نسخه تمام اصلاحات `v2.0.21` برای بازیابی App Pool و عیب‌یابی ANCM را حفظ می‌کند و خطای Parser مربوط به رشته PowerShell زیر را رفع می‌کند:
 
-### اصلاح 503 / AppPool در v2.0.21
+```text
+Variable reference is not valid. ':' was not followed by a valid variable name character.
+```
+
+در نسخه اصلاح‌شده نمایش Binding به صورت parser-safe انجام می‌شود و مقدار پورت با `${Port}` از `:` بعدی جدا شده است.
+
+### اصلاح 503 / AppPool
 
 اگر اجرای مستقیم زیر سالم باشد ولی IIS خطای `503 Service Unavailable` بدهد:
 
@@ -39,7 +45,7 @@ cd D:\erp_ins\test\current
 dotnet .\Ecomm.dll
 ```
 
-مشکل معمولاً در App Pool، مجوز فایل‌ها، ANCM یا startup process همان سایت است. `v2.0.21` بعد از deploy برای هر کانال این موارد را اصلاح و بررسی می‌کند:
+Installer بعد از deploy برای هر کانال این موارد را اصلاح و بررسی می‌کند:
 
 ```text
 AppPool .NET CLR Version = No Managed Code
@@ -54,11 +60,11 @@ AllowedHosts             = "*"
 web.config hostingModel  = inprocess
 ```
 
-همچنین برای مسیر برنامه به Identity اختصاصی App Pool دسترسی `Modify` داده می‌شود تا `App_Data` و لاگ‌های ASP.NET Core قابل استفاده باشند.
+همچنین به Identity اختصاصی App Pool روی مسیر برنامه دسترسی `Modify` داده می‌شود تا `App_Data` و لاگ‌های ASP.NET Core قابل استفاده باشند.
 
 ### ANCM stdout diagnostics
 
-در `v2.0.21` برای تشخیص startup failure، stdout logging در `web.config` فعال می‌شود:
+برای تشخیص startup failure، stdout logging در `web.config` فعال می‌شود:
 
 ```text
 stdoutLogEnabled = true
@@ -77,7 +83,7 @@ D:\erp_ins\test\current\logs\stdout_*.log
 D:\erp_ins\production\current\logs\stdout_*.log
 ```
 
-Installer بعد از Start کردن سایت و App Pool، چند بار endpoint `/health` را بررسی می‌کند. اگر App Pool هنگام startup متوقف شود یا health check موفق نشود، آخرین رخدادهای IIS / ASP.NET Core / .NET Runtime / WAS / W3SVC را همان‌جا در کنسول چاپ می‌کند.
+Installer بعد از Start کردن سایت و App Pool چند بار endpoint `/health` را بررسی می‌کند. اگر App Pool هنگام startup متوقف شود یا health check موفق نشود، آخرین رخدادهای IIS / ASP.NET Core / .NET Runtime / WAS / W3SVC را در کنسول چاپ می‌کند.
 
 ### IIS Binding و Invalid Hostname
 
@@ -126,7 +132,7 @@ iMonitorERP-Update-Production
 فایل پایدار Installer:
 
 ```text
-<InstallRoot>\installer\Install-iMonitorERP-v2.0.21.ps1
+<InstallRoot>\installer\Install-iMonitorERP-v2.0.22.ps1
 ```
 
 ### اگر Test هنوز 503 بود
