@@ -14,20 +14,20 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.18
+### Windows x64 — Installer رسمی v2.0.19
 
 PowerShell را با **Run as Administrator** باز کنید و وارد پوشه‌ای شوید که می‌خواهید ERP همان‌جا نصب شود:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.18.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.19.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
 curl.exe -4 --http1.1 -fL `
   -H "Cache-Control: no-cache" `
   -H "Pragma: no-cache" `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.18.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.19.ps1?cb=$cacheBust" `
   -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -38,9 +38,27 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Force
 ```
 
-`v2.0.18` نسخه رسمی نصب Windows است. نسخه‌های `v2.0.15`، `v2.0.16` و `v2.0.17` بازنشسته شده‌اند.
+`v2.0.19` نسخه رسمی نصب Windows است. نسخه‌های `v2.0.15` تا `v2.0.18` بازنشسته شده‌اند.
 
-`v2.0.18` علاوه بر نام فایل جدید، cache-buster و هدرهای `no-cache`، منطق Core اصلاح‌شده را به یک **commit ثابت و immutable** pin می‌کند تا تغییر branch یا کش CDN باعث اجرای Core قدیمی یا متفاوت نشود.
+### رفتار مستقل Test و Production
+
+از `v2.0.19` دو کانال مستقل deploy می‌شوند:
+
+```text
+Test       -> ecomm_dev -> port 8081
+Production -> ecomm     -> port 8080
+```
+
+اگر Test با موفقیت نصب و Online شود ولی Production خطا بدهد، Test فعال باقی می‌ماند و نصب کلی برای حالت `-Channel Both` به خاطر خطای Production rollback نمی‌شود. خطای Production به شکل Warning ثبت می‌شود و Scheduled Task مخصوص Production هر ۵ دقیقه دوباره تلاش می‌کند.
+
+بنابراین سیاست نصب به شکل زیر است:
+
+```text
+Test success + Production success -> نصب کامل
+Test success + Production failure -> Test فعال می‌ماند؛ Production بعداً retry می‌شود
+Test failure                       -> نصب ناموفق
+Production-only failure            -> همان اجرای Production ناموفق است و updater بعداً retry می‌کند
+```
 
 ### MySQL موجود — بدون دانلود یا نصب MySQL
 
@@ -58,14 +76,6 @@ Password for MySQL user 'root'
 
 رمز در کنسول نمایش داده نمی‌شود. Installer فقط اتصال واقعی به MySQL را تست می‌کند و در صورت موفق بودن ادامه می‌دهد.
 
-اگر `mysql.exe` در PATH یا مسیرهای استاندارد MySQL Server 8.0/8.4 پیدا شود، مسیر آن به‌صورت خودکار تشخیص داده می‌شود.
-
-> نکته: عبارت `Release metadata download over GitHub IPv4` مربوط به بررسی آخرین Release خود ERP در GitHub است و هیچ ارتباطی با دانلود MySQL ندارد.
-
-### دیتابیس‌های از قبل ایجادشده
-
-Installer در `v2.0.18` دیتابیس یا User جدید ایجاد نمی‌کند و هیچ `CREATE DATABASE`، `CREATE USER`، `ALTER USER` یا `GRANT` اجرا نمی‌کند.
-
 نام دیتابیس‌های مورد انتظار:
 
 ```text
@@ -73,21 +83,7 @@ Test       ecomm_dev
 Production ecomm
 ```
 
-این دو دیتابیس باید قبل از نصب توسط مدیر سیستم ایجاد شده باشند.
-
-نمونه SQL اختیاری برای ساخت دستی:
-
-```sql
-CREATE DATABASE ecomm
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-CREATE DATABASE ecomm_dev
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-```
-
-Installer بعد از تست اتصال MySQL، وجود و دسترسی به دیتابیس مربوط به هر Channel را بررسی می‌کند. اگر دیتابیس وجود نداشته باشد یا قابل دسترسی نباشد، نصب با پیام واضح متوقف می‌شود.
+Installer دیتابیس یا User جدید ایجاد نمی‌کند و هیچ `CREATE DATABASE`، `CREATE USER`، `ALTER USER` یا `GRANT` اجرا نمی‌کند.
 
 ### Releaseهای ERP
 
@@ -99,11 +95,19 @@ Production imonitor-ecomerp-master-v*
 Asset      iMonitor-EcomERP-win-x64.zip
 ```
 
-انتخاب Release به‌صورت سازگار با Windows PowerShell 5.1 انجام می‌شود و `tag_name` مستقیماً از JSON خام GitHub استخراج می‌شود تا رفتار متفاوت `ConvertFrom-Json` باعث خطای اشتباه `No release found` نشود.
+انتشار عمومی از مخزن `alimirzae/Ecomm` انجام می‌شود. Workflow مربوط به `test` و `master` هر دو را build/test می‌کند و SHA تاییدشده را به `alimirzae/iMonitor-Erp-Releases` dispatch می‌کند. در مخزن Release، برای `master` تگ با الگوی `imonitor-ecomerp-master-v*` ساخته می‌شود و برای `test` تگ `imonitor-ecomerp-test-v*`.
+
+### appsettings و رفع 404 Production
+
+در `v2.0.19` وابستگی به دانلود مستقیم فایل زیر از شاخه source حذف شده است:
+
+```text
+Ecomm/<branch>/Ecomm/appsettings.json
+```
+
+Installer بعد از Extract، همان `appsettings.json` داخل پکیج Release را مبنا قرار می‌دهد؛ اگر نصب قبلی موجود باشد، appsettings موجود محلی نیز می‌تواند به عنوان پایه استفاده شود. به این ترتیب خطای 404 با عنوان `Production base appsettings` دیگر نباید رخ دهد.
 
 ### Migration فعلاً غیرفعال است
-
-برای ساده و قابل‌کنترل نگه‌داشتن نصب اولیه، اجرای خودکار Migration و Seed فعلاً غیرفعال است:
 
 ```text
 Database:Type=MySql
@@ -114,71 +118,7 @@ Database:SeedDataOnMigrate=false
 Database:DropDatabaseOnStartup=false
 ```
 
-بنابراین Installer فعلاً فقط:
-
-```text
-IIS / Management Tools
-→ .NET 8 ASP.NET Core Hosting Bundle
-→ پیدا کردن mysql.exe
-→ تست اتصال MySQL موجود
-→ بررسی دسترسی به ecomm_dev / ecomm
-→ تولید appsettings.json
-→ دریافت یا استفاده از Cache آخرین Release ERP
-→ Stage و Activation
-→ تنظیم IIS
-→ Health Check
-→ Rollback در صورت خطا
-```
-
 Migrationهای EF Core در مرحله جداگانه و کنترل‌شده انجام خواهند شد.
-
-### اصلاحات PowerShell و Cache
-
-`v2.0.18` شامل اصلاحات زیر است:
-
-```text
-- رفع خطای Test-Path ... -and در Windows PowerShell
-- جلوگیری از ورود خروجی progress curl به pipeline
-- انتخاب صحیح Release تست با imonitor-ecomerp-test-v*
-- انتخاب صحیح Release Production با imonitor-ecomerp-master-v*
-- استفاده از نام فایل Core موقت دارای GUID
-- استفاده از Cache-Control: no-cache و Pragma: no-cache
-- pin کردن Core اصلاح‌شده به commit ثابت
-```
-
-Core pinned فعلی:
-
-```text
-7d22f21a93870c46cea7b6c0aa98b0d8bbae6d22
-```
-
-### تنظیمات اتصال MySQL
-
-بعد از اتصال موفق، اطلاعات لازم برای اجرای بدون تعامل updater در مسیر زیر نگهداری می‌شود:
-
-```text
-D:\erp_ins\config\mysql-external.json
-```
-
-ACL این پوشه به `Administrators` و `SYSTEM` محدود می‌شود. این فایل را منتشر نکنید.
-
-### آدرس‌های محلی
-
-پس از نصب موفق:
-
-```text
-Test       http://127.0.0.1:8081/
-Production http://127.0.0.1:8080/
-```
-
-صفحه setup در صورت نیاز برنامه:
-
-```text
-Test       http://127.0.0.1:8081/account/setup
-Production http://127.0.0.1:8080/account/setup
-```
-
-توجه: با توجه به غیرفعال بودن Migration، آماده بودن این صفحات به وضعیت Schema دیتابیس بستگی دارد.
 
 ### Automatic Updater
 
@@ -192,49 +132,42 @@ iMonitorERP-Update-Production
 فایل پایدار Installer:
 
 ```text
-<InstallRoot>\installer\Install-iMonitorERP-v2.0.18.ps1
+<InstallRoot>\installer\Install-iMonitorERP-v2.0.19.ps1
 ```
 
-Taskها با حساب `SYSTEM` و Highest Privileges اجرا می‌شوند و به `v2.0.18` اشاره می‌کنند. اجرای `v2.0.18` فایل‌های persisted مربوط به `v2.0.15`، `v2.0.16` و `v2.0.17` را حذف می‌کند.
+Taskها با حساب `SYSTEM` و Highest Privileges اجرا می‌شوند و هر کانال را مستقل به‌روزرسانی می‌کنند. اگر Production هنگام نصب اولیه آماده نباشد یا انتشار جدید نرسیده باشد، `iMonitorERP-Update-Production` بعداً آن را دوباره امتحان می‌کند.
 
-در اجرای خودکار، اطلاعات MySQL از `config\mysql-external.json` خوانده می‌شود و Prompt تعاملی نمایش داده نمی‌شود.
+### تنظیمات اتصال MySQL
 
-### اجرای غیرتعاملی اختیاری
+اطلاعات لازم برای اجرای بدون تعامل updater در مسیر زیر نگهداری می‌شود:
 
-در صورت نیاز می‌توان اطلاعات MySQL را هنگام اجرای اولیه به‌صورت پارامتر داد:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File $installer `
-  -Channel Both `
-  -InstallRoot 'D:\erp_ins' `
-  -PackageCacheDirectory 'D:\erp_ins' `
-  -MySqlBinPath 'C:\Program Files\MySQL\MySQL Server 8.0\bin' `
-  -MySqlHost 'localhost' `
-  -MySqlPort 3306 `
-  -MySqlRootUser 'root' `
-  -Force
+```text
+D:\erp_ins\config\mysql-external.json
 ```
 
-برای امنیت بهتر، Password را در Command History وارد نکنید؛ در اجرای عادی Installer آن را به‌صورت Secure Prompt می‌پرسد.
+ACL این پوشه به `Administrators` و `SYSTEM` محدود می‌شود. این فایل را منتشر نکنید.
 
 ### Cache و IPv4
 
-دانلود Bootstrap/Core و Releaseهای ERP با `curl.exe -4 --http1.1` انجام می‌شوند. Bootstrap/Core `v2.0.18` با نام فایل جدید، cache-buster میلی‌ثانیه‌ای و هدرهای `Cache-Control: no-cache` و `Pragma: no-cache` دریافت می‌شوند. فایل Core موقت نیز در هر اجرا نام GUID جدید دارد.
+دانلود Bootstrap/Core و Releaseهای ERP با `curl.exe -4 --http1.1` انجام می‌شوند. cache-buster میلی‌ثانیه‌ای و هدرهای `Cache-Control: no-cache` و `Pragma: no-cache` استفاده می‌شوند. فایل Core موقت در هر اجرا نام GUID جدید دارد.
 
 اگر ZIP معتبر Release در `PackageCacheDirectory` موجود باشد دوباره دانلود نمی‌شود.
 
 **هیچ دانلود MySQL انجام نمی‌شود.**
 
-### مهاجرت نصب قبلی
-
-اگر نصب قبلی در مسیر زیر وجود داشته باشد:
+### آدرس‌های محلی
 
 ```text
-C:\ProgramData\iMonitorERP
+Test       http://127.0.0.1:8081/
+Production http://127.0.0.1:8080/
 ```
 
-Installer تنظیمات عمومی و `App_Data` را در صورت وجود حفظ می‌کند، اما Connection String دیتابیس را با اطلاعات MySQL تاییدشده نصب فعلی و نام دیتابیس کانال جایگزین می‌کند. مسیر قدیمی حذف نمی‌شود.
+صفحه setup در صورت نیاز برنامه:
+
+```text
+Test       http://127.0.0.1:8081/account/setup
+Production http://127.0.0.1:8080/account/setup
+```
 
 ### Linux / Ubuntu ERP
 
