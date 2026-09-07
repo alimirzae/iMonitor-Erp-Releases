@@ -20,13 +20,18 @@ $InstallRoot=[IO.Path]::GetFullPath($InstallRoot)
 $PackageCacheDirectory=[IO.Path]::GetFullPath($PackageCacheDirectory)
 $installerHome=Join-Path $InstallRoot 'installer'
 New-Item -ItemType Directory -Force -Path $InstallRoot,$PackageCacheDirectory,$installerHome | Out-Null
-Write-Host 'iMonitor ERP Windows installer v2.0.16' -ForegroundColor Cyan
+Write-Host '=== iMonitor ERP Windows installer v2.0.16 ===' -ForegroundColor Cyan
 Write-Host "Install root : $InstallRoot"
 Write-Host "Package cache: $PackageCacheDirectory"
 Write-Host "Channel      : $Channel"
 Write-Host 'MySQL        : existing installation; no MySQL package will be downloaded' -ForegroundColor Cyan
 $self=Join-Path $installerHome 'Install-iMonitorERP-v2.0.16.ps1'
 Copy-Item $PSCommandPath $self -Force
+
+# Remove the old persisted 2.0.15 bootstrap so manual/legacy invocations cannot accidentally reuse it.
+$oldPersisted=Join-Path $installerHome 'Install-iMonitorERP-v2.0.15.ps1'
+if(Test-Path $oldPersisted -PathType Leaf){Remove-Item $oldPersisted -Force -ErrorAction SilentlyContinue}
+
 function Register-Updaters {
     $testAction="powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -Channel Test -InstallRoot `"$InstallRoot`" -PackageCacheDirectory `"$PackageCacheDirectory`" -TestPort $TestPort -ProductionPort $ProductionPort -UpdateOnly"
     $prodAction="powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$self`" -Channel Production -InstallRoot `"$InstallRoot`" -PackageCacheDirectory `"$PackageCacheDirectory`" -TestPort $TestPort -ProductionPort $ProductionPort -UpdateOnly"
@@ -35,7 +40,7 @@ function Register-Updaters {
     & schtasks.exe /Create /F /TN 'iMonitorERP-Update-Production' /SC MINUTE /MO 5 /RU SYSTEM /RL HIGHEST /TR $prodAction | Out-Null
     if($LASTEXITCODE -ne 0){throw 'Could not create iMonitorERP-Update-Production scheduled task.'}
     $global:LASTEXITCODE=0
-    Write-Host '[OK] Automatic updater tasks registered (every 5 minutes).' -ForegroundColor Green
+    Write-Host '[OK] Automatic updater tasks now point to v2.0.16 (every 5 minutes).' -ForegroundColor Green
 }
 Register-Updaters
 $machinePath=[Environment]::GetEnvironmentVariable('Path','Machine')
@@ -48,7 +53,7 @@ $core=Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.16-core.ps1'
 $cb=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 $uri="https://raw.githubusercontent.com/$repo/main/scripts/Install-iMonitorERP-v2.0.16-core.ps1?cb=$cb"
 Write-Host 'Downloading installer core v2.0.16 over IPv4...'
-& curl.exe -4 --http1.1 --silent --show-error --fail --location --connect-timeout 8 --max-time 300 --retry 3 --retry-all-errors $uri -o $core
+& curl.exe -4 --http1.1 --silent --show-error --fail --location --connect-timeout 8 --max-time 300 --retry 3 --retry-all-errors $uri -o $core 2>$null
 $curlExit=$LASTEXITCODE; $global:LASTEXITCODE=0
 if($curlExit -ne 0 -or -not(Test-Path $core -PathType Leaf) -or (Get-Item $core).Length -le 0){throw "Could not download installer core. curl exit code=$curlExit"}
 $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$core,'-Channel',$Channel,'-InstallRoot',$InstallRoot,'-PackageCacheDirectory',$PackageCacheDirectory,'-TestPort',[string]$TestPort,'-ProductionPort',[string]$ProductionPort)
