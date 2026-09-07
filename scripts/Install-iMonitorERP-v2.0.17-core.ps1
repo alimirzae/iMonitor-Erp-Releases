@@ -25,6 +25,7 @@ $raw="https://raw.githubusercontent.com/$repo/$baseCommit/scripts/Install-iMonit
 
 try {
   Write-Host '=== iMonitor ERP CORE v2.0.17 ===' -ForegroundColor Cyan
+  Write-Host 'Core revision : 2.0.17-r2 (cache syntax fix)' -ForegroundColor DarkCyan
   Write-Host 'Database mode: pre-created databases; migrations deferred.' -ForegroundColor Cyan
   Write-Host 'Test DB      : ecomm_dev'
   Write-Host 'Production DB: ecomm'
@@ -90,6 +91,13 @@ function Get-LatestRelease([string]$Prefix) {
 '@
   if(-not $text.Contains($old2)){throw 'Could not patch Ensure-Package Join-Path block.'}
   $text=$text.Replace($old2,$new2.TrimEnd())
+
+  # Fix invalid PowerShell syntax inherited from the old core:
+  # Test-Path ... -and ... is parsed as a parameter named -and.
+  $oldCache="    if (Test-Path `$zip -PathType Leaf -and (Get-Item `$zip).Length -gt 5MB) {"
+  $newCache="    if ((Test-Path `$zip -PathType Leaf) -and ((Get-Item `$zip).Length -gt 5MB)) {"
+  if(-not $text.Contains($oldCache)){throw 'Could not patch Ensure-Package cache condition.'}
+  $text=$text.Replace($oldCache,$newCache)
 
   $oldEnsure='    Ensure-DatabaseUser $Conn $Database $User $Password'
   $newEnsure=@'
