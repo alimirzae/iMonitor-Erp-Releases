@@ -36,7 +36,10 @@ jobs:
             Copy-Item $env:POSIRAN_SEED_CONFIG $config -Force
           }
           $j=Get-Content $config -Raw|ConvertFrom-Json
-          if($j.PSObject.Properties['Branding']){$j.Branding.ProductName='Posiran ERP';$j.Branding.DisplayName='پوزایران ERP';$j.Branding.Website='https://www.posiran.ir/'}else{$j|Add-Member -NotePropertyName Branding -NotePropertyValue ([pscustomobject]@{ProductName='Posiran ERP';DisplayName='پوزایران ERP';Website='https://www.posiran.ir/';SupportPhone='';SupportEmail=''})}
+          $brand=[pscustomobject]@{ProductName='Posiran ERP';DisplayName='پوزایران ERP';Website='https://www.posiran.ir/';SupportPhone='0922-962-7005';SupportEmail=''}
+          if($j.PSObject.Properties['Branding']){
+            foreach($p in $brand.PSObject.Properties){if($j.Branding.PSObject.Properties[$p.Name]){$j.Branding.($p.Name)=$p.Value}else{$j.Branding|Add-Member -NotePropertyName $p.Name -NotePropertyValue $p.Value}}
+          }else{$j|Add-Member -NotePropertyName Branding -NotePropertyValue $brand}
           if($j.PSObject.Properties['AllowedHosts']){$j.AllowedHosts='*'}else{$j|Add-Member -NotePropertyName AllowedHosts -NotePropertyValue '*'}
           if($j.PSObject.Properties['ExternalGoodsApi']){$j.ExternalGoodsApi.Enabled=$false}
           if($j.PSObject.Properties['AutoSync']){$j.AutoSync.Enabled=$false}
