@@ -14,18 +14,18 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.12
+### Windows x64 — Installer رسمی v2.0.13
 
 PowerShell را با **Run as Administrator** باز کنید و وارد پوشه‌ای شوید که می‌خواهید ERP همان‌جا نصب شود. مثال:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.12.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.13.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 curl.exe -4 --http1.1 -fL `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.12.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.13.ps1?cb=$cacheBust" `
   -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -36,7 +36,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Force
 ```
 
-در این حالت فایل‌ها در مسیرهای زیر قرار می‌گیرند:
+مسیرهای نمونه:
 
 ```text
 D:\erp_ins\test\current
@@ -45,7 +45,23 @@ D:\erp_ins\state
 D:\erp_ins\installer
 ```
 
-`v2.0.12` نسخه رسمی فعلی نصب Windows است.
+`v2.0.13` نسخه رسمی فعلی نصب Windows است.
+
+### تغییرات v2.0.13
+
+این نسخه برای اجرای چندباره و Recovery سخت‌گیرانه‌تر شده است:
+
+```text
+State-aware Stop/Start برای IIS Site
+State-aware Stop/Start برای IIS AppPool
+عدم شکست نصب وقتی Site/AppPool از قبل Stopped یا Started است
+حفظ مهاجرت تنظیمات نصب قبلی از C:\ProgramData\iMonitorERP
+حفظ appsettings.json و App_Data
+Health Check قبل از ثبت Version state
+Rollback خودکار در Activation ناموفق
+انتقال Scheduled Taskها به Installer v2.0.13
+حفظ InstallRoot و PackageCacheDirectory در Automatic Updater
+```
 
 ### نصب خودکار پیش‌نیازها
 
@@ -65,40 +81,32 @@ Scheduled Tasks برای بررسی خودکار نسخه‌ها
 
 پورت‌های پیش‌فرض:
 
-| کانال | آدرس | مسیر برنامه در مثال D:\erp_ins |
+| کانال | آدرس | مسیر نمونه |
 |---|---|---|
 | Production | `http://127.0.0.1:8080` | `D:\erp_ins\production\current` |
 | Test | `http://127.0.0.1:8081` | `D:\erp_ins\test\current` |
 
-### مهاجرت خودکار نصب قبلی از C:\ProgramData
+### مهاجرت خودکار نصب قبلی
 
-اگر قبلاً ERP در مسیر قدیمی نصب شده باشد:
+اگر قبلاً ERP در مسیرهای زیر نصب شده باشد:
 
 ```text
 C:\ProgramData\iMonitorERP\test\current
 C:\ProgramData\iMonitorERP\production\current
 ```
 
-و اکنون Installer با `InstallRoot` جدید، مثلاً `D:\erp_ins` اجرا شود، در اولین فعال‌سازی هر Channel در صورتی که مسیر جدید هنوز تنظیمات پایدار نداشته باشد، Installer این موارد را از نصب قبلی منتقل می‌کند:
+و اکنون Installer با `InstallRoot` جدید، مثلاً `D:\erp_ins` اجرا شود، در اولین فعال‌سازی هر Channel و در صورت نبود داده پایدار در مسیر جدید، این موارد از نصب قبلی منتقل می‌شوند:
 
 ```text
 appsettings.json
 App_Data\...
 ```
 
-هدف این است که Connection String، تنظیمات MySQL و سایر داده‌های محلی نصب قبلی از بین نرود و برنامه با تنظیمات پیش‌فرض Package جایگزین نشود.
-
-قواعد مهاجرت:
-
-1. اگر `current` مسیر جدید دارای `appsettings.json` یا `App_Data` باشد، همان اطلاعات جدید در اولویت است.
-2. فقط وقتی مسیر جدید فاقد داده پایدار باشد، Legacy path بررسی می‌شود.
-3. نصب قبلی در `C:\ProgramData\iMonitorERP` حذف یا تغییر داده نمی‌شود.
-4. پس از Health Check موفق، نسخه جدید فعال می‌شود و از آن پس updater روی `InstallRoot` جدید کار می‌کند.
-5. در صورت شکست Health Check، Rollback انجام می‌شود و نسخه قبلی مسیر جدید برگردانده می‌شود.
+این کار برای حفظ Connection String، تنظیمات MySQL و داده‌های محلی انجام می‌شود. مسیر قدیمی حذف یا تغییر داده نمی‌شود.
 
 ### IIS Site موجود
 
-اگر روی پورت موردنظر یک IIS Site موجود باشد، Installer تا جای ممکن همان Site را برای کانال مربوطه استفاده و AppPool/PhysicalPath آن را اصلاح می‌کند. در صورت وجود چند Binding متعارض روی یک پورت، نصب متوقف می‌شود تا از خراب شدن سایت‌های دیگر جلوگیری شود.
+اگر روی پورت موردنظر یک IIS Site موجود باشد، Installer تا جای ممکن همان Site را استفاده و AppPool/PhysicalPath را تنظیم می‌کند. اگر چند Binding متعارض روی یک پورت وجود داشته باشد، نصب متوقف می‌شود تا سایت دیگری آسیب نبیند.
 
 ### انتشار امن و Rollback
 
@@ -108,12 +116,12 @@ App_Data\...
 Validate package
 → Stage new release
 → Preserve current persistent data
-→ If needed migrate legacy persistent data
-→ Stop IIS Site
-→ Stop IIS AppPool
+→ Migrate legacy persistent data when needed
+→ Stop IIS Site only if running
+→ Stop IIS AppPool only if running
 → Atomic swap current
-→ Start AppPool
-→ Start Site
+→ Start AppPool only if stopped
+→ Start Site only if stopped
 → Health check
 → Write installed version only after success
 → Rollback automatically if health fails
@@ -134,7 +142,7 @@ Package ناقص فعال نمی‌شود.
 
 ### تشخیص خطای IIS / HTTP 500
 
-اگر `/health` پس از Activation سالم نشود، Installer قبل از Rollback اطلاعات تشخیصی چاپ می‌کند:
+اگر `/health` پس از Activation سالم نشود، Installer اطلاعات تشخیصی زیر را چاپ می‌کند:
 
 ```text
 IIS Site state / physical path
@@ -144,18 +152,18 @@ ASP.NET Core stdout/stderr captured by ANCM when available
 Recent IIS / AspNetCore / .NET Runtime events from Windows Event Log
 ```
 
-این اطلاعات برای تشخیص خطاهای `500.19`، `500.30`، نبود Hosting Bundle، startup failure و خطاهای runtime/database استفاده می‌شود.
+این خروجی برای تشخیص خطاهای `500.19`، `500.30`، Hosting Bundle، startup failure و خطاهای runtime/database استفاده می‌شود.
 
 ### دانلود و Cache
 
-GitHub Release از طریق IPv4 مرجع تشخیص نسخه است. ZIP دانلودشده با SHA-256 کنترل می‌شود. اگر همان نسخه قبلاً در `PackageCacheDirectory` وجود داشته باشد و checksum صحیح باشد، دانلود مجدد انجام نمی‌شود.
+GitHub Release از طریق IPv4 مرجع تشخیص نسخه است. ZIP با SHA-256 کنترل می‌شود. اگر همان نسخه قبلاً در `PackageCacheDirectory` موجود و checksum صحیح باشد، دانلود مجدد انجام نمی‌شود.
 
 ### Scheduled Taskها / Automatic Updater
 
-پس از نصب موفق، نسخه Installer در مسیر زیر کپی می‌شود:
+پس از نصب موفق، Installer رسمی در مسیر زیر ذخیره می‌شود:
 
 ```text
-<InstallRoot>\installer\Install-iMonitorERP-v2.0.12.ps1
+<InstallRoot>\installer\Install-iMonitorERP-v2.0.13.ps1
 ```
 
 Taskها:
@@ -165,7 +173,7 @@ iMonitorERP-Update-Test
 iMonitorERP-Update-Production
 ```
 
-هر کانال هر ۵ دقیقه مستقل بررسی می‌شود. `InstallRoot` و `PackageCacheDirectory` همان مسیر نصب اولیه حفظ می‌شوند؛ بنابراین اگر نصب با `D:\erp_ins` انجام شده باشد، آپدیت‌های بعدی نیز روی همان مسیر انجام می‌شوند و به `C:\ProgramData\iMonitorERP` برنمی‌گردند.
+هر کانال هر ۵ دقیقه مستقل بررسی می‌شود. `InstallRoot` و `PackageCacheDirectory` همان مسیر نصب اولیه حفظ می‌شوند؛ بنابراین نصب روی `D:\erp_ins` در آپدیت‌های بعدی به `C:\ProgramData\iMonitorERP` برنمی‌گردد.
 
 ### Linux / Ubuntu ERP
 
