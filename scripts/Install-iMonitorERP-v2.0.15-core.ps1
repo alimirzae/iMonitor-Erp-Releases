@@ -28,6 +28,7 @@ $InstallRoot = [IO.Path]::GetFullPath($InstallRoot)
 $PackageCacheDirectory = [IO.Path]::GetFullPath($PackageCacheDirectory)
 $configRoot = Join-Path $InstallRoot 'config'
 $mysqlState = Join-Path $configRoot 'mysql-external.json'
+$script:LastMySqlError = ''
 New-Item -ItemType Directory -Force -Path $InstallRoot,$PackageCacheDirectory,$configRoot | Out-Null
 
 Write-Host 'iMonitor ERP installer core v2.0.15' -ForegroundColor Cyan
@@ -93,7 +94,21 @@ function Invoke-MySql([string]$Client,[string]$HostName,[int]$Port,[string]$User
     $previous = $env:MYSQL_PWD
     try {
         if ([string]::IsNullOrEmpty($Password)) { Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue } else { $env:MYSQL_PWD = $Password }
-        $result = $Sql | & $Client --protocol=TCP --host=$HostName --port=$Port --user=$User --batch --skip-column-names 2>&1
+
+        $mysqlArgs = New-Object System.Collections.Generic.List[string]
+        $mysqlArgs.Add("--user=$User")
+        $mysqlArgs.Add('--batch')
+        $mysqlArgs.Add('--skip-column-names')
+        $mysqlArgs.Add('--default-character-set=utf8mb4')
+
+        $isDefaultLocal = (($HostName -eq 'localhost') -and ($Port -eq 3306))
+        if (-not $isDefaultLocal) {
+            $mysqlArgs.Add('--protocol=TCP')
+            $mysqlArgs.Add("--host=$HostName")
+            $mysqlArgs.Add("--port=$Port")
+        }
+
+        $result = $Sql | & $Client $mysqlArgs.ToArray() 2>&1
         $code = $LASTEXITCODE
         $global:LASTEXITCODE = 0
         if ($code -ne 0) { throw ($result -join [Environment]::NewLine) }
@@ -107,8 +122,12 @@ function Test-MySqlLogin([string]$Client,[string]$HostName,[int]$Port,[string]$U
     try {
         $sql = if ($Database) { "USE $Database; SELECT 1;" } else { 'SELECT 1;' }
         Invoke-MySql $Client $HostName $Port $User $Password $sql | Out-Null
+        $script:LastMySqlError = ''
         return $true
-    } catch { return $false }
+    } catch {
+        $script:LastMySqlError = $_.Exception.Message
+        return $false
+    }
 }
 
 function Protect-ConfigDirectory {
@@ -130,11 +149,12 @@ function Get-MySqlConnectionInfo {
         $client = Resolve-MySqlClient $inputPath
     }
     if (-not $client) { throw 'mysql.exe was not found. Provide -MySqlBinPath or rerun interactively and enter the MySQL bin directory.' }
+    Write-Host "MySQL client : $client"
 
     $hostName = $MySqlHost
     if (-not $hostName -and $state -and $state.Host) { $hostName = [string]$state.Host }
-    if (-not $hostName -and -not $UpdateOnly) { $hostName = Read-Host 'MySQL host/address [127.0.0.1]' }
-    if (-not $hostName) { $hostName = '127.0.0.1' }
+    if (-not $hostName -and -not $UpdateOnly) { $hostName = Read-Host 'MySQL host/address [localhost]' }
+    if (-not $hostName) { $hostName = 'localhost' }
 
     $portValue = $MySqlPort
     if ($portValue -le 0 -and $state -and $state.Port) { $portValue = [int]$state.Port }
@@ -154,8 +174,17 @@ function Get-MySqlConnectionInfo {
     if (-not $rootPassword -and -not $UpdateOnly) { $rootPassword = Read-Secret "Password for MySQL user '$rootUser'" }
     if ($null -eq $rootPassword) { $rootPassword = '' }
 
-    if (-not (Test-MySqlLogin $client $hostName $portValue $rootUser $rootPassword)) {
-        throw "Cannot connect to MySQL at $hostName`:$portValue as '$rootUser'. Verify mysql.exe path, address, port and password."
+    $connected = Test-MySqlLogin $client $hostName $portValue $rootUser $rootPassword
+    if (-not $connected -and $hostName -eq '127.0.0.1' -and $portValue -eq 3306) {
+        Write-Host '127.0.0.1 login failed; retrying with localhost to match the local MySQL client behavior...' -ForegroundColor Yellow
+        if (Test-MySqlLogin $client 'localhost' 3306 $rootUser $rootPassword) {
+            $hostName = 'localhost'
+            $connected = $true
+        }
+    }
+    if (-not $connected) {
+        $detail = if ($script:LastMySqlError) { " MySQL says: $($script:LastMySqlError)" } else { '' }
+        throw "Cannot connect to MySQL at $hostName`:$portValue as '$rootUser'.$detail"
     }
 
     $testPassword = if ($state -and $state.TestPassword) { [string]$state.TestPassword } else { New-Secret 36 }
@@ -202,7 +231,9 @@ GRANT ALL PRIVILEGES ON $Database.* TO '$User'@'%';
 FLUSH PRIVILEGES;
 "@
     Invoke-MySql $Conn.Client $Conn.Host $Conn.Port $Conn.RootUser $Conn.RootPassword $sql | Out-Null
-    if (-not (Test-MySqlLogin $Conn.Client $Conn.Host $Conn.Port $User $Password $Database)) { throw "MySQL login verification failed for $User/$Database" }
+    if (-not (Test-MySqlLogin $Conn.Client $Conn.Host $Conn.Port $User $Password $Database)) {
+        throw "MySQL login verification failed for $User/$Database. $($script:LastMySqlError)"
+    }
     Write-Host "[OK] MySQL ready: $User -> $Database" -ForegroundColor Green
 }
 
