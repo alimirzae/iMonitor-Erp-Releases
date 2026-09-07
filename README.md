@@ -1,6 +1,25 @@
 # iMonitor Release Center
 
-مرکز عمومی انتشار و نصب خودکار محصولات iMonitor برای Windows و Linux.
+مرکز عمومی انتشار و نصب خودکار محصولات. کانال White-label پوزایران نیز در این مخزن با Release/Installer مستقل نگهداری می‌شود.
+
+## Posiran ERP / پوزایران ERP
+
+نسخه پوزایران از نظر نام، لوگو، تم، پشتیبانی، IIS و Release channel مستقل است:
+
+```text
+posiran_test       -> posiran-erp-test-v*       -> PosiranERP-Test       -> port 8082
+posiran_production -> posiran-erp-production-v* -> PosiranERP-Production -> port 8083
+```
+
+Installer اختصاصی Windows:
+
+```text
+scripts/Install-PosiranERP-v1.0.0.ps1
+```
+
+راهنمای کامل نصب، انتشار و مکانیزم White-label self-healing در `POSIRAN.md` قرار دارد. بسته‌های پوزایران با نام `PosiranERP-win-x64.zip` منتشر می‌شوند و `appsettings.json` در بسته عمومی قرار نمی‌گیرد.
+
+---
 
 ## iMonitor ERP / Ecomm ERP
 
