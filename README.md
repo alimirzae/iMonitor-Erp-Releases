@@ -4,7 +4,7 @@
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.22
+### Windows x64 — Installer رسمی v2.0.22 r2
 
 PowerShell را با **Run as Administrator** باز کنید:
 
@@ -28,13 +28,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Force
 ```
 
-`v2.0.22` نسخه رسمی فعلی Windows است. این نسخه تمام اصلاحات `v2.0.21` برای بازیابی App Pool و عیب‌یابی ANCM را حفظ می‌کند و خطای Parser مربوط به رشته PowerShell زیر را رفع می‌کند:
-
-```text
-Variable reference is not valid. ':' was not followed by a valid variable name character.
-```
-
-در نسخه اصلاح‌شده نمایش Binding به صورت parser-safe انجام می‌شود و مقدار پورت با `${Port}` از `:` بعدی جدا شده است.
+`v2.0.22 r2` نسخه رسمی فعلی Windows است. این نسخه تمام اصلاحات `v2.0.21` برای بازیابی App Pool و عیب‌یابی ANCM را حفظ می‌کند، خطای Parser مربوط به `${Port}` را رفع می‌کند و همچنین آدرس repository مورد استفاده Core را به `alimirzae/iMonitor-Erp-Releases` اصلاح می‌کند. خطای `curl (22) ... 404` در `v2.0.22 r1` ناشی از افتادن حرف `e` در نام مالک repository بود.
 
 ### اصلاح 503 / AppPool
 
