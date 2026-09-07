@@ -14,18 +14,18 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.13
+### Windows x64 — Installer رسمی v2.0.14
 
-PowerShell را با **Run as Administrator** باز کنید و وارد پوشه‌ای شوید که می‌خواهید ERP همان‌جا نصب شود. مثال:
+PowerShell را با **Run as Administrator** باز کنید و وارد پوشه‌ای شوید که می‌خواهید ERP همان‌جا نصب شود:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.13.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.14.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 curl.exe -4 --http1.1 -fL `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.13.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.14.ps1?cb=$cacheBust" `
   -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -36,134 +36,75 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Force
 ```
 
+`v2.0.14` نسخه رسمی نصب Windows است.
+
+### نصب صفر تا صد در v2.0.14
+
+Installer حالا فقط فایل ERP را کپی نمی‌کند. نصب تازه این زنجیره را انجام می‌دهد:
+
+```text
+IIS / Management Tools / WebSockets
+→ .NET 8 ASP.NET Core Hosting Bundle
+→ MySQL 8.4 LTS managed instance
+→ Windows Service: iMonitorERP-MySQL
+→ ساخت credential تصادفی و ذخیره امن محلی
+→ ساخت دیتابیس Test و Production
+→ ساخت Userهای اختصاصی Test و Production
+→ Grant و تست Login واقعی
+→ تولید/اصلاح appsettings.json با Connection String معتبر
+→ دریافت و Stage آخرین Release
+→ اجرای Migrationهای EF Core هنگام Startup
+→ Health Check واقعی
+→ Rollback در صورت خطا
+→ First-run Wizard برای دیتابیس تازه
+```
+
+MySQL مدیریت‌شده به‌صورت پیش‌فرض فقط روی Loopback و پورت `3307` گوش می‌دهد تا با MySQL موجود روی `3306` تداخل نداشته باشد.
+
 مسیرهای نمونه:
 
 ```text
+D:\erp_ins\mysql\server
+D:\erp_ins\mysql\data
+D:\erp_ins\mysql\my.ini
+D:\erp_ins\config\mysql-managed.json
 D:\erp_ins\test\current
 D:\erp_ins\production\current
-D:\erp_ins\state
 D:\erp_ins\installer
 ```
 
-`v2.0.13` نسخه رسمی فعلی نصب Windows است.
+فایل `mysql-managed.json` شامل credentialهای داخلی است و ACL آن به `Administrators` و `SYSTEM` محدود می‌شود. آن را منتشر یا حذف نکنید.
 
-### تغییرات v2.0.13
-
-این نسخه برای اجرای چندباره و Recovery سخت‌گیرانه‌تر شده است:
+### دیتابیس‌های پیش‌فرض
 
 ```text
-State-aware Stop/Start برای IIS Site
-State-aware Stop/Start برای IIS AppPool
-عدم شکست نصب وقتی Site/AppPool از قبل Stopped یا Started است
-حفظ مهاجرت تنظیمات نصب قبلی از C:\ProgramData\iMonitorERP
-حفظ appsettings.json و App_Data
-Health Check قبل از ثبت Version state
-Rollback خودکار در Activation ناموفق
-انتقال Scheduled Taskها به Installer v2.0.13
-حفظ InstallRoot و PackageCacheDirectory در Automatic Updater
+Test       imonitor_erp_test        user: imonitor_test
+Production imonitor_erp_production  user: imonitor_production
 ```
 
-### نصب خودکار پیش‌نیازها
+Passwordها هنگام اولین نصب به‌صورت تصادفی تولید می‌شوند و در فایل تنظیمات امن محلی نگه داشته می‌شوند. Installer از Password ثابت توسعه‌ای Package استفاده نمی‌کند.
 
-Installer قبل از نصب/به‌روزرسانی برنامه این موارد را بررسی و در صورت نیاز ایجاد یا نصب می‌کند:
+### Migration و First-run Wizard
+
+`Database:MigrateOnStartup=true` و `Database:AutoMigrate=true` توسط Installer تنظیم می‌شود. بنابراین پس از آماده شدن MySQL، خود Ecomm Migrationهای EF Core را روی دیتابیس تازه اجرا می‌کند.
+
+پس از نصب موفق:
 
 ```text
-IIS Web Server
-IIS Management Tools
-IIS WebSockets
-.NET 8 ASP.NET Core Runtime
-ASP.NET Core Hosting Bundle / AspNetCoreModuleV2
-IIS Application Pool برای Test و Production
-IIS Site و Binding برای Test و Production
-مجوزهای فایل برای ApplicationPoolIdentity
-Scheduled Tasks برای بررسی خودکار نسخه‌ها
+Test wizard       http://127.0.0.1:8081/account/setup
+Production wizard http://127.0.0.1:8080/account/setup
 ```
 
-پورت‌های پیش‌فرض:
+Wizard برای اطلاعات اولیه کسب‌وکار/کاربر استفاده می‌شود؛ Installer دیتای واقعی فروشگاه را حدس نمی‌زند.
 
-| کانال | آدرس | مسیر نمونه |
-|---|---|---|
-| Production | `http://127.0.0.1:8080` | `D:\erp_ins\production\current` |
-| Test | `http://127.0.0.1:8081` | `D:\erp_ins\test\current` |
+### Automatic Updater
 
-### مهاجرت خودکار نصب قبلی
+Updater از ابتدای نصب ثبت می‌شود، نه فقط بعد از Health Check. بنابراین حتی اگر Activation اولین اجرا نیاز به اصلاح داشته باشد، Taskهای updater از بین نمی‌روند.
 
-اگر قبلاً ERP در مسیرهای زیر نصب شده باشد:
+فایل پایدار Installer:
 
 ```text
-C:\ProgramData\iMonitorERP\test\current
-C:\ProgramData\iMonitorERP\production\current
-```
-
-و اکنون Installer با `InstallRoot` جدید، مثلاً `D:\erp_ins` اجرا شود، در اولین فعال‌سازی هر Channel و در صورت نبود داده پایدار در مسیر جدید، این موارد از نصب قبلی منتقل می‌شوند:
-
-```text
-appsettings.json
-App_Data\...
-```
-
-این کار برای حفظ Connection String، تنظیمات MySQL و داده‌های محلی انجام می‌شود. مسیر قدیمی حذف یا تغییر داده نمی‌شود.
-
-### IIS Site موجود
-
-اگر روی پورت موردنظر یک IIS Site موجود باشد، Installer تا جای ممکن همان Site را استفاده و AppPool/PhysicalPath را تنظیم می‌کند. اگر چند Binding متعارض روی یک پورت وجود داشته باشد، نصب متوقف می‌شود تا سایت دیگری آسیب نبیند.
-
-### انتشار امن و Rollback
-
-ترتیب Activation:
-
-```text
-Validate package
-→ Stage new release
-→ Preserve current persistent data
-→ Migrate legacy persistent data when needed
-→ Stop IIS Site only if running
-→ Stop IIS AppPool only if running
-→ Atomic swap current
-→ Start AppPool only if stopped
-→ Start Site only if stopped
-→ Health check
-→ Write installed version only after success
-→ Rollback automatically if health fails
-```
-
-قبل از فعال‌سازی وجود این موارد اجباری است:
-
-```text
-Ecomm.dll
-web.config
-wwwroot
-Reports
-Reports\Invoice.mrt
-Reports\Label.mrt
-```
-
-Package ناقص فعال نمی‌شود.
-
-### تشخیص خطای IIS / HTTP 500
-
-اگر `/health` پس از Activation سالم نشود، Installer اطلاعات تشخیصی زیر را چاپ می‌کند:
-
-```text
-IIS Site state / physical path
-Application Pool state
-Installed .NET runtimes
-ASP.NET Core stdout/stderr captured by ANCM when available
-Recent IIS / AspNetCore / .NET Runtime events from Windows Event Log
-```
-
-این خروجی برای تشخیص خطاهای `500.19`، `500.30`، Hosting Bundle، startup failure و خطاهای runtime/database استفاده می‌شود.
-
-### دانلود و Cache
-
-GitHub Release از طریق IPv4 مرجع تشخیص نسخه است. ZIP با SHA-256 کنترل می‌شود. اگر همان نسخه قبلاً در `PackageCacheDirectory` موجود و checksum صحیح باشد، دانلود مجدد انجام نمی‌شود.
-
-### Scheduled Taskها / Automatic Updater
-
-پس از نصب موفق، Installer رسمی در مسیر زیر ذخیره می‌شود:
-
-```text
-<InstallRoot>\installer\Install-iMonitorERP-v2.0.13.ps1
+<InstallRoot>\installer\Install-iMonitorERP-v2.0.14.ps1
 ```
 
 Taskها:
@@ -173,7 +114,38 @@ iMonitorERP-Update-Test
 iMonitorERP-Update-Production
 ```
 
-هر کانال هر ۵ دقیقه مستقل بررسی می‌شود. `InstallRoot` و `PackageCacheDirectory` همان مسیر نصب اولیه حفظ می‌شوند؛ بنابراین نصب روی `D:\erp_ins` در آپدیت‌های بعدی به `C:\ProgramData\iMonitorERP` برنمی‌گردد.
+هر دو هر ۵ دقیقه با حساب `SYSTEM` و Highest Privileges اجرا می‌شوند. هر Task همان `InstallRoot`، `PackageCacheDirectory`، پورت‌های IIS و پورت Managed MySQL نصب اولیه را حفظ می‌کند.
+
+در حالت updater، MySQL و credentialها دوباره ساخته نمی‌شوند؛ وضعیت موجود بررسی و حفظ می‌شود و فقط Release جدید در صورت وجود نصب می‌شود.
+
+### Cache و IPv4
+
+دانلودهای Installer با `curl.exe -4 --http1.1` انجام می‌شوند. Packageهای ERP با SHA-256 بررسی می‌شوند و ZIP معتبر موجود در `PackageCacheDirectory` دوباره دانلود نمی‌شود. Package MySQL نیز در Cache نگه داشته می‌شود تا اجرای بعدی نیاز به دانلود مجدد نداشته باشد.
+
+### مهاجرت نصب قبلی
+
+اگر نصب قبلی در مسیر زیر وجود داشته باشد:
+
+```text
+C:\ProgramData\iMonitorERP
+```
+
+Installer می‌تواند تنظیمات عمومی موجود را به‌عنوان پایه بخواند، اما بخش Database/MySQL را با credential معتبر Managed MySQL جایگزین می‌کند. مسیر قدیمی حذف نمی‌شود.
+
+### انتشار امن و Rollback
+
+```text
+Validate package
+→ Preserve persistent config/data
+→ Stage release
+→ Stop IIS only when needed
+→ Atomic swap
+→ Start IIS
+→ Run startup migrations
+→ /health
+→ write installed version only after success
+→ rollback on failure
+```
 
 ### Linux / Ubuntu ERP
 
