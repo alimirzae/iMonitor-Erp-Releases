@@ -17,13 +17,15 @@ New-Item -ItemType Directory -Force -Path $InstallRoot,$ConfigRoot | Out-Null
 function Get-ChannelInfo([string]$Name){
   $isTest=$Name -eq 'Test'
   $key=if($isTest){'test'}else{'production'}
+  $configChannel=if($isTest){'Test'}else{'Production'}
   [pscustomobject]@{
-    Name=$Name; Key=$key;
-    Port=if($isTest){$TestPort}else{$ProductionPort};
-    Site=if($isTest){'PosiranERP-Test'}else{'PosiranERP-Production'};
-    Pool=if($isTest){'PosiranERP-Test'}else{'PosiranERP-Production'};
-    Root=Join-Path (Join-Path $InstallRoot $key) 'current';
-    Config=Join-Path (Join-Path $ConfigRoot (if($isTest){'Test'}else{'Production'})) 'appsettings.json';
+    Name=$Name
+    Key=$key
+    Port=if($isTest){$TestPort}else{$ProductionPort}
+    Site=if($isTest){'PosiranERP-Test'}else{'PosiranERP-Production'}
+    Pool=if($isTest){'PosiranERP-Test'}else{'PosiranERP-Production'}
+    Root=Join-Path (Join-Path $InstallRoot $key) 'current'
+    Config=Join-Path (Join-Path $ConfigRoot $configChannel) 'appsettings.json'
     Prefix=if($isTest){'posiran-erp-test-v'}else{'posiran-erp-production-v'}
   }
 }
@@ -43,7 +45,7 @@ function Get-LatestRelease($info){
 }
 function Install-Channel($info){
   Write-Host "=== Posiran ERP $($info.Name) ===" -ForegroundColor Cyan
-  if(!(Test-Path $info.Config)){throw "Dedicated Posiran configuration not found: $($info.Config). Create it before installation; no iMonitor configuration is reused."}
+  if(!(Test-Path $info.Config)){throw "Dedicated Posiran ERP configuration not found: $($info.Config). Create the channel configuration before installation; configuration from another product is never reused automatically."}
   $rel=Get-LatestRelease $info
   $work=Join-Path $env:TEMP ('posiran-'+$info.Key+'-'+[guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Force -Path $work,$info.Root | Out-Null
