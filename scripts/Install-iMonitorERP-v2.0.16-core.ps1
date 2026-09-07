@@ -17,7 +17,6 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 
-# Cache-safe v2.0.16 wrapper around the proven v2.0.15 core revision.
 $repo='alimirzae/iMonitor-Erp-Releases'
 $baseCommit='8afb0468c216908fba028026a79221d768a85259'
 $source=Join-Path $env:TEMP ('imonitor-core-base-'+[guid]::NewGuid().ToString('N')+'.ps1')
@@ -25,17 +24,22 @@ $patched=Join-Path $env:TEMP ('imonitor-core-v2016-'+[guid]::NewGuid().ToString(
 $raw="https://raw.githubusercontent.com/$repo/$baseCommit/scripts/Install-iMonitorERP-v2.0.15-core.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
 
 try {
-  Write-Host 'Loading installer core v2.0.16...' -ForegroundColor Cyan
-  & curl.exe -4 --http1.1 --silent --show-error --fail --location --connect-timeout 8 --max-time 300 --retry 3 --retry-all-errors $raw -o $source
+  Write-Host '=== iMonitor ERP CORE v2.0.16 ===' -ForegroundColor Cyan
+  Write-Host 'Loading base installer logic for v2.0.16...' -ForegroundColor Cyan
+  & curl.exe -4 --http1.1 --silent --show-error --fail --location --connect-timeout 8 --max-time 300 --retry 3 --retry-all-errors $raw -o $source 2>$null
   $ec=$LASTEXITCODE; $global:LASTEXITCODE=0
-  if($ec -ne 0 -or -not(Test-Path $source -PathType Leaf)){throw "Could not load base core. curl exit=$ec"}
+  if($ec -ne 0 -or -not(Test-Path $source -PathType Leaf) -or (Get-Item $source).Length -le 0){throw "Could not load base core. curl exit=$ec"}
   $text=Get-Content $source -Raw
 
-  # 1) Native curl progress must never become function output.
-  $text=$text.Replace("            & `$curl.Source -4 --http1.1 --fail --location --connect-timeout 10 --max-time `$MaxTime --retry 2 --retry-all-errors -H 'User-Agent: iMonitorERP-Installer/2.0.15' `$Uri -o `$OutFile`r`n            `$code = `$LASTEXITCODE",
-                      "            & `$curl.Source -4 --http1.1 --silent --show-error --fail --location --connect-timeout 10 --max-time `$MaxTime --retry 2 --retry-all-errors -H 'User-Agent: iMonitorERP-Installer/2.0.16' `$Uri -o `$OutFile`r`n            `$code = `$LASTEXITCODE")
+  $oldCurl="            & `$curl.Source -4 --http1.1 --fail --location --connect-timeout 10 --max-time `$MaxTime --retry 2 --retry-all-errors -H 'User-Agent: iMonitorERP-Installer/2.0.15' `$Uri -o `$OutFile`r`n            `$code = `$LASTEXITCODE"
+  $newCurl="            & `$curl.Source -4 --http1.1 --silent --show-error --fail --location --connect-timeout 10 --max-time `$MaxTime --retry 2 --retry-all-errors -H 'User-Agent: iMonitorERP-Installer/2.0.16' `$Uri -o `$OutFile 2>`$null`r`n            `$code = `$LASTEXITCODE"
+  if(-not $text.Contains($oldCurl)) {
+      $oldCurl=$oldCurl.Replace("`r`n","`n")
+      $newCurl=$newCurl.Replace("`r`n","`n")
+  }
+  if(-not $text.Contains($oldCurl)){throw 'Could not patch Invoke-CurlDownload in base core.'}
+  $text=$text.Replace($oldCurl,$newCurl)
 
-  # 2) Replace release lookup with a function that returns exactly one PSCustomObject.
   $old=@'
 function Get-LatestRelease([string]$Prefix) {
     $tmp = Join-Path $env:TEMP ('imonitor-releases-' + [guid]::NewGuid().ToString('N') + '.json')
@@ -64,14 +68,19 @@ function Get-LatestRelease([string]$Prefix) {
     } finally { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
 }
 '@
+  if(-not $text.Contains($old)){
+      $old=$old.Replace("`r`n","`n")
+      $new=$new.Replace("`r`n","`n")
+  }
   if(-not $text.Contains($old)){throw 'Could not patch Get-LatestRelease in base core.'}
   $text=$text.Replace($old,$new)
 
-  # 3) Do not pass a property expression directly to Join-Path.
   $old2='    $dir = Join-Path $PackageCacheDirectory $Release.tag_name'
   $new2=@'
     if($Release -is [array]) { $Release = $Release | Select-Object -First 1 }
-    $tagName = [string]($Release.PSObject.Properties['tag_name'].Value)
+    $tagProp = $Release.PSObject.Properties['tag_name']
+    if($null -eq $tagProp) { throw 'Release object has no tag_name property.' }
+    $tagName = [string]$tagProp.Value
     if([string]::IsNullOrWhiteSpace($tagName)) { throw 'Release tag_name is empty or invalid.' }
     Write-Host "Release tag: $tagName" -ForegroundColor DarkCyan
     $dir = Join-Path -Path ([string]$PackageCacheDirectory) -ChildPath $tagName
@@ -79,6 +88,7 @@ function Get-LatestRelease([string]$Prefix) {
   if(-not $text.Contains($old2)){throw 'Could not patch Ensure-Package Join-Path block.'}
   $text=$text.Replace($old2,$new2.TrimEnd())
 
+  $text=$text.Replace("Write-Host 'iMonitor ERP installer core v2.0.15' -ForegroundColor Cyan","Write-Host 'iMonitor ERP installer core v2.0.16' -ForegroundColor Cyan")
   Set-Content $patched $text -Encoding UTF8
 
   $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$patched,'-Channel',$Channel,'-InstallRoot',$InstallRoot,'-PackageCacheDirectory',$PackageCacheDirectory,'-TestPort',[string]$TestPort,'-ProductionPort',[string]$ProductionPort)
