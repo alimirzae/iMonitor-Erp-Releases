@@ -1,31 +1,38 @@
 # Posiran ERP — Release & Installation Guide
 
-این راهنما فقط برای نسخه White-label **Posiran ERP / پوزایران ERP** است و از کانال‌های محصول اصلی مستقل نگه داشته می‌شود.
+این راهنما فقط برای نسخه White-label **Posiran ERP / پوزایران ERP** است. نام، لوگو، تم، شماره پشتیبانی، IIS، دیتابیس و کانال انتشار آن مستقل نگه داشته می‌شود.
+
+## اطلاعات رسمی برند
+
+```text
+Product      : Posiran ERP / پوزایران ERP
+Website      : https://www.posiran.ir/
+Support phone: 0922-962-7005
+```
+
+شماره بالا از وب‌سایت رسمی پوزایران گرفته شده است. هیچ اطلاعات تماس متعلق به محصول یا برند دیگری در رابط Posiran ERP استفاده نمی‌شود.
 
 ## Channel mapping
 
-| Branch | Release tag | IIS site/app pool | Local port |
-|---|---|---|---:|
-| `posiran_test` | `posiran-erp-test-v*` | `PosiranERP-Test` | `8082` |
-| `posiran_production` | `posiran-erp-production-v*` | `PosiranERP-Production` | `8083` |
+| Branch | Release tag | IIS site/app pool | Local port | Database |
+|---|---|---|---:|---|
+| `posiran_test` | `posiran-erp-test-v*` | `PosiranERP-Test` | `8082` | `posiran_erp_test` |
+| `posiran_production` | `posiran-erp-production-v*` | `PosiranERP-Production` | `8083` | `posiran_erp` |
 
-Release package هر دو کانال `PosiranERP-win-x64.zip` است. `appsettings.json` عمداً داخل بسته عمومی قرار نمی‌گیرد تا تنظیمات، رمزها و دیتابیس پوزایران مستقل بمانند.
+Release package هر دو کانال `PosiranERP-win-x64.zip` است. `appsettings.json` عمداً داخل بسته عمومی قرار نمی‌گیرد تا رمزها و تنظیمات محلی در Release منتشر نشوند.
 
-## پیش‌نیاز Windows
-
-- Windows + IIS
-- ASP.NET Core 8 Hosting Bundle
-- PowerShell با Run as Administrator
-- دو فایل تنظیمات مستقل در صورت نصب هر دو کانال:
+## فایل‌های تنظیمات محلی
 
 ```text
 C:\Deploy\PosiranERP\Test\appsettings.json
 C:\Deploy\PosiranERP\Production\appsettings.json
 ```
 
-هیچ تنظیمات iMonitor به‌صورت خودکار کپی یا مصرف نمی‌شود.
+Workflow استقرار روی سرور ERP در اولین اجرا یک تنظیمات اختصاصی Posiran می‌سازد و نام دیتابیس، Branding، Environment و Sync را برای همان کانال ایزوله می‌کند. پس از ساخته‌شدن، فایل اختصاصی Posiran حفظ و در استقرارهای بعدی دوباره استفاده می‌شود.
 
 ## نصب Test — پورت 8082
+
+PowerShell را با **Run as Administrator** باز کنید:
 
 ```powershell
 $installer = Join-Path $env:TEMP 'Install-PosiranERP-v1.0.0.ps1'
@@ -37,10 +44,10 @@ curl.exe -4 --http1.1 -fL `
   "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.0.ps1?cb=$cb" `
   -o $installer
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Test
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File $installer `
+  -Channel Test
 ```
-
-آدرس محلی:
 
 ```text
 http://127.0.0.1:8082/
@@ -53,8 +60,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File $env:TEMP\Install-PosiranERP-v1.0.0.ps1 `
   -Channel Production
 ```
-
-آدرس محلی:
 
 ```text
 http://127.0.0.1:8083/
@@ -70,20 +75,36 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 ## انتشار خودکار
 
-Push روی `posiran_test` یا `posiran_production` ابتدا روی runner سرور ERP build/test می‌شود. پس از موفقیت، SHA دقیق به این مخزن dispatch می‌شود و Workflow `publish-posiran-erp.yml` بسته Windows را از همان SHA تولید می‌کند.
+Push روی `posiran_test` یا `posiran_production` ابتدا روی runner سرور ERP Build/Test می‌شود. فقط SHA‌ای که این مرحله را با موفقیت رد کند با event اختصاصی `posiran-erp-release` به Release Center ارسال می‌شود.
 
-- Test به شکل prerelease منتشر می‌شود.
-- Production یک Release مستقل با prefix مخصوص Posiran دارد.
-- Production به عنوان `latest` سراسری مخزن علامت نمی‌خورد تا Releaseهای دیگر مخزن را جابه‌جا نکند.
+Workflow `publish-posiran-erp.yml` سپس دقیقاً همان SHA را Checkout و بسته Windows را تولید می‌کند:
+
+```text
+posiran_test       -> posiran-erp-test-v1.0.*       -> prerelease
+posiran_production -> posiran-erp-production-v1.0.* -> production release
+```
+
+Production به عنوان `latest` سراسری مخزن علامت نمی‌خورد تا Releaseهای سایر محصولات این مخزن تحت تأثیر قرار نگیرند.
 
 ## White-label durability
 
-نسخه مرجع برند در مسیر `posiran/overlay/` همین مخزن نگهداری می‌شود. Workflow `guard-posiran-branches.yml` آن را روی دو شاخه Ecomm کنترل و در صورت overwrite شدن بازاعمال می‌کند. این مکانیزم از mergeهای بعدی `test` مستقل است و حتی بعد از force-push شاخه، مرجع برند در مخزن Release از بین نمی‌رود.
+منبع حقیقت White-label داخل شاخه‌های Posiran نیست؛ نسخه مرجع در این مخزن و مسیر زیر نگهداری می‌شود:
 
-> برای جلوگیری قطعی از خود force-push، Branch Protection/Ruleset GitHub نیز باید روی دو شاخه Posiran فعال شود. Guard نقش بازیابی/خودترمیمی را دارد.
+```text
+posiran/overlay/
+```
 
-## اطلاعات برند
+`guard-posiran-branches.yml` به‌صورت دوره‌ای هر دو شاخه را بررسی می‌کند. `Apply-PosiranWhiteLabel.ps1` در صورت overwrite شدن، موارد زیر را دوباره اعمال می‌کند:
 
-وب‌سایت مرجع: `https://www.posiran.ir/`
+- لوگو و favicon پوزایران
+- نام `Posiran ERP / پوزایران ERP`
+- تم اختصاصی پوزایران
+- وب‌سایت و شماره پشتیبانی رسمی
+- App shell و MainLayout
+- Workflow انتشار اختصاصی
+- Workflow IIS اختصاصی
+- قرارداد White-label
 
-شماره تلفن یا ایمیل پشتیبانی تا زمان تأیید مستقیم از منبع رسمی در محصول hard-code نمی‌شود؛ به‌خصوص هیچ شماره یا اطلاعات تماس متعلق به برند دیگری نباید در Posiran ERP نمایش داده شود.
+بنابراین mergeهای بعدی از `test` منبع کد را به‌روز می‌کنند، اما منبع حقیقت برند همچنان Overlay مستقل است. حتی اگر شاخه با force-push overwrite شود، Guard می‌تواند قرارداد White-label را از مخزن Release دوباره اعمال کند.
+
+> جلوگیری پیشگیرانه از خود force-push فقط با GitHub Branch Protection/Ruleset ممکن است. Guard مکانیزم بازیابی و خودترمیمی است، نه جایگزین Branch Protection.
