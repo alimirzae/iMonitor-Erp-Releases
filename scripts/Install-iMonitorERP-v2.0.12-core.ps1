@@ -23,6 +23,7 @@ $InstallRoot = [IO.Path]::GetFullPath($InstallRoot)
 $PackageCacheDirectory = [IO.Path]::GetFullPath($PackageCacheDirectory)
 $stateRoot = Join-Path $InstallRoot 'state'
 $installerHome = Join-Path $InstallRoot 'installer'
+$legacyRoot = 'C:\ProgramData\iMonitorERP'
 New-Item -ItemType Directory -Force -Path $InstallRoot,$PackageCacheDirectory,$stateRoot,$installerHome | Out-Null
 
 Write-Host 'iMonitor ERP installer v2.0.12 core' -ForegroundColor Cyan
@@ -174,6 +175,33 @@ function Copy-PersistentData([string]$OldCurrent,[string]$Staging) {
         Copy-Item (Join-Path $OldCurrent 'App_Data\*') (Join-Path $Staging 'App_Data') -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
+function Get-LegacyCurrent([string]$Name) {
+    $legacyChannel = $Name.ToLowerInvariant()
+    $candidate = Join-Path $legacyRoot "$legacyChannel\current"
+    if (([IO.Path]::GetFullPath($InstallRoot)).TrimEnd('\') -ieq ([IO.Path]::GetFullPath($legacyRoot)).TrimEnd('\')) { return $null }
+    if (Test-Path $candidate -PathType Container) { return $candidate }
+    return $null
+}
+function Import-LegacyPersistentData([string]$Name,[string]$Staging) {
+    $legacyCurrent = Get-LegacyCurrent $Name
+    if (-not $legacyCurrent) { return $false }
+    $copied = $false
+    $legacyConfig = Join-Path $legacyCurrent 'appsettings.json'
+    if (Test-Path $legacyConfig -PathType Leaf) {
+        Copy-Item $legacyConfig (Join-Path $Staging 'appsettings.json') -Force
+        Write-Host "Migrated legacy appsettings.json for $Name from $legacyCurrent" -ForegroundColor Green
+        $copied = $true
+    }
+    $legacyAppData = Join-Path $legacyCurrent 'App_Data'
+    if (Test-Path $legacyAppData -PathType Container) {
+        $targetData = Join-Path $Staging 'App_Data'
+        New-Item -ItemType Directory -Force -Path $targetData | Out-Null
+        Copy-Item (Join-Path $legacyAppData '*') $targetData -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "Migrated legacy App_Data for $Name from $legacyCurrent" -ForegroundColor Green
+        $copied = $true
+    }
+    return $copied
+}
 function Show-Diagnostics([string]$Name,[string]$SiteName,[string]$PoolName,[string]$Current,[int]$Port) {
     Write-Host "===== $Name diagnostics =====" -ForegroundColor Yellow
     try { $s=Get-Website -Name $SiteName; Write-Host "Site=$($s.Name) state=$($s.State) path=$($s.PhysicalPath)" } catch { Write-Host $_.Exception.Message }
@@ -222,7 +250,16 @@ function Install-Channel([string]$Name,[int]$Port,[object[]]$Catalog) {
         if (-not (Test-Path (Join-Path $packageRoot 'Ecomm.dll'))) { $children=@(Get-ChildItem $extract -Directory); if ($children.Count -eq 1 -and (Test-Path (Join-Path $children[0].FullName 'Ecomm.dll'))) {$packageRoot=$children[0].FullName} }
         Test-PackageLayout $packageRoot
         New-Item -ItemType Directory -Force -Path $staging | Out-Null; Copy-Item (Join-Path $packageRoot '*') $staging -Recurse -Force; Test-PackageLayout $staging
-        if (Test-Path $current) { Copy-PersistentData $current $staging }
+        $persistentImported = $false
+        if (Test-Path $current) {
+            $currentHasConfig = Test-Path (Join-Path $current 'appsettings.json') -PathType Leaf
+            $currentHasData = Test-Path (Join-Path $current 'App_Data') -PathType Container
+            if ($currentHasConfig -or $currentHasData) {
+                Copy-PersistentData $current $staging
+                $persistentImported = $true
+            }
+        }
+        if (-not $persistentImported) { [void](Import-LegacyPersistentData $Name $staging) }
         Import-Module WebAdministration
         if (Test-Path "IIS:\Sites\$siteName") { Stop-WebSite -Name $siteName -ErrorAction SilentlyContinue }
         if (Test-Path "IIS:\AppPools\$poolName") { Stop-WebAppPool -Name $poolName -ErrorAction SilentlyContinue }
