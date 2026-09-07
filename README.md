@@ -14,51 +14,89 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.11
+### Windows x64 — Installer رسمی v2.0.12
 
-PowerShell را با **Run as Administrator** باز کنید:
+PowerShell را با **Run as Administrator** باز کنید و وارد پوشه‌ای شوید که می‌خواهید ERP همان‌جا نصب شود. مثال:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.11.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.12.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 curl.exe -4 --http1.1 -fL `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.11.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.12.ps1?cb=$cacheBust" `
   -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File $installer `
   -Channel Both `
   -Force `
-  -PackageCacheDirectory 'D:\erp_ins'
+  -PackageCacheDirectory (Get-Location).Path
 ```
 
-`v2.0.11` نسخه رسمی فعلی است.
+در این حالت `InstallRoot` به‌صورت پیش‌فرض همان پوشه جاری است. برای مثال اگر دستور از `D:\erp_ins` اجرا شود:
 
-### تغییر مهم v2.0.11 — انتشار امن روی IIS
+```text
+D:\erp_ins\test\current
+D:\erp_ins\production\current
+D:\erp_ins\state
+D:\erp_ins\installer
+```
 
-هنگام Update دیگر فقط AppPool متوقف نمی‌شود. ترتیب Activation به شکل زیر است:
+در صورت نیاز می‌توان مسیر نصب را صریح مشخص کرد:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File $installer `
+  -Channel Both `
+  -InstallRoot 'D:\erp_ins' `
+  -PackageCacheDirectory 'D:\erp_ins' `
+  -Force
+```
+
+`v2.0.12` نسخه رسمی فعلی نصب Windows است.
+
+### نصب خودکار پیش‌نیازها در v2.0.12
+
+Installer قبل از نصب/به‌روزرسانی برنامه این موارد را بررسی و در صورت نیاز ایجاد یا نصب می‌کند:
+
+```text
+IIS Web Server
+IIS Management Tools
+IIS WebSockets
+.NET 8 ASP.NET Core Runtime
+ASP.NET Core Hosting Bundle / AspNetCoreModuleV2
+IIS Application Pool برای Test و Production
+IIS Site و Binding برای Test و Production
+مجوزهای فایل برای ApplicationPoolIdentity
+Scheduled Tasks برای بررسی خودکار نسخه‌ها
+```
+
+پورت‌های پیش‌فرض:
+
+| کانال | آدرس | مسیر برنامه در مثال D:\erp_ins |
+|---|---|---|
+| Production | `http://127.0.0.1:8080` | `D:\erp_ins\production\current` |
+| Test | `http://127.0.0.1:8081` | `D:\erp_ins\test\current` |
+
+اگر روی پورت موردنظر یک IIS Site موجود باشد، Installer تا جای ممکن همان Site را برای کانال مربوطه استفاده و AppPool/PhysicalPath آن را اصلاح می‌کند. در صورت وجود چند Binding متعارض روی یک پورت، نصب متوقف می‌شود تا از خراب شدن سایت‌های دیگر جلوگیری شود.
+
+### انتشار امن و Rollback
+
+ترتیب Activation:
 
 ```text
 Validate package
 → Stage new release
 → Stop IIS Site
 → Stop IIS AppPool
-→ Wait/retry for file handles to be released
+→ Wait/retry for file handles
 → Atomic swap current
 → Start AppPool
 → Start Site
 → Health check
 → Rollback automatically if health fails
-```
-
-این تغییر خطای زیر را هنگام جایگزینی `current` رفع می‌کند:
-
-```text
-The process cannot access the file because it is being used by another process.
-Move-Item ... current ...
 ```
 
 قبل از فعال‌سازی وجود این موارد اجباری است:
@@ -72,42 +110,32 @@ Reports\Invoice.mrt
 Reports\Label.mrt
 ```
 
-Package ناقص فعال نمی‌شود و در صورت شکست، `current` قبلی بازیابی می‌شود.
+Package ناقص فعال نمی‌شود.
 
-### تشخیص آخرین Release
+### تشخیص خطای IIS / HTTP 500
 
-GitHub Release از طریق IPv4 مرجع تشخیص نسخه است. بنابراین mirror داخلی قدیمی دیگر باعث باقی ماندن کلاینت روی نسخه قبلی نمی‌شود.
-
-ZIP دانلودشده در `D:\erp_ins` با SHA-256 کنترل می‌شود. اگر همان نسخه قبلاً کامل دانلود شده باشد، دانلود مجدد انجام نمی‌شود.
-
-### پورت‌ها و مسیرهای Windows
-
-| کانال | آدرس | مسیر برنامه |
-|---|---|---|
-| Production | `http://localhost:8080` | `C:\ProgramData\iMonitorERP\production\current` |
-| Test | `http://localhost:8081` | `C:\ProgramData\iMonitorERP\test\current` |
-
-### MySQL
-
-تنظیمات پایدار MySQL در این فایل نگهداری می‌شود:
+از v2.0.12 اگر `/health` پس از Activation سالم نشود، Installer قبل از Rollback اطلاعات تشخیصی چاپ می‌کند:
 
 ```text
-C:\ProgramData\iMonitorERP\config\mysql-credentials.json
+IIS Site state / physical path
+Application Pool state
+Installed .NET runtimes
+ASP.NET Core stdout logs (در صورت وجود)
+Recent IIS / AspNetCore / .NET Runtime events from Windows Event Log
 ```
 
-فایل runtime واقعی هر کانال:
+این اطلاعات برای تشخیص خطاهای `500.19`، `500.30`، نبود Hosting Bundle، startup failure و خطاهای runtime استفاده می‌شود.
 
-```text
-C:\ProgramData\iMonitorERP\test\current\appsettings.json
-C:\ProgramData\iMonitorERP\production\current\appsettings.json
-```
+### دانلود و Cache
+
+GitHub Release از طریق IPv4 مرجع تشخیص نسخه است. ZIP دانلودشده با SHA-256 کنترل می‌شود. اگر همان نسخه قبلاً در `PackageCacheDirectory` وجود داشته باشد و checksum صحیح باشد، دانلود مجدد انجام نمی‌شود.
 
 ### Scheduled Taskها
 
-بعد از اجرای موفق v2.0.11:
+پس از نصب موفق، نسخه Installer در مسیر زیر کپی می‌شود:
 
 ```text
-C:\ProgramData\iMonitorERP\installer\Install-iMonitorERP-v2.0.11.ps1
+<InstallRoot>\installer\Install-iMonitorERP-v2.0.12.ps1
 ```
 
 Taskها:
@@ -117,7 +145,7 @@ iMonitorERP-Update-Test
 iMonitorERP-Update-Production
 ```
 
-هر کانال هر ۵ دقیقه مستقل بررسی می‌شود.
+هر کانال هر ۵ دقیقه مستقل بررسی می‌شود و مسیر `InstallRoot` و `PackageCacheDirectory` همان نصب اولیه را حفظ می‌کند.
 
 ### Linux / Ubuntu ERP
 
