@@ -14,20 +14,20 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.17
+### Windows x64 — Installer رسمی v2.0.18
 
 PowerShell را با **Run as Administrator** باز کنید و وارد پوشه‌ای شوید که می‌خواهید ERP همان‌جا نصب شود:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.17.ps1'
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.18.ps1'
 $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
 curl.exe -4 --http1.1 -fL `
   -H "Cache-Control: no-cache" `
   -H "Pragma: no-cache" `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.17.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.18.ps1?cb=$cacheBust" `
   -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -38,7 +38,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Force
 ```
 
-`v2.0.17` نسخه رسمی نصب Windows است. نسخه‌های `v2.0.15` و `v2.0.16` بازنشسته شده‌اند. `v2.0.17` با نام فایل جدید و هدرهای `no-cache` ارائه شده تا کش نسخه‌های قبلی Core روی شبکه یا CDN باعث اجرای اسکریپت قدیمی نشود.
+`v2.0.18` نسخه رسمی نصب Windows است. نسخه‌های `v2.0.15`، `v2.0.16` و `v2.0.17` بازنشسته شده‌اند.
+
+`v2.0.18` علاوه بر نام فایل جدید، cache-buster و هدرهای `no-cache`، منطق Core اصلاح‌شده را به یک **commit ثابت و immutable** pin می‌کند تا تغییر branch یا کش CDN باعث اجرای Core قدیمی یا متفاوت نشود.
 
 ### MySQL موجود — بدون دانلود یا نصب MySQL
 
@@ -62,7 +64,7 @@ Password for MySQL user 'root'
 
 ### دیتابیس‌های از قبل ایجادشده
 
-Installer در `v2.0.17` دیتابیس یا User جدید ایجاد نمی‌کند و هیچ `CREATE DATABASE`، `CREATE USER`، `ALTER USER` یا `GRANT` اجرا نمی‌کند.
+Installer در `v2.0.18` دیتابیس یا User جدید ایجاد نمی‌کند و هیچ `CREATE DATABASE`، `CREATE USER`، `ALTER USER` یا `GRANT` اجرا نمی‌کند.
 
 نام دیتابیس‌های مورد انتظار:
 
@@ -97,7 +99,7 @@ Production imonitor-ecomerp-master-v*
 Asset      iMonitor-EcomERP-win-x64.zip
 ```
 
-در `v2.0.17` نام `tag_name` مستقیماً از JSON خام GitHub استخراج می‌شود تا رفتار متفاوت `ConvertFrom-Json` در Windows PowerShell 5.1 باعث خطای اشتباه `No release found` نشود.
+انتخاب Release به‌صورت سازگار با Windows PowerShell 5.1 انجام می‌شود و `tag_name` مستقیماً از JSON خام GitHub استخراج می‌شود تا رفتار متفاوت `ConvertFrom-Json` باعث خطای اشتباه `No release found` نشود.
 
 ### Migration فعلاً غیرفعال است
 
@@ -129,6 +131,26 @@ IIS / Management Tools
 ```
 
 Migrationهای EF Core در مرحله جداگانه و کنترل‌شده انجام خواهند شد.
+
+### اصلاحات PowerShell و Cache
+
+`v2.0.18` شامل اصلاحات زیر است:
+
+```text
+- رفع خطای Test-Path ... -and در Windows PowerShell
+- جلوگیری از ورود خروجی progress curl به pipeline
+- انتخاب صحیح Release تست با imonitor-ecomerp-test-v*
+- انتخاب صحیح Release Production با imonitor-ecomerp-master-v*
+- استفاده از نام فایل Core موقت دارای GUID
+- استفاده از Cache-Control: no-cache و Pragma: no-cache
+- pin کردن Core اصلاح‌شده به commit ثابت
+```
+
+Core pinned فعلی:
+
+```text
+7d22f21a93870c46cea7b6c0aa98b0d8bbae6d22
+```
 
 ### تنظیمات اتصال MySQL
 
@@ -170,10 +192,12 @@ iMonitorERP-Update-Production
 فایل پایدار Installer:
 
 ```text
-<InstallRoot>\installer\Install-iMonitorERP-v2.0.17.ps1
+<InstallRoot>\installer\Install-iMonitorERP-v2.0.18.ps1
 ```
 
-Taskها با حساب `SYSTEM` و Highest Privileges اجرا می‌شوند و به `v2.0.17` اشاره می‌کنند. اجرای `v2.0.17` فایل‌های persisted مربوط به `v2.0.15` و `v2.0.16` را حذف می‌کند. در اجرای خودکار، اطلاعات MySQL از `config\mysql-external.json` خوانده می‌شود و Prompt تعاملی نمایش داده نمی‌شود.
+Taskها با حساب `SYSTEM` و Highest Privileges اجرا می‌شوند و به `v2.0.18` اشاره می‌کنند. اجرای `v2.0.18` فایل‌های persisted مربوط به `v2.0.15`، `v2.0.16` و `v2.0.17` را حذف می‌کند.
+
+در اجرای خودکار، اطلاعات MySQL از `config\mysql-external.json` خوانده می‌شود و Prompt تعاملی نمایش داده نمی‌شود.
 
 ### اجرای غیرتعاملی اختیاری
 
@@ -196,7 +220,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 ### Cache و IPv4
 
-دانلود Bootstrap/Core و Releaseهای ERP با `curl.exe -4 --http1.1` انجام می‌شوند. Bootstrap/Core `v2.0.17` با نام فایل جدید، cache-buster میلی‌ثانیه‌ای و هدرهای `Cache-Control: no-cache` و `Pragma: no-cache` دریافت می‌شوند. فایل Core موقت نیز در هر اجرا نام GUID جدید دارد.
+دانلود Bootstrap/Core و Releaseهای ERP با `curl.exe -4 --http1.1` انجام می‌شوند. Bootstrap/Core `v2.0.18` با نام فایل جدید، cache-buster میلی‌ثانیه‌ای و هدرهای `Cache-Control: no-cache` و `Pragma: no-cache` دریافت می‌شوند. فایل Core موقت نیز در هر اجرا نام GUID جدید دارد.
 
 اگر ZIP معتبر Release در `PackageCacheDirectory` موجود باشد دوباره دانلود نمی‌شود.
 
