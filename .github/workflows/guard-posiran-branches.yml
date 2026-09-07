@@ -30,28 +30,39 @@ jobs:
           path: EcommSource
           fetch-depth: 0
 
-      - name: Reapply canonical white-label overlay
-        shell: bash
+      - name: Reapply canonical Posiran white-label contract
+        shell: pwsh
         run: |
-          set -euo pipefail
-          cp -f ReleaseCenter/posiran/overlay/Ecomm/wwwroot/posiran-brand.css EcommSource/Ecomm/wwwroot/posiran-brand.css
-          mkdir -p EcommSource/Ecomm/wwwroot/img
-          cp -f ReleaseCenter/posiran/overlay/Ecomm/wwwroot/img/posiran-logo.svg EcommSource/Ecomm/wwwroot/img/posiran-logo.svg
-          cp -f ReleaseCenter/posiran/overlay/Ecomm/wwwroot/build-info.css EcommSource/Ecomm/wwwroot/build-info.css
-          grep -q 'پوزایران ERP' EcommSource/Ecomm/wwwroot/posiran-brand.css
-          grep -q 'posiran.ir' EcommSource/Ecomm/wwwroot/posiran-brand.css
+          & "$env:GITHUB_WORKSPACE/ReleaseCenter/scripts/Apply-PosiranWhiteLabel.ps1" `
+            -SourceRoot "$env:GITHUB_WORKSPACE/EcommSource" `
+            -OverlayRoot "$env:GITHUB_WORKSPACE/ReleaseCenter/posiran/overlay"
+
+      - name: Validate no visible app-shell fallback to iMonitor
+        shell: pwsh
+        run: |
+          $app=Get-Content "$env:GITHUB_WORKSPACE/EcommSource/Ecomm/Components/App.razor" -Raw
+          if($app -match 'alt="iMonitor ERP"' -or $app -match 'href="/img/logo\.webp"'){throw 'App shell still exposes iMonitor branding.'}
+          $layout=Get-Content "$env:GITHUB_WORKSPACE/EcommSource/Ecomm/Components/Layout/MainLayout.razor" -Raw
+          if($layout -match 'aria-label="iMonitor ERP"' -or $layout -match 'alt="iMonitor ERP"'){throw 'Main layout still exposes iMonitor branding.'}
 
       - name: Commit recovery only when needed
         shell: bash
         working-directory: EcommSource
         run: |
           set -euo pipefail
-          if git diff --quiet -- Ecomm/wwwroot/posiran-brand.css Ecomm/wwwroot/img/posiran-logo.svg Ecomm/wwwroot/build-info.css; then
-            echo "Posiran overlay is intact on ${{ matrix.branch }}"
+          if git diff --quiet; then
+            echo "Posiran white-label contract is intact on ${{ matrix.branch }}"
             exit 0
           fi
           git config user.name 'Posiran ERP Brand Guard'
           git config user.email 'actions@users.noreply.github.com'
-          git add Ecomm/wwwroot/posiran-brand.css Ecomm/wwwroot/img/posiran-logo.svg Ecomm/wwwroot/build-info.css
-          git commit -m 'chore(posiran): restore protected white-label overlay'
+          git add Ecomm/wwwroot/posiran-brand.css \
+                  Ecomm/wwwroot/img/posiran-logo.svg \
+                  Ecomm/wwwroot/build-info.css \
+                  Ecomm/Components/App.razor \
+                  Ecomm/Components/Layout/MainLayout.razor \
+                  .github/workflows/publish-posiran-windows.yml \
+                  .github/workflows/deploy-posiran-local.yml \
+                  POSIRAN_WHITE_LABEL.md
+          git commit -m 'chore(posiran): restore protected white-label contract'
           git push origin HEAD:${{ matrix.branch }}
