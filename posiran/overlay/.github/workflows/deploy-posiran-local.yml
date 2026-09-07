@@ -1,0 +1,91 @@
+name: Deploy Posiran ERP Local IIS
+on:
+  push:
+    branches: [ posiran_test, posiran_production ]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: posiran-local-${{ github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: [self-hosted, Windows, X64, erp-server]
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: { clean: true }
+      - name: Resolve isolated Posiran channel
+        shell: powershell
+        run: |
+          $branch=$env:GITHUB_REF_NAME
+          if($branch -eq 'posiran_test'){
+            $channel='test';$port='8082';$site='PosiranERP-Test';$pool='PosiranERP-Test';$root='C:\PosiranERP\test\current';$deploy='C:\Deploy\PosiranERP\Test';$db='posiran_erp_test';$seed='C:\Deploy\ERP\Test\appsettings.test.json';$envName='Staging'
+          }elseif($branch -eq 'posiran_production'){
+            $channel='production';$port='8083';$site='PosiranERP-Production';$pool='PosiranERP-Production';$root='C:\PosiranERP\production\current';$deploy='C:\Deploy\PosiranERP\Production';$db='posiran_erp';$seed='C:\Ecom\appsettings.json';$envName='Production'
+          }else{throw "Unsupported branch $branch"}
+          @("POSIRAN_CHANNEL=$channel","POSIRAN_PORT=$port","POSIRAN_SITE=$site","POSIRAN_POOL=$pool","POSIRAN_ROOT=$root","POSIRAN_DEPLOY=$deploy","POSIRAN_DB=$db","POSIRAN_SEED_CONFIG=$seed","POSIRAN_ENV=$envName")|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Prepare dedicated Posiran configuration
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force -Path $env:POSIRAN_DEPLOY|Out-Null
+          $config=Join-Path $env:POSIRAN_DEPLOY 'appsettings.json'
+          if(!(Test-Path $config)){
+            if(!(Test-Path $env:POSIRAN_SEED_CONFIG)){throw "Seed config not found: $env:POSIRAN_SEED_CONFIG"}
+            Copy-Item $env:POSIRAN_SEED_CONFIG $config -Force
+          }
+          $j=Get-Content $config -Raw|ConvertFrom-Json
+          if($j.PSObject.Properties['Branding']){$j.Branding.ProductName='Posiran ERP';$j.Branding.DisplayName='پوزایران ERP';$j.Branding.Website='https://www.posiran.ir/'}else{$j|Add-Member -NotePropertyName Branding -NotePropertyValue ([pscustomobject]@{ProductName='Posiran ERP';DisplayName='پوزایران ERP';Website='https://www.posiran.ir/';SupportPhone='';SupportEmail=''})}
+          if($j.PSObject.Properties['AllowedHosts']){$j.AllowedHosts='*'}else{$j|Add-Member -NotePropertyName AllowedHosts -NotePropertyValue '*'}
+          if($j.PSObject.Properties['ExternalGoodsApi']){$j.ExternalGoodsApi.Enabled=$false}
+          if($j.PSObject.Properties['AutoSync']){$j.AutoSync.Enabled=$false}
+          if($j.PSObject.Properties['GoodsSyncSettings']){$j.GoodsSyncSettings.Enabled=$false}
+          if($j.PSObject.Properties['BranchSettings']){
+            $j.BranchSettings.AutoSyncFromMaster=$false
+            $j.BranchSettings.BranchName=if($env:POSIRAN_CHANNEL -eq 'test'){'Posiran ERP Test'}else{'Posiran ERP Production'}
+            $j.BranchSettings.BranchCode=if($env:POSIRAN_CHANNEL -eq 'test'){'POSIRAN-TEST'}else{'POSIRAN-PROD'}
+          }
+          if($j.PSObject.Properties['Environment']){
+            $j.Environment.Name=$env:POSIRAN_ENV;$j.Environment.IsDevelopment=$false;$j.Environment.IsStaging=($env:POSIRAN_CHANNEL -eq 'test');$j.Environment.IsProduction=($env:POSIRAN_CHANNEL -eq 'production')
+          }
+          if(!$j.PSObject.Properties['Database']){throw 'Database configuration missing'}
+          $j.Database.Type='MySql';$j.Database.AutoMigrate=$true;$j.Database.MigrateOnStartup=$true;$j.Database.UseBackgroundMigration=$false;$j.Database.DropDatabaseOnStartup=$false
+          if(!$j.Database.PSObject.Properties['MySql']){throw 'MySql configuration missing'}
+          $cs=[string]$j.Database.MySql.ConnectionString
+          if([string]::IsNullOrWhiteSpace($cs)){throw 'MySql ConnectionString missing'}
+          if($cs -match '(?i)(Database|Initial Catalog)\s*='){$cs=[regex]::Replace($cs,'(?i)(Database|Initial Catalog)\s*=\s*[^;]*',"Database=$env:POSIRAN_DB")}else{$cs=$cs.TrimEnd(';')+";Database=$env:POSIRAN_DB;"}
+          $j.Database.MySql.ConnectionString=$cs
+          if($j.PSObject.Properties['TestDiagnostics']){$j.TestDiagnostics.Enabled=$false}
+          $j|ConvertTo-Json -Depth 60|Set-Content $config -Encoding UTF8
+          Write-Host "Dedicated Posiran config ready for $env:POSIRAN_CHANNEL / DB=$env:POSIRAN_DB"
+      - name: White-label contract
+        shell: powershell
+        run: |
+          foreach($p in @('Ecomm\wwwroot\posiran-brand.css','Ecomm\wwwroot\img\posiran-logo.svg')){if(!(Test-Path $p)){throw "Missing Posiran asset $p"}}
+          if((Get-Content 'Ecomm\wwwroot\posiran-brand.css' -Raw) -notmatch 'پوزایران ERP'){throw 'Posiran branding invalid'}
+      - name: Restore build test publish
+        shell: powershell
+        run: |
+          dotnet restore Ecomm.sln;if($LASTEXITCODE -ne 0){throw 'Restore failed'}
+          dotnet build Ecomm.sln -c Release --no-restore;if($LASTEXITCODE -ne 0){throw 'Build failed'}
+          dotnet test Ecomm.Tests\Ecomm.Tests.csproj -c Release --no-build --verbosity normal;if($LASTEXITCODE -ne 0){throw 'Tests failed'}
+          $incoming=Join-Path $env:POSIRAN_DEPLOY 'Incoming';New-Item -ItemType Directory -Force -Path $incoming|Out-Null;Get-ChildItem $incoming -Force -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force
+          dotnet publish Ecomm\Ecomm.csproj -c Release --no-build -o $incoming;if($LASTEXITCODE -ne 0){throw 'Publish failed'}
+          foreach($f in @('appsettings.json','appsettings.Development.json','appsettings.Production.json')){$p=Join-Path $incoming $f;if(Test-Path $p){Remove-Item $p -Force}}
+      - name: Activate isolated IIS channel
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop';Import-Module WebAdministration
+          $incoming=Join-Path $env:POSIRAN_DEPLOY 'Incoming';$config=Join-Path $env:POSIRAN_DEPLOY 'appsettings.json'
+          New-Item -ItemType Directory -Force -Path $env:POSIRAN_ROOT|Out-Null
+          if(!(Test-Path "IIS:\AppPools\$env:POSIRAN_POOL")){New-WebAppPool -Name $env:POSIRAN_POOL|Out-Null}
+          Set-ItemProperty "IIS:\AppPools\$env:POSIRAN_POOL" -Name managedRuntimeVersion -Value '';Set-ItemProperty "IIS:\AppPools\$env:POSIRAN_POOL" -Name startMode -Value 'AlwaysRunning'
+          if(Test-Path "IIS:\Sites\$env:POSIRAN_SITE"){Stop-Website $env:POSIRAN_SITE -ErrorAction SilentlyContinue};if(Test-Path "IIS:\AppPools\$env:POSIRAN_POOL"){Stop-WebAppPool $env:POSIRAN_POOL -ErrorAction SilentlyContinue};Start-Sleep 2
+          Get-ChildItem $env:POSIRAN_ROOT -Force -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force
+          robocopy $incoming $env:POSIRAN_ROOT /E /COPY:DAT /DCOPY:DAT /XJ /R:2 /W:1|Out-Null;if($LASTEXITCODE -ge 8){throw "Robocopy failed: $LASTEXITCODE"};$global:LASTEXITCODE=0
+          Copy-Item $config (Join-Path $env:POSIRAN_ROOT 'appsettings.json') -Force
+          if(!(Test-Path "IIS:\Sites\$env:POSIRAN_SITE")){New-Website -Name $env:POSIRAN_SITE -PhysicalPath $env:POSIRAN_ROOT -Port ([int]$env:POSIRAN_PORT) -ApplicationPool $env:POSIRAN_POOL|Out-Null}else{Set-ItemProperty "IIS:\Sites\$env:POSIRAN_SITE" -Name physicalPath -Value $env:POSIRAN_ROOT;Set-ItemProperty "IIS:\Sites\$env:POSIRAN_SITE" -Name applicationPool -Value $env:POSIRAN_POOL;Get-WebBinding -Name $env:POSIRAN_SITE -Protocol http|Remove-WebBinding -ErrorAction SilentlyContinue;New-WebBinding -Name $env:POSIRAN_SITE -Protocol http -Port ([int]$env:POSIRAN_PORT) -IPAddress '*'|Out-Null}
+          Start-WebAppPool $env:POSIRAN_POOL;Start-Website $env:POSIRAN_SITE
+          $ok=$false;for($i=1;$i -le 18;$i++){Start-Sleep 2;try{$r=Invoke-WebRequest "http://127.0.0.1:$env:POSIRAN_PORT/health" -UseBasicParsing -TimeoutSec 8;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}};if(!$ok){throw "Posiran ERP health failed on port $env:POSIRAN_PORT"}
+          Write-Host "[OK] http://127.0.0.1:$env:POSIRAN_PORT/"
