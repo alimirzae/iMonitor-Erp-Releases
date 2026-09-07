@@ -17,7 +17,7 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 
-$repo='alimirza/iMonitor-Erp-Releases'
+$repo='alimirzae/iMonitor-Erp-Releases'
 $pinnedCommit='d30ba7b25f6ee9f97a3fabe5a1ccb9ac0ca6a54c'
 $source=Join-Path $env:TEMP ('Install-iMonitorERP-v2.0.21-core-source-'+[guid]::NewGuid().ToString('N')+'.ps1')
 $patched=Join-Path $env:TEMP ('Install-iMonitorERP-v2.0.22-core-patched-'+[guid]::NewGuid().ToString('N')+'.ps1')
@@ -26,11 +26,11 @@ $uri="https://raw.githubusercontent.com/$repo/$pinnedCommit/scripts/Install-iMon
 
 try {
     Write-Host '=== iMonitor ERP CORE v2.0.22 ===' -ForegroundColor Cyan
-    Write-Host 'Core revision : 2.0.22-r1 (PowerShell parser fix + AppPool recovery)' -ForegroundColor DarkCyan
+    Write-Host 'Core revision : 2.0.22-r2 (repository URL hotfix + PowerShell parser fix + AppPool recovery)' -ForegroundColor DarkCyan
 
     & curl.exe -4 --http1.1 --silent --show-error --fail --location --connect-timeout 8 --max-time 300 --retry 3 --retry-all-errors -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' $uri -o $source 2>$null
     $ec=$LASTEXITCODE; $global:LASTEXITCODE=0
-    if($ec -ne 0 -or -not(Test-Path $source -PathType Leaf)){ throw "Could not download pinned v2.0.21 core. curl exit=$ec" }
+    if($ec -ne 0 -or -not(Test-Path $source -PathType Leaf)){ throw "Could not download pinned v2.0.21 core. curl exit=$ec uri=$uri" }
 
     $text=Get-Content $source -Raw
     $bad='Write-Host "$Name IIS state: Site=$siteState; AppPool=$poolState; Binding=*:$Port:" -ForegroundColor Cyan'
