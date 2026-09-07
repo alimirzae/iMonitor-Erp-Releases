@@ -1,0 +1,8 @@
+:root { --posiran-red:#d71920; --posiran-red-dark:#a90f15; --posiran-ink:#111827; --posiran-bg:#f8fafc; --primary-color:var(--posiran-red)!important; --primary:var(--posiran-red)!important; --bs-primary:var(--posiran-red)!important; --bs-link-color:var(--posiran-red-dark)!important; }
+html,body{background:var(--posiran-bg)}
+.header-app-brand .header-logo,.erp-reconnect-logo{display:none!important}
+.header-app-brand::before{content:"پوزایران ERP";display:inline-flex;align-items:center;min-height:42px;padding-inline-start:138px;background:url('/img/posiran-logo.svg') right center/126px auto no-repeat;color:var(--posiran-ink);font-weight:900;font-size:1rem;white-space:nowrap}
+.erp-reconnect-card{background:linear-gradient(135deg,#111827 0%,#3b1115 62%,var(--posiran-red) 100%)!important}
+.erp-reconnect-card::before{content:"";display:block;width:170px;height:64px;margin:0 auto 1rem;background:url('/img/posiran-logo.svg') center/contain no-repeat;filter:brightness(0) invert(1)}
+.btn-primary,.bg-primary,.badge.bg-primary{background-color:var(--posiran-red)!important;border-color:var(--posiran-red)!important}.btn-outline-primary{color:var(--posiran-red)!important;border-color:var(--posiran-red)!important}.btn-outline-primary:hover{color:#fff!important;background:var(--posiran-red)!important}
+body::after{content:"پشتیبانی پوزایران  •  posiran.ir";position:fixed;inset-inline-start:16px;bottom:14px;z-index:9998;padding:.48rem .8rem;border-radius:999px;border:1px solid rgba(215,25,32,.22);background:rgba(255,255,255,.96);color:var(--posiran-red-dark);box-shadow:0 8px 26px rgba(17,24,39,.12);font:700 .72rem/1.5 Tahoma,Arial,sans-serif;pointer-events:none}
