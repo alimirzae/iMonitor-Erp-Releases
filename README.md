@@ -14,18 +14,18 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ## iMonitor ERP / Ecomm ERP
 
-### Windows x64 — Installer رسمی v2.0.15
+### Windows x64 — Installer رسمی v2.0.16
 
 PowerShell را با **Run as Administrator** باز کنید و وارد پوشه‌ای شوید که می‌خواهید ERP همان‌جا نصب شود:
 
 ```powershell
 Set-Location D:\erp_ins
 
-$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.15.ps1'
-$cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$installer = Join-Path $env:TEMP 'Install-iMonitorERP-v2.0.16.ps1'
+$cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
 curl.exe -4 --http1.1 -fL `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.15.ps1?cb=$cacheBust" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.16.ps1?cb=$cacheBust" `
   -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -36,82 +36,113 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Force
 ```
 
-`v2.0.15` نسخه رسمی نصب Windows است.
+`v2.0.16` نسخه رسمی نصب Windows است. نسخه‌های `v2.0.15` بازنشسته شده‌اند و در صورت اجرا به `v2.0.16` هدایت می‌شوند.
 
-### MySQL موجود — بدون دانلود MySQL
+### MySQL موجود — بدون دانلود یا نصب MySQL
 
-به علت محدودیت دسترسی به MySQL در برخی شبکه‌ها، Installer دیگر MySQL را دانلود یا نصب نمی‌کند. در اولین اجرای تعاملی، Installer MySQL موجود را پیدا می‌کند یا از کاربر این موارد را می‌پرسد:
+Installer هیچ بسته MySQL را دانلود، نصب یا به‌روزرسانی نمی‌کند. MySQL باید از قبل روی سیستم نصب باشد.
+
+در اولین اجرای تعاملی، Installer مسیر و اطلاعات اتصال MySQL موجود را پیدا می‌کند یا از کاربر این موارد را می‌پرسد:
 
 ```text
 Path to mysql.exe or MySQL bin directory
-MySQL host/address [127.0.0.1]
+MySQL host/address [localhost]
 MySQL port [3306]
 MySQL administrative user [root]
 Password for MySQL user 'root'
 ```
 
-رمز در کنسول نمایش داده نمی‌شود. Installer ابتدا اتصال واقعی با کاربر مدیریتی را تست می‌کند و فقط در صورت موفق بودن ادامه می‌دهد.
+رمز در کنسول نمایش داده نمی‌شود. Installer فقط اتصال واقعی به MySQL را تست می‌کند و در صورت موفق بودن ادامه می‌دهد.
 
 اگر `mysql.exe` در PATH یا مسیرهای استاندارد MySQL Server 8.0/8.4 پیدا شود، مسیر آن به‌صورت خودکار تشخیص داده می‌شود.
 
-### نصب صفر تا صد ERP با MySQL موجود
+> نکته: عبارت `Release metadata download over GitHub IPv4` مربوط به بررسی آخرین Release خود ERP در GitHub است و هیچ ارتباطی با دانلود MySQL ندارد.
+
+### دیتابیس‌های از قبل ایجادشده
+
+Installer در `v2.0.16` دیتابیس یا User جدید ایجاد نمی‌کند و هیچ `CREATE DATABASE`، `CREATE USER`، `ALTER USER` یا `GRANT` اجرا نمی‌کند.
+
+نام دیتابیس‌های مورد انتظار:
+
+```text
+Test       ecomm_dev
+Production ecomm
+```
+
+این دو دیتابیس باید قبل از نصب توسط مدیر سیستم ایجاد شده باشند.
+
+نمونه SQL اختیاری برای ساخت دستی:
+
+```sql
+CREATE DATABASE ecomm
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+CREATE DATABASE ecomm_dev
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+```
+
+Installer بعد از تست اتصال MySQL، وجود و دسترسی به دیتابیس مربوط به هر Channel را بررسی می‌کند. اگر دیتابیس وجود نداشته باشد یا قابل دسترسی نباشد، نصب با پیام واضح متوقف می‌شود.
+
+### Migration فعلاً غیرفعال است
+
+برای ساده و قابل‌کنترل نگه‌داشتن نصب اولیه، اجرای خودکار Migration و Seed فعلاً غیرفعال است:
+
+```text
+Database:Type=MySql
+Database:AutoMigrate=false
+Database:MigrateOnStartup=false
+Database:EnsureCreatedIfNotExists=false
+Database:SeedDataOnMigrate=false
+Database:DropDatabaseOnStartup=false
+```
+
+بنابراین Installer فعلاً فقط:
 
 ```text
 IIS / Management Tools
 → .NET 8 ASP.NET Core Hosting Bundle
-→ اتصال و تست MySQL موجود
-→ ساخت دیتابیس Test و Production
-→ ساخت Userهای اختصاصی Test و Production
-→ Grant و تست Login واقعی
-→ تولید appsettings.json با Connection String معتبر
-→ دریافت/استفاده از Cache آخرین Release
+→ پیدا کردن mysql.exe
+→ تست اتصال MySQL موجود
+→ بررسی دسترسی به ecomm_dev / ecomm
+→ تولید appsettings.json
+→ دریافت یا استفاده از Cache آخرین Release ERP
 → Stage و Activation
-→ اجرای Migrationهای EF Core هنگام Startup
-→ Health Check واقعی
+→ تنظیم IIS
+→ Health Check
 → Rollback در صورت خطا
-→ First-run Wizard برای دیتابیس تازه
 ```
 
-دیتابیس‌ها و Userهای پیش‌فرض:
+Migrationهای EF Core در مرحله جداگانه و کنترل‌شده انجام خواهند شد.
 
-```text
-Test       imonitor_erp_test        user: imonitor_test
-Production imonitor_erp_production  user: imonitor_production
-```
+### تنظیمات اتصال MySQL
 
-Passwordهای کاربران برنامه توسط Installer تولید می‌شوند.
-
-### نگهداری تنظیمات MySQL برای updater
-
-بعد از اتصال موفق، تنظیمات لازم برای اجرای بدون تعامل updater در مسیر زیر ذخیره می‌شود:
+بعد از اتصال موفق، اطلاعات لازم برای اجرای بدون تعامل updater در مسیر زیر نگهداری می‌شود:
 
 ```text
 D:\erp_ins\config\mysql-external.json
 ```
 
-این فایل شامل اطلاعات اتصال MySQL و credentialهای لازم برای نگهداری خودکار است و ACL پوشه به `Administrators` و `SYSTEM` محدود می‌شود. فایل را منتشر یا حذف نکنید.
+ACL این پوشه به `Administrators` و `SYSTEM` محدود می‌شود. این فایل را منتشر نکنید.
 
-### Migration و First-run Wizard
-
-Installer این تنظیمات را فعال می‌کند:
-
-```text
-Database:Type=MySql
-Database:AutoMigrate=true
-Database:MigrateOnStartup=true
-Database:EnsureCreatedIfNotExists=true
-Database:SeedDataOnMigrate=true
-Database:DropDatabaseOnStartup=false
-```
-
-پس از آماده‌شدن دیتابیس، Ecomm Migrationهای EF Core را هنگام Startup اجرا می‌کند.
+### آدرس‌های محلی
 
 پس از نصب موفق:
 
 ```text
-Test wizard       http://127.0.0.1:8081/account/setup
-Production wizard http://127.0.0.1:8080/account/setup
+Test       http://127.0.0.1:8081/
+Production http://127.0.0.1:8080/
 ```
+
+صفحه setup در صورت نیاز برنامه:
+
+```text
+Test       http://127.0.0.1:8081/account/setup
+Production http://127.0.0.1:8080/account/setup
+```
+
+توجه: با توجه به غیرفعال بودن Migration، آماده بودن این صفحات به وضعیت Schema دیتابیس بستگی دارد.
 
 ### Automatic Updater
 
@@ -125,12 +156,12 @@ iMonitorERP-Update-Production
 فایل پایدار Installer:
 
 ```text
-<InstallRoot>\installer\Install-iMonitorERP-v2.0.15.ps1
+<InstallRoot>\installer\Install-iMonitorERP-v2.0.16.ps1
 ```
 
-Taskها با حساب `SYSTEM` و Highest Privileges اجرا می‌شوند. در اجرای خودکار، اطلاعات MySQL از `config\mysql-external.json` خوانده می‌شود و هیچ Prompt تعاملی نمایش داده نمی‌شود.
+Taskها با حساب `SYSTEM` و Highest Privileges اجرا می‌شوند و به `v2.0.16` اشاره می‌کنند. در اجرای خودکار، اطلاعات MySQL از `config\mysql-external.json` خوانده می‌شود و Prompt تعاملی نمایش داده نمی‌شود.
 
-### اجرای کاملاً غیرتعاملی اختیاری
+### اجرای غیرتعاملی اختیاری
 
 در صورت نیاز می‌توان اطلاعات MySQL را هنگام اجرای اولیه به‌صورت پارامتر داد:
 
@@ -141,7 +172,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -InstallRoot 'D:\erp_ins' `
   -PackageCacheDirectory 'D:\erp_ins' `
   -MySqlBinPath 'C:\Program Files\MySQL\MySQL Server 8.0\bin' `
-  -MySqlHost '127.0.0.1' `
+  -MySqlHost 'localhost' `
   -MySqlPort 3306 `
   -MySqlRootUser 'root' `
   -Force
@@ -151,7 +182,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 ### Cache و IPv4
 
-دانلود Bootstrap/Core و Releaseهای ERP با `curl.exe -4 --http1.1` انجام می‌شوند. اگر ZIP معتبر Release در `PackageCacheDirectory` موجود باشد دوباره دانلود نمی‌شود. هیچ دانلود MySQL انجام نمی‌شود.
+دانلود Bootstrap/Core و Releaseهای ERP با `curl.exe -4 --http1.1` انجام می‌شوند. اگر ZIP معتبر Release در `PackageCacheDirectory` موجود باشد دوباره دانلود نمی‌شود.
+
+**هیچ دانلود MySQL انجام نمی‌شود.**
 
 ### مهاجرت نصب قبلی
 
@@ -161,7 +194,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 C:\ProgramData\iMonitorERP
 ```
 
-Installer تنظیمات عمومی و `App_Data` را در صورت وجود حفظ می‌کند، اما Connection String دیتابیس را با اطلاعات MySQL تاییدشده نصب فعلی جایگزین می‌کند. مسیر قدیمی حذف نمی‌شود.
+Installer تنظیمات عمومی و `App_Data` را در صورت وجود حفظ می‌کند، اما Connection String دیتابیس را با اطلاعات MySQL تاییدشده نصب فعلی و نام دیتابیس کانال جایگزین می‌کند. مسیر قدیمی حذف نمی‌شود.
 
 ### Linux / Ubuntu ERP
 
