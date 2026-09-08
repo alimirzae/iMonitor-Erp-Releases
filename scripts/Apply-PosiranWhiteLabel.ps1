@@ -25,8 +25,9 @@ $t=Get-Content $app -Raw
 $t=[regex]::Replace($t,'<title>.*?</title>','<title>Posiran ERP | پوزایران ERP</title>',1)
 if($t -notmatch 'posiran-brand\.css'){
   $marker='<link rel="stylesheet" href="build-info.css" />'
-  if($t.Contains($marker)){$t=$t.Replace($marker,$marker+"`r`n    <link rel=\"stylesheet\" href=\"posiran-brand.css?v=1\" />")}
-  else{$t=$t -replace '(<HeadOutlet\s*/>)','    <link rel="stylesheet" href="posiran-brand.css?v=1" />`r`n    $1'}
+  $themeLink='<link rel="stylesheet" href="posiran-brand.css?v=1" />'
+  if($t.Contains($marker)){$t=$t.Replace($marker,$marker+"`r`n    "+$themeLink)}
+  else{$t=$t -replace '(<HeadOutlet\s*/>)',("    "+$themeLink+"`r`n    `$1")}
 }
 $t=$t -replace '<link rel="icon"[^>]*href="/img/logo\.webp"\s*/>','<link rel="icon" type="image/svg+xml" href="/img/posiran-logo.svg" />'
 $t=$t -replace '<link rel="shortcut icon"[^>]*href="/img/logo\.webp"\s*/>','<link rel="shortcut icon" type="image/svg+xml" href="/img/posiran-logo.svg" />'
