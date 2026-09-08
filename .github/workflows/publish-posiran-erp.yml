@@ -3,33 +3,54 @@ name: Publish Posiran ERP Windows Release
 on:
   repository_dispatch:
     types: [posiran-erp-release]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Posiran branch to publish'
+        required: true
+        default: 'posiran_test'
+        type: choice
+        options:
+          - posiran_test
+          - posiran_production
 
 permissions:
   contents: write
 
 concurrency:
-  group: posiran-erp-release-${{ github.event.client_payload.branch }}
+  group: posiran-erp-release-${{ github.event.client_payload.branch || inputs.branch }}
   cancel-in-progress: true
 
 jobs:
   package-and-release:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       SOURCE_REPO: alimirzae/Ecomm
+      SOURCE_BRANCH: ${{ github.event.client_payload.branch || inputs.branch }}
       SOURCE_SHA: ${{ github.event.client_payload.sha }}
-      SOURCE_BRANCH: ${{ github.event.client_payload.branch }}
-      SOURCE_RUN_NUMBER: ${{ github.event.client_payload.run_number }}
+      SOURCE_RUN_NUMBER: ${{ github.event.client_payload.run_number || github.run_number }}
       ASSET_NAME: PosiranERP-win-x64.zip
     steps:
-      - name: Validate payload
+      - name: Checkout release center
+        uses: actions/checkout@v4
+        with:
+          path: ReleaseCenter
+
+      - name: Resolve source SHA
         shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
         run: |
           if($env:SOURCE_BRANCH -notin @('posiran_test','posiran_production')){throw "Unsupported branch: $env:SOURCE_BRANCH"}
+          if([string]::IsNullOrWhiteSpace($env:SOURCE_SHA)){
+            $env:SOURCE_SHA = (gh api "repos/alimirzae/Ecomm/commits/$env:SOURCE_BRANCH" --jq .sha).Trim()
+            "SOURCE_SHA=$env:SOURCE_SHA" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          }
           if($env:SOURCE_SHA -notmatch '^[0-9a-fA-F]{40}$'){throw 'Invalid SHA'}
           if($env:SOURCE_RUN_NUMBER -notmatch '^\d+$'){throw 'Invalid run number'}
 
-      - name: Checkout exact verified Posiran commit
+      - name: Checkout exact Posiran source commit
         uses: actions/checkout@v4
         with:
           repository: alimirzae/Ecomm
@@ -39,32 +60,46 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Validate Posiran white-label overlay
+      - name: Apply canonical Posiran white-label
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/ReleaseCenter/scripts/Apply-PosiranWhiteLabel.ps1" `
+            -SourceRoot "$env:GITHUB_WORKSPACE/EcommSource" `
+            -OverlayRoot "$env:GITHUB_WORKSPACE/ReleaseCenter/posiran/overlay"
+
+      - name: Validate isolated package contract
         shell: powershell
         run: |
           $root="$env:GITHUB_WORKSPACE\EcommSource"
-          foreach($p in @('Ecomm\wwwroot\posiran-brand.css','Ecomm\wwwroot\img\posiran-logo.svg')){
-            if(!(Test-Path (Join-Path $root $p))){throw "Missing Posiran asset: $p"}
-          }
-          $css=Get-Content (Join-Path $root 'Ecomm\wwwroot\posiran-brand.css') -Raw
-          if($css -notmatch 'پوزایران ERP'){throw 'Package is not branded as Posiran ERP'}
+          $app=Get-Content (Join-Path $root 'Ecomm\Components\App.razor') -Raw
+          $layout=Get-Content (Join-Path $root 'Ecomm\Components\Layout\MainLayout.razor') -Raw
+          if($app -notmatch 'posiran-brand\.css'){throw 'Posiran stylesheet is not loaded.'}
+          if($app -match 'iMonitor ERP' -or $layout -match 'iMonitor ERP'){throw 'Visible iMonitor branding remains in Posiran shell.'}
+          foreach($p in @('Ecomm\wwwroot\posiran-brand.css','Ecomm\wwwroot\img\posiran-logo.svg')){if(!(Test-Path (Join-Path $root $p))){throw "Missing Posiran asset: $p"}}
 
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
+      - name: Restore and build
+        shell: powershell
+        run: |
+          Set-Location "$env:GITHUB_WORKSPACE\EcommSource"
+          dotnet restore Ecomm.sln
+          if($LASTEXITCODE -ne 0){throw 'Restore failed'}
+          dotnet build Ecomm.sln -c Release --no-restore
+          if($LASTEXITCODE -ne 0){throw 'Build failed'}
+          dotnet test Ecomm.Tests\Ecomm.Tests.csproj -c Release --no-build --verbosity normal
+          if($LASTEXITCODE -ne 0){throw 'Tests failed'}
+
       - name: Publish clean Windows package
         shell: powershell
         run: |
           Set-Location "$env:GITHUB_WORKSPACE\EcommSource"
-          dotnet restore Ecomm\Ecomm.csproj -r win-x64
-          if($LASTEXITCODE -ne 0){throw 'Restore failed'}
           $out=Join-Path $env:RUNNER_TEMP 'posiran-publish'
           dotnet publish Ecomm\Ecomm.csproj -c Release -r win-x64 --self-contained false --no-restore -o $out
           if($LASTEXITCODE -ne 0){throw 'Publish failed'}
-          foreach($f in @('appsettings.json','appsettings.Development.json','appsettings.Production.json')){
-            $p=Join-Path $out $f; if(Test-Path $p){Remove-Item $p -Force}
-          }
+          foreach($f in @('appsettings.json','appsettings.Development.json','appsettings.Production.json')){$p=Join-Path $out $f;if(Test-Path $p){Remove-Item $p -Force}}
           if(!(Test-Path (Join-Path $out 'Ecomm.dll'))){throw 'Ecomm.dll missing'}
           if(!(Test-Path (Join-Path $out 'wwwroot\posiran-brand.css'))){throw 'Posiran branding missing from package'}
           if(!(Test-Path (Join-Path $out 'wwwroot\img\posiran-logo.svg'))){throw 'Posiran logo missing from package'}
@@ -88,8 +123,10 @@ jobs:
           $version="1.0.$env:SOURCE_RUN_NUMBER"
           $tag="posiran-erp-$channel-v$version"
           $title="Posiran ERP $channel $version"
-          $notes="Posiran ERP $channel Windows x64 release. Source branch: $env:SOURCE_BRANCH; verified source SHA: $env:SOURCE_SHA. Application settings are intentionally excluded from the package so Posiran channel configuration remains isolated."
+          $notes="Posiran ERP $channel Windows x64 release. Source branch: $env:SOURCE_BRANCH; source SHA: $env:SOURCE_SHA. Canonical Posiran white-label overlay was applied by Release Center before build. Application settings are excluded so channel configuration remains isolated."
           $zip=Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
+          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
+          if($LASTEXITCODE -eq 0){gh release delete $tag --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag}
           $args=@('release','create',$tag,$zip,"$zip.sha256",'--repo',$env:GITHUB_REPOSITORY,'--target','main','--title',$title,'--notes',$notes)
           if($isTest){$args+='--prerelease'}
           & gh @args
