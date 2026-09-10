@@ -7,15 +7,17 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(builder.Configuration["Installer:Url"] ?? "http://127.0.0.1:8099");
 builder.Services.AddHttpClient();
 
+var defaultInstallRoot = builder.Configuration["Installer:InstallRoot"] ?? @"C:\PosiranERP";
+var defaultConfigRoot = builder.Configuration["Installer:ConfigRoot"] ?? @"C:\Deploy\PosiranERP";
+builder.Services.AddSingleton<OrchestratorService>(sp => new OrchestratorService(defaultInstallRoot, defaultConfigRoot, sp.GetRequiredService<IHttpClientFactory>()));
+
 var app = builder.Build();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
 const string releaseRepoRaw = "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main";
-var defaultInstallRoot = builder.Configuration["Installer:InstallRoot"] ?? @"C:\PosiranERP";
-var defaultConfigRoot = builder.Configuration["Installer:ConfigRoot"] ?? @"C:\Deploy\PosiranERP";
 
-app.MapGet("/api/status", () =>
+app.MapGet("/api/status", (OrchestratorService orchestrator) =>
 {
     var isWindows = OperatingSystem.IsWindows();
     var isAdmin = IsAdministrator();
@@ -34,12 +36,65 @@ app.MapGet("/api/status", () =>
         {
             iis = Directory.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "inetsrv")),
             dotnet8 = Environment.Version.Major >= 8,
-            mysqlServiceDetected = MySqlServiceDetected()
+            mysqlServiceDetected = MySqlServiceDetected(),
+            mysqlServices = orchestrator.ListMySqlServices()
         }
     });
 });
 
-app.MapPost("/api/configure", (SetupRequest request) =>
+app.MapGet("/api/installations", async (OrchestratorService orchestrator, CancellationToken ct) =>
+    Results.Ok(await orchestrator.ListInstallationsAsync(ct)));
+
+app.MapGet("/api/mysql/services", (OrchestratorService orchestrator) => Results.Ok(orchestrator.ListMySqlServices()));
+
+app.MapPost("/api/installations/{id}/backup", async (string id, BackupRequest? request, OrchestratorService orchestrator, CancellationToken ct) =>
+{
+    try { return Results.Ok(await orchestrator.BackupAsync(id, request?.Reason, ct)); }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
+
+app.MapPost("/api/installations/{id}/restore/{backupId}", async (string id, string backupId, OrchestratorService orchestrator, CancellationToken ct) =>
+{
+    try { return Results.Ok(await orchestrator.RestoreAsync(id, backupId, ct)); }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
+
+app.MapPost("/api/installations/{id}/control/{action}", async (string id, string action, OrchestratorService orchestrator, CancellationToken ct) =>
+{
+    try { return Results.Ok(await orchestrator.ControlAsync(id, action, ct)); }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
+
+app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorService orchestrator, IHttpClientFactory clients, CancellationToken ct) =>
+{
+    try
+    {
+        var manifest = orchestrator.RequireManifest(id);
+        var backup = await orchestrator.BackupAsync(id, "pre-upgrade", ct);
+        var scriptDirectory = Path.Combine(defaultInstallRoot, "installer");
+        Directory.CreateDirectory(scriptDirectory);
+        var scriptPath = Path.Combine(scriptDirectory, "Install-PosiranERP-v1.0.3.ps1");
+        var http = clients.CreateClient();
+        http.Timeout = TimeSpan.FromSeconds(60);
+        var bytes = await http.GetByteArrayAsync($"{releaseRepoRaw}/scripts/Install-PosiranERP-v1.0.3.ps1?cb={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", ct);
+        await File.WriteAllBytesAsync(scriptPath, bytes, ct);
+        var args = new List<string>
+        {
+            "-NoProfile","-ExecutionPolicy","Bypass","-File",scriptPath,
+            "-Channel",manifest.Channel,"-Mode","InstallOrUpdate","-InstallRoot",defaultInstallRoot,"-ConfigRoot",defaultConfigRoot,
+            manifest.Channel == "Test" ? "-TestPort" : "-ProductionPort",manifest.Port.ToString(),
+            manifest.Channel == "Test" ? "-TestFolderName" : "-ProductionFolderName",manifest.InstallFolderName,
+            "-Force"
+        };
+        if (!manifest.AutoUpdate) args.Add("-DisableAutoUpdate");
+        var r = RunPowerShell(args);
+        if (r.ExitCode != 0) return Results.Problem($"Upgrade failed. Pre-upgrade backup: {backup.BackupId}. {r.Error}");
+        return Results.Ok(new { upgraded = true, preUpgradeBackup = backup.BackupId, output = r.Output });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
+
+app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchestrator) =>
 {
     if (!OperatingSystem.IsWindows()) return Results.BadRequest(new { error = "This installer currently supports Windows only." });
     if (!IsAdministrator()) return Results.BadRequest(new { error = "Run the installer service as Administrator." });
@@ -62,8 +117,8 @@ app.MapPost("/api/configure", (SetupRequest request) =>
 
     var connectionString = $"Server={request.DatabaseServer};Port={request.DatabasePort};Database={database};User={request.DatabaseUser};Password={request.DatabasePassword};Charset=utf8mb4;";
     var config = BuildAppSettings(isTest, request, connectionString);
-    var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
-    File.WriteAllText(configPath, json);
+    File.WriteAllText(configPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
+    orchestrator.RegisterInstance(channel, appPort, installFolderName, request.AutoUpdate, configPath);
 
     return Results.Ok(new
     {
@@ -74,7 +129,7 @@ app.MapPost("/api/configure", (SetupRequest request) =>
         autoUpdate = request.AutoUpdate,
         configPath,
         installPath = Path.Combine(defaultInstallRoot, installFolderName, "current"),
-        message = "Configuration saved. Password is intentionally not returned by the API."
+        message = "Configuration saved and instance registered. Password is intentionally not returned by the API."
     });
 });
 
@@ -102,63 +157,47 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     {
         var http = clients.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(60);
-        var bytes = await http.GetByteArrayAsync($"{releaseRepoRaw}/scripts/Install-PosiranERP-v1.0.3.ps1");
+        var bytes = await http.GetByteArrayAsync($"{releaseRepoRaw}/scripts/Install-PosiranERP-v1.0.3.ps1?cb={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
         await File.WriteAllBytesAsync(scriptPath, bytes);
     }
 
-    var psi = new ProcessStartInfo
+    var args = new List<string>
     {
-        FileName = "powershell.exe",
-        RedirectStandardOutput = true,
-        RedirectStandardError = true,
-        UseShellExecute = false,
-        CreateNoWindow = true
+        "-NoProfile","-ExecutionPolicy","Bypass","-File",scriptPath,
+        "-Channel",channel,"-Mode","InstallOrUpdate","-InstallRoot",defaultInstallRoot,"-ConfigRoot",defaultConfigRoot,
+        isTest ? "-TestPort" : "-ProductionPort",appPort.ToString(),
+        isTest ? "-TestFolderName" : "-ProductionFolderName",installFolderName
     };
-    psi.ArgumentList.Add("-NoProfile");
-    psi.ArgumentList.Add("-ExecutionPolicy");
-    psi.ArgumentList.Add("Bypass");
-    psi.ArgumentList.Add("-File");
-    psi.ArgumentList.Add(scriptPath);
-    psi.ArgumentList.Add("-Channel");
-    psi.ArgumentList.Add(channel);
-    psi.ArgumentList.Add("-Mode");
-    psi.ArgumentList.Add("InstallOrUpdate");
-    psi.ArgumentList.Add("-InstallRoot");
-    psi.ArgumentList.Add(defaultInstallRoot);
-    psi.ArgumentList.Add("-ConfigRoot");
-    psi.ArgumentList.Add(defaultConfigRoot);
-    psi.ArgumentList.Add(isTest ? "-TestPort" : "-ProductionPort");
-    psi.ArgumentList.Add(appPort.ToString());
-    psi.ArgumentList.Add(isTest ? "-TestFolderName" : "-ProductionFolderName");
-    psi.ArgumentList.Add(installFolderName);
-    if (!request.AutoUpdate) psi.ArgumentList.Add("-DisableAutoUpdate");
-    if (request.Force) psi.ArgumentList.Add("-Force");
-
-    using var process = Process.Start(psi);
-    if (process is null) return Results.Problem("Could not start Posiran installer process.");
-
-    var outputTask = process.StandardOutput.ReadToEndAsync();
-    var errorTask = process.StandardError.ReadToEndAsync();
-    await process.WaitForExitAsync();
-    var output = await outputTask;
-    var error = await errorTask;
-
-    if (process.ExitCode != 0) return Results.Problem(title: "Installation failed", detail: string.IsNullOrWhiteSpace(error) ? output : error, statusCode: 500);
+    if (!request.AutoUpdate) args.Add("-DisableAutoUpdate");
+    if (request.Force) args.Add("-Force");
+    var r = RunPowerShell(args);
+    if (r.ExitCode != 0) return Results.Problem(title: "Installation failed", detail: r.Error, statusCode: 500);
 
     return Results.Ok(new
     {
         channel,
-        exitCode = process.ExitCode,
+        exitCode = r.ExitCode,
         localUrl = $"http://127.0.0.1:{appPort}/",
         installPath = Path.Combine(defaultInstallRoot, installFolderName, "current"),
         autoUpdate = request.AutoUpdate,
-        output
+        output = r.Output
     });
 });
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "PosiranERP.Installer.Web" }));
 app.MapFallbackToFile("index.html");
 app.Run();
+
+static ProcessResult RunPowerShell(IEnumerable<string> args)
+{
+    var psi = new ProcessStartInfo { FileName = "powershell.exe", RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+    foreach (var arg in args) psi.ArgumentList.Add(arg);
+    using var process = Process.Start(psi) ?? throw new InvalidOperationException("Could not start PowerShell.");
+    var output = process.StandardOutput.ReadToEnd();
+    var error = process.StandardError.ReadToEnd();
+    process.WaitForExit();
+    return new ProcessResult(process.ExitCode, output, string.IsNullOrWhiteSpace(error) ? output : error);
+}
 
 static object BuildAppSettings(bool isTest, SetupRequest request, string connectionString)
 {
@@ -258,3 +297,5 @@ static bool MySqlServiceDetected()
 
 record SetupRequest(string Channel, string DatabaseServer, int DatabasePort, string DatabaseUser, string DatabasePassword, string? MySqlVersion, int? AppPort, string? InstallFolderName, bool AutoUpdate = true);
 record InstallRequest(string Channel, int? AppPort, string? InstallFolderName, bool AutoUpdate = true, bool Force = false, bool RefreshInstaller = true);
+record BackupRequest(string? Reason);
+record ProcessResult(int ExitCode, string Output, string Error);
