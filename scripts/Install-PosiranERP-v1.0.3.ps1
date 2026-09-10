@@ -15,11 +15,15 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 if(-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Run PowerShell as Administrator.'}
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+Add-Type -AssemblyName System.Net.Http
+
 $repo='alimirzae/iMonitor-Erp-Releases'
 $asset='PosiranERP-win-x64.zip'
 $stableDir=Join-Path $InstallRoot 'installer'
 $stableInstaller=Join-Path $stableDir 'Install-PosiranERP-v1.0.3.ps1'
-New-Item -ItemType Directory -Force -Path $InstallRoot,$ConfigRoot,$stableDir | Out-Null
+$packageCache=Join-Path $InstallRoot 'packages'
+New-Item -ItemType Directory -Force -Path $InstallRoot,$ConfigRoot,$stableDir,$packageCache | Out-Null
 if($PSCommandPath -and ([IO.Path]::GetFullPath($PSCommandPath) -ne [IO.Path]::GetFullPath($stableInstaller))){Copy-Item $PSCommandPath $stableInstaller -Force}
 
 function Assert-FolderName([string]$Name,[string]$Label){
@@ -41,20 +45,70 @@ function Get-ChannelInfo([string]$Name){
     Task=if($isTest){'PosiranERP-Update-Test'}else{'PosiranERP-Update-Production'};Minutes=if($isTest){1}else{5}
   }
 }
-function Invoke-Curl([string]$Url,[string]$Out,[int]$MaxTime=600){
-  & curl.exe -4 --http1.1 --silent --show-error --fail --location --connect-timeout 8 --max-time $MaxTime --retry 4 --retry-all-errors -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' -H 'User-Agent: PosiranERP-Installer/1.0.3' $Url -o $Out
-  if($LASTEXITCODE -ne 0){throw "Download failed: $Url"}
+
+function Invoke-HttpDownload([string]$Url,[string]$Out,[string]$Accept='application/octet-stream',[int]$TimeoutSeconds=600){
+  $handler=New-Object System.Net.Http.HttpClientHandler
+  $handler.AllowAutoRedirect=$true
+  $handler.AutomaticDecompression=[System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
+  $client=New-Object System.Net.Http.HttpClient($handler)
+  $client.Timeout=[TimeSpan]::FromSeconds($TimeoutSeconds)
+  $client.DefaultRequestHeaders.UserAgent.ParseAdd('PosiranERP-Installer/1.0.3')
+  $client.DefaultRequestHeaders.CacheControl=New-Object System.Net.Http.Headers.CacheControlHeaderValue
+  $client.DefaultRequestHeaders.CacheControl.NoCache=$true
+  if(-not [string]::IsNullOrWhiteSpace($Accept)){$client.DefaultRequestHeaders.Accept.ParseAdd($Accept)}
+  $stream=$null;$file=$null;$response=$null
+  try{
+    $response=$client.GetAsync($Url,[System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+    $response.EnsureSuccessStatusCode()
+    $stream=$response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+    $file=[System.IO.File]::Open($Out,[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
+    $stream.CopyTo($file)
+  } finally {
+    if($file){$file.Dispose()};if($stream){$stream.Dispose()};if($response){$response.Dispose()};$client.Dispose();$handler.Dispose()
+  }
 }
+
+function Invoke-BitsDownload([string]$Url,[string]$Out){
+  Import-Module BitsTransfer -ErrorAction Stop
+  if(Test-Path $Out){Remove-Item $Out -Force -ErrorAction SilentlyContinue}
+  Start-BitsTransfer -Source $Url -Destination $Out -TransferType Download -DisplayName 'Posiran ERP download' -Description 'Downloading Posiran ERP package' -ErrorAction Stop
+}
+
+function Invoke-AssetDownload([string]$ApiUrl,[string]$BrowserUrl,[string]$Out,[int]$TimeoutSeconds=600){
+  $errors=New-Object System.Collections.Generic.List[string]
+  try{
+    Write-Host '[Download] GitHub API via .NET HttpClient...' -ForegroundColor Cyan
+    Invoke-HttpDownload $ApiUrl $Out 'application/octet-stream' $TimeoutSeconds
+    if((Test-Path $Out) -and (Get-Item $Out).Length -gt 0){return}
+  }catch{$errors.Add("HttpClient API: $($_.Exception.Message)")}
+  try{
+    Write-Host '[Download] Windows BITS fallback...' -ForegroundColor Yellow
+    Invoke-BitsDownload $BrowserUrl $Out
+    if((Test-Path $Out) -and (Get-Item $Out).Length -gt 0){return}
+  }catch{$errors.Add("BITS: $($_.Exception.Message)")}
+  try{
+    Write-Host '[Download] PowerShell Invoke-WebRequest fallback...' -ForegroundColor Yellow
+    Invoke-WebRequest -UseBasicParsing -Uri $BrowserUrl -OutFile $Out -TimeoutSec $TimeoutSeconds -Headers @{'User-Agent'='PosiranERP-Installer/1.0.3';'Cache-Control'='no-cache'}
+    if((Test-Path $Out) -and (Get-Item $Out).Length -gt 0){return}
+  }catch{$errors.Add("Invoke-WebRequest: $($_.Exception.Message)")}
+  throw "All native download methods failed for $BrowserUrl`n$($errors -join "`n")"
+}
+
 function Get-LatestRelease($info){
-  $cb=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();$uri="https://api.github.com/repos/$repo/releases?per_page=100&cb=$cb";$tmp=Join-Path $env:TEMP ('posiran-releases-'+[guid]::NewGuid().ToString('N')+'.json')
-  Invoke-Curl $uri $tmp 60
-  try{$rels=Get-Content $tmp -Raw|ConvertFrom-Json}finally{Remove-Item $tmp -Force -ErrorAction SilentlyContinue}
+  $cb=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();$uri="https://api.github.com/repos/$repo/releases?per_page=100&cb=$cb"
+  $headers=@{'User-Agent'='PosiranERP-Installer/1.0.3';'Accept'='application/vnd.github+json';'Cache-Control'='no-cache'}
+  try{$rels=Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -TimeoutSec 60}
+  catch{
+    $tmp=Join-Path $env:TEMP ('posiran-releases-'+[guid]::NewGuid().ToString('N')+'.json')
+    try{Invoke-HttpDownload $uri $tmp 'application/vnd.github+json' 60;$rels=Get-Content $tmp -Raw|ConvertFrom-Json}finally{Remove-Item $tmp -Force -ErrorAction SilentlyContinue}
+  }
   $r=$rels|Where-Object{$_.tag_name -like ($info.Prefix+'*')}|Sort-Object {[datetime]$_.published_at} -Descending|Select-Object -First 1
   if(!$r){throw "No published Posiran ERP $($info.Key) release found."}
   $zip=$r.assets|Where-Object{$_.name -eq $asset}|Select-Object -First 1;$sha=$r.assets|Where-Object{$_.name -eq ($asset+'.sha256')}|Select-Object -First 1
   if(!$zip -or !$sha){throw "Release $($r.tag_name) is missing package/checksum."}
-  [pscustomobject]@{Tag=$r.tag_name;ZipUrl=$zip.browser_download_url;ShaUrl=$sha.browser_download_url}
+  [pscustomobject]@{Tag=$r.tag_name;ZipApiUrl=$zip.url;ZipBrowserUrl=$zip.browser_download_url;ShaApiUrl=$sha.url;ShaBrowserUrl=$sha.browser_download_url}
 }
+
 function Normalize-ChannelConfig($info){
   if(!(Test-Path $info.Config)){return}
   $j=Get-Content $info.Config -Raw | ConvertFrom-Json
@@ -69,6 +123,7 @@ function Normalize-ChannelConfig($info){
   $j | ConvertTo-Json -Depth 60 | Set-Content $info.Config -Encoding UTF8
   Write-Host "[OK] Config normalized: $($info.Name) -> MySql/$($info.Database)" -ForegroundColor Green
 }
+
 function Register-Updater($info){
   if($SkipTaskRegistration){return}
   if($DisableAutoUpdate){
@@ -85,6 +140,24 @@ function Register-Updater($info){
   Register-ScheduledTask -TaskName $info.Task -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force|Out-Null
   Write-Host "[OK] Auto updater $($info.Task) every $($info.Minutes) minute(s)." -ForegroundColor Green
 }
+
+function Find-CachedPackage([string]$Tag,[string]$ExpectedHash){
+  $candidates=@(
+    (Join-Path (Join-Path $packageCache $Tag) $asset),
+    (Join-Path (Get-Location).Path $asset),
+    (Join-Path $env:USERPROFILE "Downloads\$asset")
+  ) | Select-Object -Unique
+  foreach($candidate in $candidates){
+    if(Test-Path $candidate){
+      try{
+        $hash=(Get-FileHash $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+        if($hash -eq $ExpectedHash){Write-Host "[Cache] Using verified local package: $candidate" -ForegroundColor Green;return $candidate}
+      }catch{}
+    }
+  }
+  return $null
+}
+
 function Install-Channel($info){
   Write-Host "=== Posiran ERP $($info.Name) ===" -ForegroundColor Cyan
   Write-Host "Folder=$($info.Folder) Port=$($info.Port) Database=$($info.Database) AutoUpdate=$(-not $DisableAutoUpdate)"
@@ -95,8 +168,16 @@ function Install-Channel($info){
   $work=Join-Path $env:TEMP ('posiran-'+$info.Key+'-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Force -Path $work,(Split-Path $info.State -Parent),$info.Root|Out-Null
   $zip=Join-Path $work $asset;$shaFile=$zip+'.sha256'
   try{
-    Invoke-Curl $rel.ZipUrl $zip;Invoke-Curl $rel.ShaUrl $shaFile 60
-    $expected=((Get-Content $shaFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant();$actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();if($expected -ne $actual){throw "SHA256 mismatch. expected=$expected actual=$actual"}
+    Invoke-AssetDownload $rel.ShaApiUrl $rel.ShaBrowserUrl $shaFile 60
+    $expected=((Get-Content $shaFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+    if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
+    $cached=Find-CachedPackage $rel.Tag $expected
+    if($cached){Copy-Item $cached $zip -Force}else{Invoke-AssetDownload $rel.ZipApiUrl $rel.ZipBrowserUrl $zip 900}
+    $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();if($expected -ne $actual){throw "SHA256 mismatch. expected=$expected actual=$actual"}
+
+    $cacheDir=Join-Path $packageCache $rel.Tag;New-Item -ItemType Directory -Force -Path $cacheDir|Out-Null
+    Copy-Item $zip (Join-Path $cacheDir $asset) -Force;Copy-Item $shaFile (Join-Path $cacheDir ($asset+'.sha256')) -Force
+
     Import-Module WebAdministration
     if(Test-Path "IIS:\Sites\$($info.Site)"){Stop-Website $info.Site -ErrorAction SilentlyContinue};if(Test-Path "IIS:\AppPools\$($info.Pool)"){Stop-WebAppPool $info.Pool -ErrorAction SilentlyContinue};Start-Sleep 2
     Get-ChildItem $info.Root -Force -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force;Expand-Archive $zip -DestinationPath $info.Root -Force;Copy-Item $info.Config (Join-Path $info.Root 'appsettings.json') -Force
