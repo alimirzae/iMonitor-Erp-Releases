@@ -18,13 +18,20 @@
     <section id="page1">
       <div class="grid">
         <div><label>نوع نصب</label><select id="channel" onchange="syncDefaults()"><option value="Both">هر دو (Test + Production)</option><option value="Test">فقط آزمایشی (Test)</option><option value="Production">فقط اصلی (Production)</option></select><div class="hint">در حالت هر دو، Test روی 8082 و Production روی 8083 نصب می‌شود.</div></div>
-        <div><label>پورت برنامه</label><input id="appPort" type="number" value="8082"><div class="hint" id="portHint">در حالت هر دو، پورت‌ها به‌صورت 8082 و 8083 تنظیم می‌شوند.</div></div>
-        <div class="full"><label>نام پوشه نصب</label><input id="installFolder" value="test"><div class="hint" id="folderHint">در حالت هر دو: C:\PosiranERP\test\current و C:\PosiranERP\production\current</div></div>
+        <div id="testFields" class="full grid">
+          <div><label>پورت Test</label><input id="testPort" type="number" value="8082"></div>
+          <div><label>نام پوشه Test</label><input id="testFolder" value="test"><div class="hint">C:\PosiranERP\test\current</div></div>
+          <div><label>دیتابیس Test</label><input id="testDbName" value="posiran_test" dir="ltr"></div>
+        </div>
+        <div id="productionFields" class="full grid">
+          <div><label>پورت Production</label><input id="productionPort" type="number" value="8083"></div>
+          <div><label>نام پوشه Production</label><input id="productionFolder" value="production"><div class="hint">C:\PosiranERP\production\current</div></div>
+          <div><label>دیتابیس Production</label><input id="productionDbName" value="posiran" dir="ltr"></div>
+        </div>
         <div><label>آدرس سرور MySQL</label><input id="dbServer" value="127.0.0.1"></div>
         <div><label>پورت MySQL</label><input id="dbPort" type="number" value="3306"></div>
         <div><label>نام کاربری MySQL</label><input id="dbUser" value="root" autocomplete="username"></div>
         <div><label>رمز MySQL</label><input id="dbPassword" type="password" autocomplete="current-password"></div>
-        <div><label>دیتابیس ApplicationDbContext</label><input id="dbName" value="posiran_test + posiran" disabled><div class="hint">Test: posiran_test — Production: posiran</div></div>
         <div><label>نسخه MySQL</label><input id="mysqlVersion" value="8.0.0"></div>
         <div class="full checkrow"><input id="autoUpdate" type="checkbox" checked><label for="autoUpdate">به‌روزرسانی خودکار فعال باشد</label></div>
       </div>
@@ -48,16 +55,20 @@ let saved=[], erpUrls=[];
 const el=id=>document.getElementById(id);
 function showPage(n){for(let i=1;i<=3;i++){el('page'+i).classList.toggle('hidden',i!==n);el('s'+i).classList.toggle('on',i<=n)}}
 function syncDefaults(){
-  const ch=el('channel').value, both=ch==='Both', test=ch==='Test';
-  el('appPort').disabled=both; el('installFolder').disabled=both;
-  if(both){el('appPort').value=8082;el('installFolder').value='test + production';el('dbName').value='posiran_test + posiran';el('portHint').textContent='Test: 8082 — Production: 8083';el('folderHint').textContent='Test: C:\\PosiranERP\\test\\current — Production: C:\\PosiranERP\\production\\current'}
-  else{el('appPort').value=test?8082:8083;el('installFolder').value=test?'test':'production';el('dbName').value=test?'posiran_test':'posiran';el('portHint').textContent='پیشنهادی: Test روی 8082 و Production روی 8083';el('folderHint').textContent='مسیر نهایی بر اساس پوشه انتخابی ساخته می‌شود.'}
+  const ch=el('channel').value;
+  el('testFields').classList.toggle('hidden',ch==='Production');
+  el('productionFields').classList.toggle('hidden',ch==='Test');
 }
 function setStatus(text,kind=''){el('status').textContent=text;el('status').className='status '+kind}
 async function loadStatus(){try{const r=await fetch('/api/status');const x=await r.json();let text=`Windows: ${x.isWindows?'✓':'✗'}   Administrator: ${x.isAdministrator?'✓':'✗'}   IIS: ${x.prerequisites.iis?'✓':'✗'}   MySQL: ${x.prerequisites.mysqlServiceDetected?'✓':'تشخیص داده نشد'}`;setStatus(text,x.isWindows&&x.isAdministrator?'ok':'warn')}catch(e){setStatus('خطا در دریافت وضعیت Installer: '+e,'warn')}}
-function targets(){const ch=el('channel').value;if(ch==='Both')return[{channel:'Test',appPort:8082,installFolderName:'test'},{channel:'Production',appPort:8083,installFolderName:'production'}];return[{channel:ch,appPort:Number(el('appPort').value),installFolderName:el('installFolder').value}]}
+function targets(){
+  const ch=el('channel').value, result=[];
+  if(ch!=='Production')result.push({channel:'Test',appPort:Number(el('testPort').value),installFolderName:el('testFolder').value,databaseName:el('testDbName').value});
+  if(ch!=='Test')result.push({channel:'Production',appPort:Number(el('productionPort').value),installFolderName:el('productionFolder').value,databaseName:el('productionDbName').value});
+  return result;
+}
 async function saveOne(t){
-  const body={channel:t.channel,databaseServer:el('dbServer').value,databasePort:Number(el('dbPort').value),databaseUser:el('dbUser').value,databasePassword:el('dbPassword').value,mySqlVersion:el('mysqlVersion').value,appPort:t.appPort,installFolderName:t.installFolderName,autoUpdate:el('autoUpdate').checked};
+  const body={channel:t.channel,databaseServer:el('dbServer').value,databasePort:Number(el('dbPort').value),databaseUser:el('dbUser').value,databasePassword:el('dbPassword').value,databaseName:t.databaseName,mySqlVersion:el('mysqlVersion').value,appPort:t.appPort,installFolderName:t.installFolderName,autoUpdate:el('autoUpdate').checked};
   const r=await fetch('/api/configure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const x=await r.json();if(!r.ok)throw new Error(x.error||x.detail||'Configuration failed');return x;
 }
 async function saveConfig(){

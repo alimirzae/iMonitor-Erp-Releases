@@ -70,11 +70,10 @@ public sealed class OrchestratorService
         catch { return Array.Empty<MySqlServiceStatus>(); }
     }
 
-    public InstallationManifest RegisterInstance(string channel, int port, string folderName, bool autoUpdate, string configPath)
+    public InstallationManifest RegisterInstance(string channel, int port, string folderName, string database, bool autoUpdate, string configPath)
     {
         channel = NormalizeChannel(channel) ?? throw new InvalidOperationException("Invalid channel.");
         var id = channel.ToLowerInvariant();
-        var database = channel == "Test" ? "posiran_test" : "posiran";
         var now = DateTime.UtcNow;
         var existing = LoadManifest(id);
         var manifest = new InstallationManifest(

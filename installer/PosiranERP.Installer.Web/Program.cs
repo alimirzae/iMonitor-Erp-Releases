@@ -108,7 +108,7 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
     if (folderValidation is not null) return Results.BadRequest(new { error = folderValidation });
 
     var isTest = channel == "Test";
-    var database = isTest ? "posiran_test" : "posiran";
+    var database = request.DatabaseName.Trim();
     var appPort = request.AppPort is > 0 and <= 65535 ? request.AppPort.Value : (isTest ? 8082 : 8083);
     var installFolderName = string.IsNullOrWhiteSpace(request.InstallFolderName) ? (isTest ? "test" : "production") : request.InstallFolderName.Trim();
     var configDirectory = Path.Combine(defaultConfigRoot, channel);
@@ -118,7 +118,7 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
     var connectionString = $"Server={request.DatabaseServer};Port={request.DatabasePort};Database={database};User={request.DatabaseUser};Password={request.DatabasePassword};Charset=utf8mb4;";
     var config = BuildAppSettings(isTest, request, connectionString);
     File.WriteAllText(configPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
-    orchestrator.RegisterInstance(channel, appPort, installFolderName, request.AutoUpdate, configPath);
+    orchestrator.RegisterInstance(channel, appPort, installFolderName, database, request.AutoUpdate, configPath);
 
     return Results.Ok(new
     {
@@ -258,6 +258,8 @@ static string? ValidateDatabaseFields(SetupRequest request)
     if (request.DatabasePort is <= 0 or > 65535) return "Database port is invalid.";
     if (string.IsNullOrWhiteSpace(request.DatabaseUser)) return "Database user is required.";
     if (request.DatabasePassword is null) return "Database password is required.";
+    if (string.IsNullOrWhiteSpace(request.DatabaseName)) return "Database name is required.";
+    if (request.DatabaseName.Length > 64 || !Regex.IsMatch(request.DatabaseName, @"^[a-zA-Z0-9_]+$")) return "Database name may contain only letters, numbers, and underscore.";
     foreach (var value in new[] { request.DatabaseServer, request.DatabaseUser, request.DatabasePassword })
         if (value.Contains(';') || value.Contains('\r') || value.Contains('\n')) return "Semicolons/newlines are not supported in database fields.";
     if (!Regex.IsMatch(request.DatabaseServer, @"^[a-zA-Z0-9._:-]+$")) return "Database server contains unsupported characters.";
@@ -295,7 +297,7 @@ static bool MySqlServiceDetected()
     catch { return false; }
 }
 
-record SetupRequest(string Channel, string DatabaseServer, int DatabasePort, string DatabaseUser, string DatabasePassword, string? MySqlVersion, int? AppPort, string? InstallFolderName, bool AutoUpdate = true);
+record SetupRequest(string Channel, string DatabaseServer, int DatabasePort, string DatabaseUser, string DatabasePassword, string DatabaseName, string? MySqlVersion, int? AppPort, string? InstallFolderName, bool AutoUpdate = true);
 record InstallRequest(string Channel, int? AppPort, string? InstallFolderName, bool AutoUpdate = true, bool Force = false, bool RefreshInstaller = true);
 record BackupRequest(string? Reason);
 record InstallerProcessResult(int ExitCode, string Output, string Error);
