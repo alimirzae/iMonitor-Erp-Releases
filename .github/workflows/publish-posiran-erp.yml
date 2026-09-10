@@ -113,11 +113,12 @@ jobs:
           $hash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $env:ASSET_NAME" | Set-Content "$zip.sha256" -Encoding ASCII
 
-      - name: Create Posiran release
+      - name: Create or refresh Posiran release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: powershell
         run: |
+          $ErrorActionPreference='Stop'
           $isTest=$env:SOURCE_BRANCH -eq 'posiran_test'
           $channel=if($isTest){'test'}else{'production'}
           $version="1.0.$env:SOURCE_RUN_NUMBER"
@@ -125,10 +126,30 @@ jobs:
           $title="Posiran ERP $channel $version"
           $notes="Posiran ERP $channel Windows x64 release. Source branch: $env:SOURCE_BRANCH; source SHA: $env:SOURCE_SHA. Canonical Posiran white-label overlay was applied by Release Center before build. Application settings are excluded so channel configuration remains isolated."
           $zip=Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
-          $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null
-          if($LASTEXITCODE -eq 0){gh release delete $tag --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag}
-          $args=@('release','create',$tag,$zip,"$zip.sha256",'--repo',$env:GITHUB_REPOSITORY,'--target','main','--title',$title,'--notes',$notes)
-          if($isTest){$args+='--prerelease'}
-          & gh @args
-          if($LASTEXITCODE -ne 0){throw 'Posiran release creation failed'}
-          "channel=$channel`nversion=$version`nsource=$env:SOURCE_SHA" | Add-Content $env:GITHUB_STEP_SUMMARY
+          $shaFile="$zip.sha256"
+
+          $oldPreference=$ErrorActionPreference
+          try {
+            $ErrorActionPreference='Continue'
+            & gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+            $releaseExists=($LASTEXITCODE -eq 0)
+            $global:LASTEXITCODE=0
+          }
+          finally {
+            $ErrorActionPreference=$oldPreference
+          }
+
+          if($releaseExists){
+            & gh release upload $tag $zip $shaFile --clobber --repo $env:GITHUB_REPOSITORY
+            if($LASTEXITCODE -ne 0){throw 'Posiran release asset refresh failed'}
+          }
+          else {
+            $createArgs=@('release','create',$tag,$zip,$shaFile,'--repo',$env:GITHUB_REPOSITORY,'--target','main','--title',$title,'--notes',$notes)
+            if($isTest){$createArgs+='--prerelease'}
+            & gh @createArgs
+            if($LASTEXITCODE -ne 0){throw 'Posiran release creation failed'}
+          }
+
+          "channel=$channel" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "version=$version" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "source=$env:SOURCE_SHA" | Add-Content $env:GITHUB_STEP_SUMMARY
