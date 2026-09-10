@@ -3,6 +3,10 @@ name: Publish Posiran ERP Windows Release
 on:
   repository_dispatch:
     types: [posiran-erp-release]
+  push:
+    branches: [main]
+    paths:
+      - 'posiran/release-production.request'
   workflow_dispatch:
     inputs:
       branch:
@@ -27,7 +31,7 @@ jobs:
     timeout-minutes: 30
     env:
       SOURCE_REPO: alimirzae/Ecomm
-      SOURCE_BRANCH: ${{ github.event.client_payload.branch || inputs.branch }}
+      SOURCE_BRANCH: ${{ github.event.client_payload.branch || inputs.branch || 'posiran_production' }}
       SOURCE_SHA: ${{ github.event.client_payload.sha }}
       SOURCE_RUN_NUMBER: ${{ github.event.client_payload.run_number || github.run_number }}
       ASSET_NAME: PosiranERP-win-x64.zip

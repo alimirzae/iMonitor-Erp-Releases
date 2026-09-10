@@ -59,7 +59,7 @@ function Invoke-HttpDownload([string]$Url,[string]$Out,[string]$Accept='applicat
   $stream=$null;$file=$null;$response=$null
   try{
     $response=$client.GetAsync($Url,[System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
-    $response.EnsureSuccessStatusCode()
+    [void]$response.EnsureSuccessStatusCode()
     $stream=$response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
     $file=[System.IO.File]::Open($Out,[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
     $stream.CopyTo($file)
@@ -142,6 +142,25 @@ function Register-Updater($info){
   Write-Host "[OK] Auto updater $($info.Task) every $($info.Minutes) minute(s)." -ForegroundColor Green
 }
 
+function Stop-ChannelHost($info){
+  $offline=Join-Path $info.Root 'app_offline.htm'
+  if(Test-Path $info.Root){Set-Content $offline 'Posiran ERP is being updated.' -Encoding ASCII -ErrorAction SilentlyContinue}
+  if(Test-Path "IIS:\Sites\$($info.Site)"){Stop-Website $info.Site -ErrorAction SilentlyContinue}
+  if(Test-Path "IIS:\AppPools\$($info.Pool)"){Stop-WebAppPool $info.Pool -ErrorAction SilentlyContinue}
+  $appcmd=Join-Path $env:windir 'System32\inetsrv\appcmd.exe'
+  if(Test-Path $appcmd){
+    $workerIds=& $appcmd list wp "/apppool.name:$($info.Pool)" /text:WP.NAME 2>$null
+    foreach($workerId in $workerIds){if($workerId -match '^\d+$'){Stop-Process -Id ([int]$workerId) -Force -ErrorAction SilentlyContinue}}
+  }
+  for($i=1;$i -le 15;$i++){
+    $locked=$false
+    try{Get-ChildItem $info.Root -Force -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction Stop}
+    catch{$locked=$true;if($i -eq 15){throw "Could not clear $($info.Root) after stopping IIS. Locked file: $($_.Exception.Message)"}}
+    if(!$locked){return}
+    Start-Sleep -Seconds 2
+  }
+}
+
 function Find-CachedPackage([string]$Tag,[string]$ExpectedHash){
   $candidates=@(
     (Join-Path (Join-Path $packageCache $Tag) $asset),
@@ -180,8 +199,8 @@ function Install-Channel($info){
     Copy-Item $zip (Join-Path $cacheDir $asset) -Force;Copy-Item $shaFile (Join-Path $cacheDir ($asset+'.sha256')) -Force
 
     Import-Module WebAdministration
-    if(Test-Path "IIS:\Sites\$($info.Site)"){Stop-Website $info.Site -ErrorAction SilentlyContinue};if(Test-Path "IIS:\AppPools\$($info.Pool)"){Stop-WebAppPool $info.Pool -ErrorAction SilentlyContinue};Start-Sleep 2
-    Get-ChildItem $info.Root -Force -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force;Expand-Archive $zip -DestinationPath $info.Root -Force;Copy-Item $info.Config (Join-Path $info.Root 'appsettings.json') -Force
+    Stop-ChannelHost $info
+    Expand-Archive $zip -DestinationPath $info.Root -Force;Copy-Item $info.Config (Join-Path $info.Root 'appsettings.json') -Force
     if(!(Test-Path "IIS:\AppPools\$($info.Pool)")){New-WebAppPool -Name $info.Pool|Out-Null};Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name managedRuntimeVersion -Value '';Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name startMode -Value 'AlwaysRunning'
     if(!(Test-Path "IIS:\Sites\$($info.Site)")){New-Website -Name $info.Site -PhysicalPath $info.Root -Port $info.Port -ApplicationPool $info.Pool|Out-Null}else{Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name physicalPath -Value $info.Root;Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name applicationPool -Value $info.Pool;Get-WebBinding -Name $info.Site -Protocol http|Remove-WebBinding -ErrorAction SilentlyContinue;New-WebBinding -Name $info.Site -Protocol http -IPAddress '*' -Port $info.Port|Out-Null}
     Start-WebAppPool $info.Pool;Start-Website $info.Site

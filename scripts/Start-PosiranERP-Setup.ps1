@@ -30,7 +30,7 @@ function Invoke-HttpDownload([string]$Url,[string]$Out,[string]$Accept='applicat
   $stream=$null;$file=$null;$response=$null
   try{
     $response=$client.GetAsync($Url,[System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
-    $response.EnsureSuccessStatusCode()
+    [void]$response.EnsureSuccessStatusCode()
     $stream=$response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
     $file=[System.IO.File]::Open($Out,[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
     $stream.CopyTo($file)
