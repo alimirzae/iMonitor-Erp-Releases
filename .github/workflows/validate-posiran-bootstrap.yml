@@ -1,0 +1,153 @@
+name: Validate Posiran Bootstrap
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'posiran/bootstrap/**'
+      - '.github/workflows/validate-posiran-bootstrap.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: bootstrap-test-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pbootstrap-test-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - name: Checkout release center
+        uses: actions/checkout@v4
+        with:
+          path: ReleaseCenter
+
+      - name: Checkout current Posiran test source
+        uses: actions/checkout@v4
+        with:
+          repository: alimirzae/Ecomm
+          ref: posiran_test
+          path: EcommSource
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore source and install EF tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/EcommSource"
+          dotnet restore Ecomm.sln
+          dotnet tool install --global dotnet-ef --version 8.0.24
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Generate consolidated schemas from current migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/EcommSource"
+          dotnet ef migrations script 0 --context ApplicationDbContext \
+            --project Ecomm/Ecomm.csproj --startup-project Ecomm/Ecomm.csproj \
+            --output "$RUNNER_TEMP/application-schema.sql" --no-build || {
+              dotnet build Ecomm/Ecomm.csproj -c Debug
+              dotnet ef migrations script 0 --context ApplicationDbContext \
+                --project Ecomm/Ecomm.csproj --startup-project Ecomm/Ecomm.csproj \
+                --output "$RUNNER_TEMP/application-schema.sql"
+            }
+          dotnet ef migrations script 0 --context BookDbContext \
+            --project Ecomm/Ecomm.csproj --startup-project Ecomm/Ecomm.csproj \
+            --output "$RUNNER_TEMP/book-schema.sql"
+          test -s "$RUNNER_TEMP/application-schema.sql"
+          test -s "$RUNNER_TEMP/book-schema.sql"
+
+      - name: Compose sanitized bootstrap files
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat "$RUNNER_TEMP/application-schema.sql" "$GITHUB_WORKSPACE/ReleaseCenter/posiran/bootstrap/application-seed.sql" > "$RUNNER_TEMP/application-bootstrap.sql"
+          cat "$RUNNER_TEMP/book-schema.sql" "$GITHUB_WORKSPACE/ReleaseCenter/posiran/bootstrap/book-seed.sql" > "$RUNNER_TEMP/book-bootstrap.sql"
+          python3 - <<'PY'
+          from pathlib import Path
+          app=Path('/tmp')
+          import os
+          rt=Path(os.environ['RUNNER_TEMP'])
+          p=rt/'application-bootstrap.sql'
+          s=p.read_text(encoding='utf-8-sig')
+          s=s.replace('__ADMIN_PASSWORD_HASH__','VALIDATION_ONLY_HASH')
+          s=s.replace('__ADMIN_SECURITY_STAMP__','VALIDATION_SECURITY_STAMP')
+          s=s.replace('__ADMIN_CONCURRENCY_STAMP__','VALIDATION_CONCURRENCY_STAMP')
+          s=s.replace('__BOOK_CONNECTION_STRING__','Server=127.0.0.1;Port=3306;Database=bootstrap_book_test;User=root;Password=bootstrap-test-password;Charset=utf8mb4;')
+          p.write_text(s,encoding='utf-8')
+          p=rt/'book-bootstrap.sql'
+          s=p.read_text(encoding='utf-8-sig').replace("'__BOOK_ID__'","'1000001'").replace('__BRANCH_ID__','10001')
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Import into clean MySQL databases
+        shell: bash
+        env:
+          MYSQL_PWD: bootstrap-test-password
+        run: |
+          set -euo pipefail
+          mysql -h127.0.0.1 -P3306 -uroot -e "CREATE DATABASE bootstrap_app_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; CREATE DATABASE bootstrap_book_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+          mysql -h127.0.0.1 -P3306 -uroot bootstrap_app_test < "$RUNNER_TEMP/application-bootstrap.sql"
+          mysql -h127.0.0.1 -P3306 -uroot bootstrap_book_test < "$RUNNER_TEMP/book-bootstrap.sql"
+
+      - name: Verify ApplicationDb contract
+        shell: bash
+        env:
+          MYSQL_PWD: bootstrap-test-password
+        run: |
+          set -euo pipefail
+          q(){ mysql -N -B -h127.0.0.1 -P3306 -uroot bootstrap_app_test -e "$1"; }
+          test "$(q "SELECT COUNT(*) FROM companies;")" = "1"
+          test "$(q "SELECT COUNT(*) FROM branches;")" = "1"
+          test "$(q "SELECT COUNT(*) FROM books;")" = "1"
+          test "$(q "SELECT COUNT(*) FROM AspNetUsers;")" = "1"
+          test "$(q "SELECT COUNT(*) FROM companies WHERE CompanyId=1 AND Name='شرکت اصلی';")" = "1"
+          test "$(q "SELECT COUNT(*) FROM branches WHERE BranchId=10001 AND BranchName='شعبه اصلی';")" = "1"
+          test "$(q "SELECT COUNT(*) FROM books WHERE BookId=1000001 AND Name='دفتر اصلی';")" = "1"
+          test "$(q "SELECT COUNT(*) FROM AspNetUsers WHERE NationalCode='2750626862';")" = "1"
+          test "$(q "SELECT COUNT(*) FROM AppUserRoleAssignments WHERE RoleId=1;")" = "1"
+          test "$(q "SELECT COUNT(*) FROM AppUserRoleAssignments WHERE RoleId=2 AND CompanyId=1;")" = "1"
+          for t in aicache supportticketmessages supporttickets companies branches books; do
+            test "$(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND LOWER(table_name)=LOWER('$t');")" = "1"
+          done
+          for t in warehouses units financialyear invoicetypes paymenttypes saletypes transactiontypes; do
+            test "$(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND LOWER(table_name)=LOWER('$t');")" = "0"
+          done
+
+      - name: Verify initial BookDb contract
+        shell: bash
+        env:
+          MYSQL_PWD: bootstrap-test-password
+        run: |
+          set -euo pipefail
+          q(){ mysql -N -B -h127.0.0.1 -P3306 -uroot bootstrap_book_test -e "$1"; }
+          for t in warehouses units invoicetypes paymenttypes saletypes transactiontypes; do
+            test "$(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND LOWER(table_name)=LOWER('$t');")" = "1"
+          done
+          test "$(q "SELECT COUNT(*) FROM warehouses WHERE Id=1 AND Name='انبار اصلی';")" = "1"
+          test "$(q "SELECT COUNT(*) FROM units;")" -ge 4
+          test "$(q "SELECT COUNT(*) FROM invoicetypes;")" -ge 8
+
+      - name: Verify no operational dump credentials leaked
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -R -F 'AQAAAAIAAYag' "$GITHUB_WORKSPACE/ReleaseCenter/posiran/bootstrap"
+          ! grep -R -F 'PN6JXDV3ZQWPPMI23PRHPPKQZUDKM5ZY' "$GITHUB_WORKSPACE/ReleaseCenter/posiran/bootstrap"
+          ! grep -R -F 'پویاتولز' "$GITHUB_WORKSPACE/ReleaseCenter/posiran/bootstrap"
+          ! grep -R -F 'جم مارکت' "$GITHUB_WORKSPACE/ReleaseCenter/posiran/bootstrap"
