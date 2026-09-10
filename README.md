@@ -10,17 +10,30 @@
 
 ## 1) Posiran ERP — ساده‌ترین روش نصب و مدیریت
 
-PowerShell را حتماً با **Run as Administrator** اجرا کنید، سپس فقط همین دو خط را کامل Copy/Paste کنید:
+PowerShell را حتماً با **Run as Administrator** اجرا کنید، سپس فقط همین دو خط را کامل Copy/Paste کنید. این روش برای Windows به `curl` وابسته نیست:
 
 ```powershell
-$p="$env:TEMP\Start-PosiranERP-Setup.ps1"; curl.exe -4 --http1.1 -fL "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Start-PosiranERP-Setup.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
-if($LASTEXITCODE -ne 0){throw 'Download failed'}; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $p="$env:TEMP\Start-PosiranERP-Setup.ps1"; Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Start-PosiranERP-Setup.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
 ```
 
-این دستور مستقل است و به متغیر قبلی مثل `$u` وابسته نیست. Setup Host به‌صورت خودکار آخرین Setup منتشرشده را دانلود، SHA256 آن را بررسی و سپس این آدرس را باز می‌کند:
+Setup Host به‌صورت خودکار آخرین Setup منتشرشده را دانلود، SHA256 آن را بررسی و سپس این آدرس را باز می‌کند:
 
 ```text
 http://127.0.0.1:8099/
+```
+
+برای دانلود فایل‌های Release، Posiran ERP دیگر به `curl` متکی نیست. ترتیب دانلود به این صورت است:
+
+1. GitHub Release Assets API با .NET `HttpClient`
+2. Windows BITS در صورت شکست مسیر اول
+3. `Invoke-WebRequest` به‌عنوان fallback بعدی
+4. استفاده از Package Cache محلی در صورت موجود بودن نسخه صحیح
+
+بسته‌های دانلودشده بعد از تأیید SHA256 در مسیر زیر Cache می‌شوند تا نصب/ارتقای بعدی بی‌دلیل دوباره دانلود نشود:
+
+```text
+C:\PosiranERP\packages\<release-tag>\
 ```
 
 در Wizard مشخص می‌کنید:
@@ -52,8 +65,8 @@ Setup Manager برای مدیریت نصب‌ها طراحی شده و هسته 
 PowerShell باید Administrator باشد. اگر Config کانال قبلاً ساخته شده است:
 
 ```powershell
-$p="$env:TEMP\Install-PosiranERP.ps1"; curl.exe -4 --http1.1 -fL "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
-if($LASTEXITCODE -ne 0){throw 'Download failed'}; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Test -TestPort 8082 -TestFolderName test
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $p="$env:TEMP\Install-PosiranERP.ps1"; Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Test -TestPort 8082 -TestFolderName test
 ```
 
 ### نصب مستقیم Posiran Production بدون Wizard
@@ -61,8 +74,8 @@ if($LASTEXITCODE -ne 0){throw 'Download failed'}; powershell.exe -NoProfile -Exe
 PowerShell باید Administrator باشد:
 
 ```powershell
-$p="$env:TEMP\Install-PosiranERP.ps1"; curl.exe -4 --http1.1 -fL "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
-if($LASTEXITCODE -ne 0){throw 'Download failed'}; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Production -ProductionPort 8083 -ProductionFolderName production
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $p="$env:TEMP\Install-PosiranERP.ps1"; Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Production -ProductionPort 8083 -ProductionFolderName production
 ```
 
 برای غیرفعال کردن Auto Update در نصب خط فرمان، `-DisableAutoUpdate` را به خط آخر اضافه کنید.
@@ -116,7 +129,8 @@ Direct label print POST http://127.0.0.1:17891/api/labels/print
 ## نکات مهم
 
 - تمام اسکریپت‌های Windows باید از PowerShell با دسترسی Administrator اجرا شوند.
-- تمام اسکریپت‌های Windows از IPv4 و `curl --http1.1` استفاده می‌کنند تا مشکل IPv6/شبکه کاهش پیدا کند.
+- نصب Posiran ERP در Windows برای Releaseها از GitHub API/.NET HttpClient، BITS و Invoke-WebRequest استفاده می‌کند و به curl وابسته نیست.
+- خطای `curl -4` به معنی این است که مشکل گزارش‌شده از انتخاب IPv6 توسط curl نبوده؛ در برخی شبکه‌ها دسترسی به مسیر عادی GitHub Release Asset یا CDN آن می‌تواند متفاوت از `raw.githubusercontent.com` یا `api.github.com` باشد.
 - بسته‌های عمومی Posiran شامل `appsettings.json` نیستند؛ اطلاعات MySQL فقط روی سرور نصب‌شده نگهداری می‌شود.
 - Test و Production دیتابیس، IIS Site، پورت و مسیر مستقل دارند.
 - Releaseهای Posiran با White-label مستقل ساخته می‌شوند.
