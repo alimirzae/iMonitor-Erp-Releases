@@ -134,7 +134,8 @@ function Register-Updater($info){
   if(!(Test-Path $stableInstaller)){throw "Stable installer missing: $stableInstaller"}
   $args="-NoProfile -ExecutionPolicy Bypass -File `"$stableInstaller`" -Channel $($info.Name) -Mode UpdateOnly -InstallRoot `"$InstallRoot`" -ConfigRoot `"$ConfigRoot`" -TestFolderName `"$TestFolderName`" -ProductionFolderName `"$ProductionFolderName`" -TestPort $TestPort -ProductionPort $ProductionPort -SkipTaskRegistration"
   $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $args
-  $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $info.Minutes) -RepetitionDuration ([TimeSpan]::MaxValue)
+  Unregister-ScheduledTask -TaskName $info.Task -Confirm:$false -ErrorAction SilentlyContinue
+  $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $info.Minutes) -RepetitionDuration (New-TimeSpan -Days 3650)
   $principal=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
   $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 20)
   Register-ScheduledTask -TaskName $info.Task -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force|Out-Null
