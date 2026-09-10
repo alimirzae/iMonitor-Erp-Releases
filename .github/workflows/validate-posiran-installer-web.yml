@@ -21,9 +21,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+
       - name: Build installer web
         shell: powershell
         run: dotnet build installer\PosiranERP.Installer.Web\PosiranERP.Installer.Web.csproj -c Release
+
       - name: Verify installer contract
         shell: powershell
         run: |
@@ -32,3 +34,31 @@ jobs:
           if($program -notmatch '127\.0\.0\.1:8099'){throw 'Installer must default to loopback port 8099.'}
           if($program -notmatch 'posiran_test' -or $program -notmatch '"posiran"'){throw 'Canonical Posiran databases are missing.'}
           if($ui -notmatch 'راه‌اندازی پوزایران ERP'){throw 'Wizard UI is missing.'}
+
+      - name: Smoke test setup host on port 8099
+        shell: powershell
+        run: |
+          $project='installer\PosiranERP.Installer.Web\PosiranERP.Installer.Web.csproj'
+          $stdout=Join-Path $env:RUNNER_TEMP 'posiran-setup.stdout.log'
+          $stderr=Join-Path $env:RUNNER_TEMP 'posiran-setup.stderr.log'
+          $p=Start-Process dotnet -ArgumentList @('run','--project',$project,'-c','Release','--no-build') -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            $ok=$false
+            for($i=0;$i -lt 20;$i++){
+              Start-Sleep -Seconds 1
+              if($p.HasExited){break}
+              try {
+                $r=Invoke-WebRequest 'http://127.0.0.1:8099/health' -UseBasicParsing -TimeoutSec 3
+                if($r.StatusCode -eq 200 -and $r.Content -match 'PosiranERP.Installer.Web'){$ok=$true;break}
+              } catch {}
+            }
+            if(!$ok){
+              if(Test-Path $stdout){Get-Content $stdout}
+              if(Test-Path $stderr){Get-Content $stderr}
+              throw 'Setup host smoke test failed on 127.0.0.1:8099.'
+            }
+            Write-Host '[OK] Posiran setup host responded on http://127.0.0.1:8099/health'
+          }
+          finally {
+            if(!$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
+          }
