@@ -20,9 +20,9 @@ jobs:
         run: |
           $branch=$env:GITHUB_REF_NAME
           if($branch -eq 'posiran_test'){
-            $channel='test';$port='8082';$site='PosiranERP-Test';$pool='PosiranERP-Test';$root='C:\PosiranERP\test\current';$deploy='C:\Deploy\PosiranERP\Test';$db='posiran_erp_test';$seed='C:\Deploy\ERP\Test\appsettings.test.json';$envName='Staging'
+            $channel='test';$port='8082';$site='PosiranERP-Test';$pool='PosiranERP-Test';$root='C:\PosiranERP\test\current';$deploy='C:\Deploy\PosiranERP\Test';$db='posiran_test';$seed='C:\Deploy\ERP\Test\appsettings.test.json';$envName='Staging'
           }elseif($branch -eq 'posiran_production'){
-            $channel='production';$port='8083';$site='PosiranERP-Production';$pool='PosiranERP-Production';$root='C:\PosiranERP\production\current';$deploy='C:\Deploy\PosiranERP\Production';$db='posiran_erp';$seed='C:\Ecom\appsettings.json';$envName='Production'
+            $channel='production';$port='8083';$site='PosiranERP-Production';$pool='PosiranERP-Production';$root='C:\PosiranERP\production\current';$deploy='C:\Deploy\PosiranERP\Production';$db='posiran';$seed='C:\Ecom\appsettings.json';$envName='Production'
           }else{throw "Unsupported branch $branch"}
           @("POSIRAN_CHANNEL=$channel","POSIRAN_PORT=$port","POSIRAN_SITE=$site","POSIRAN_POOL=$pool","POSIRAN_ROOT=$root","POSIRAN_DEPLOY=$deploy","POSIRAN_DB=$db","POSIRAN_SEED_CONFIG=$seed","POSIRAN_ENV=$envName")|Out-File $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Prepare dedicated Posiran configuration
