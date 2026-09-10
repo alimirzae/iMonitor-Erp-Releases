@@ -1,0 +1,34 @@
+name: Validate Posiran Installer Web
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'installer/PosiranERP.Installer.Web/**'
+      - 'scripts/Install-PosiranERP-v1.0.2.ps1'
+      - '.github/workflows/validate-posiran-installer-web.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build installer web
+        shell: powershell
+        run: dotnet build installer\PosiranERP.Installer.Web\PosiranERP.Installer.Web.csproj -c Release
+      - name: Verify installer contract
+        shell: powershell
+        run: |
+          $program=Get-Content installer\PosiranERP.Installer.Web\Program.cs -Raw
+          $ui=Get-Content installer\PosiranERP.Installer.Web\wwwroot\index.html -Raw
+          if($program -notmatch '127\.0\.0\.1:8099'){throw 'Installer must default to loopback port 8099.'}
+          if($program -notmatch 'posiran_test' -or $program -notmatch '"posiran"'){throw 'Canonical Posiran databases are missing.'}
+          if($ui -notmatch 'راه‌اندازی پوزایران ERP'){throw 'Wizard UI is missing.'}
