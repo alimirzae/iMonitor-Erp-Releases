@@ -10,21 +10,21 @@
 </head>
 <body>
 <div class="wrap"><div class="card">
-  <div class="head"><h1>راه‌اندازی پوزایران ERP</h1><p>انتخاب کانال، پوشه، پورت، دیتابیس و نصب آخرین نسخه</p></div>
+  <div class="head"><h1>راه‌اندازی پوزایران ERP</h1><p>انتخاب Test، Production یا هر دو و نصب آخرین نسخه</p></div>
   <div class="body">
     <div class="steps"><div class="step on" id="s1"></div><div class="step" id="s2"></div><div class="step" id="s3"></div></div>
     <div id="status" class="status">در حال بررسی سیستم...</div>
 
     <section id="page1">
       <div class="grid">
-        <div><label>کانال نصب</label><select id="channel" onchange="syncDefaults()"><option value="Test">آزمایشی (Test)</option><option value="Production">اصلی (Production)</option></select></div>
-        <div><label>پورت برنامه</label><input id="appPort" type="number" value="8082"><div class="hint">پیشنهادی: Test روی 8082 و Production روی 8083</div></div>
-        <div class="full"><label>نام پوشه نصب</label><input id="installFolder" value="test"><div class="hint">مسیر نهایی نمونه: C:\PosiranERP\test\current</div></div>
+        <div><label>نوع نصب</label><select id="channel" onchange="syncDefaults()"><option value="Both">هر دو (Test + Production)</option><option value="Test">فقط آزمایشی (Test)</option><option value="Production">فقط اصلی (Production)</option></select><div class="hint">در حالت هر دو، Test روی 8082 و Production روی 8083 نصب می‌شود.</div></div>
+        <div><label>پورت برنامه</label><input id="appPort" type="number" value="8082"><div class="hint" id="portHint">در حالت هر دو، پورت‌ها به‌صورت 8082 و 8083 تنظیم می‌شوند.</div></div>
+        <div class="full"><label>نام پوشه نصب</label><input id="installFolder" value="test"><div class="hint" id="folderHint">در حالت هر دو: C:\PosiranERP\test\current و C:\PosiranERP\production\current</div></div>
         <div><label>آدرس سرور MySQL</label><input id="dbServer" value="127.0.0.1"></div>
         <div><label>پورت MySQL</label><input id="dbPort" type="number" value="3306"></div>
         <div><label>نام کاربری MySQL</label><input id="dbUser" value="root" autocomplete="username"></div>
         <div><label>رمز MySQL</label><input id="dbPassword" type="password" autocomplete="current-password"></div>
-        <div><label>نام دیتابیس ApplicationDbContext</label><input id="dbName" value="posiran_test" disabled><div class="hint">Test: posiran_test — Production: posiran</div></div>
+        <div><label>دیتابیس ApplicationDbContext</label><input id="dbName" value="posiran_test + posiran" disabled><div class="hint">Test: posiran_test — Production: posiran</div></div>
         <div><label>نسخه MySQL</label><input id="mysqlVersion" value="8.0.0"></div>
         <div class="full checkrow"><input id="autoUpdate" type="checkbox" checked><label for="autoUpdate">به‌روزرسانی خودکار فعال باشد</label></div>
       </div>
@@ -44,23 +44,41 @@
   </div>
 </div></div>
 <script>
-let saved=null, erpUrl='';
+let saved=[], erpUrls=[];
 const el=id=>document.getElementById(id);
 function showPage(n){for(let i=1;i<=3;i++){el('page'+i).classList.toggle('hidden',i!==n);el('s'+i).classList.toggle('on',i<=n)}}
-function syncDefaults(){const test=el('channel').value==='Test';el('appPort').value=test?8082:8083;el('dbName').value=test?'posiran_test':'posiran';el('installFolder').value=test?'test':'production'}
+function syncDefaults(){
+  const ch=el('channel').value, both=ch==='Both', test=ch==='Test';
+  el('appPort').disabled=both; el('installFolder').disabled=both;
+  if(both){el('appPort').value=8082;el('installFolder').value='test + production';el('dbName').value='posiran_test + posiran';el('portHint').textContent='Test: 8082 — Production: 8083';el('folderHint').textContent='Test: C:\\PosiranERP\\test\\current — Production: C:\\PosiranERP\\production\\current'}
+  else{el('appPort').value=test?8082:8083;el('installFolder').value=test?'test':'production';el('dbName').value=test?'posiran_test':'posiran';el('portHint').textContent='پیشنهادی: Test روی 8082 و Production روی 8083';el('folderHint').textContent='مسیر نهایی بر اساس پوشه انتخابی ساخته می‌شود.'}
+}
 function setStatus(text,kind=''){el('status').textContent=text;el('status').className='status '+kind}
 async function loadStatus(){try{const r=await fetch('/api/status');const x=await r.json();let text=`Windows: ${x.isWindows?'✓':'✗'}   Administrator: ${x.isAdministrator?'✓':'✗'}   IIS: ${x.prerequisites.iis?'✓':'✗'}   MySQL: ${x.prerequisites.mysqlServiceDetected?'✓':'تشخیص داده نشد'}`;setStatus(text,x.isWindows&&x.isAdministrator?'ok':'warn')}catch(e){setStatus('خطا در دریافت وضعیت Installer: '+e,'warn')}}
+function targets(){const ch=el('channel').value;if(ch==='Both')return[{channel:'Test',appPort:8082,installFolderName:'test'},{channel:'Production',appPort:8083,installFolderName:'production'}];return[{channel:ch,appPort:Number(el('appPort').value),installFolderName:el('installFolder').value}]}
+async function saveOne(t){
+  const body={channel:t.channel,databaseServer:el('dbServer').value,databasePort:Number(el('dbPort').value),databaseUser:el('dbUser').value,databasePassword:el('dbPassword').value,mySqlVersion:el('mysqlVersion').value,appPort:t.appPort,installFolderName:t.installFolderName,autoUpdate:el('autoUpdate').checked};
+  const r=await fetch('/api/configure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const x=await r.json();if(!r.ok)throw new Error(x.error||x.detail||'Configuration failed');return x;
+}
 async function saveConfig(){
-  setStatus('در حال ذخیره تنظیمات...');
-  const body={channel:el('channel').value,databaseServer:el('dbServer').value,databasePort:Number(el('dbPort').value),databaseUser:el('dbUser').value,databasePassword:el('dbPassword').value,mySqlVersion:el('mysqlVersion').value,appPort:Number(el('appPort').value),installFolderName:el('installFolder').value,autoUpdate:el('autoUpdate').checked};
-  try{const r=await fetch('/api/configure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const x=await r.json();if(!r.ok)throw new Error(x.error||x.detail||'Configuration failed');saved=x;el('summary').innerHTML=`کانال: <b>${x.channel}</b><br>دیتابیس ApplicationDbContext: <b>${x.database}</b><br>پورت برنامه: <b>${x.appPort}</b><br>پوشه نصب: <span dir="ltr"><b>${x.installPath}</b></span><br>به‌روزرسانی خودکار: <b>${x.autoUpdate?'فعال':'غیرفعال'}</b><br>فایل تنظیمات: <span dir="ltr">${x.configPath}</span>`;setStatus('تنظیمات آماده است. مرحله بعد آخرین Release نصب می‌شود.','ok');showPage(2)}catch(e){setStatus('خطا: '+e.message,'warn')}
+  setStatus('در حال ذخیره تنظیمات...');saved=[];
+  try{for(const t of targets()){setStatus(`در حال آماده‌سازی ${t.channel}...`);saved.push(await saveOne(t))}
+    el('summary').innerHTML=saved.map(x=>`کانال: <b>${x.channel}</b> — دیتابیس: <b>${x.database}</b> — پورت: <b>${x.appPort}</b><br>پوشه: <span dir="ltr">${x.installPath}</span><br>Config: <span dir="ltr">${x.configPath}</span>`).join('<hr>');
+    setStatus(saved.length===2?'تنظیمات هر دو کانال آماده است. مرحله بعد Test و Production پشت‌سرهم نصب می‌شوند.':'تنظیمات آماده است. مرحله بعد آخرین Release نصب می‌شود.','ok');showPage(2)
+  }catch(e){setStatus('خطا: '+e.message,'warn')}
+}
+async function installOne(t){
+  const r=await fetch('/api/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:t.channel,appPort:t.appPort,installFolderName:t.installFolderName,autoUpdate:el('autoUpdate').checked,force:true,refreshInstaller:true})});
+  const x=await r.json();if(!r.ok)throw new Error(`${t.channel}: ${x.detail||x.error||'Installation failed'}`);return x;
 }
 async function installNow(){
-  setStatus('در حال دریافت و نصب آخرین Release؛ این صفحه را نبندید...');
-  try{const r=await fetch('/api/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:el('channel').value,appPort:Number(el('appPort').value),installFolderName:el('installFolder').value,autoUpdate:el('autoUpdate').checked,force:true,refreshInstaller:true})});const x=await r.json();if(!r.ok)throw new Error(x.detail||'Installation failed');erpUrl=x.localUrl;el('finalUrl').textContent='آدرس محلی: '+erpUrl+' | مسیر نصب: '+x.installPath+' | Auto Update: '+(x.autoUpdate?'On':'Off');el('logs').textContent=x.output||'';setStatus('نصب و Health Check با موفقیت انجام شد.','ok');showPage(3)}catch(e){setStatus('نصب ناموفق: '+e.message,'warn')}
+  const ts=targets();setStatus(ts.length===2?'در حال نصب Test؛ سپس Production نصب خواهد شد...':'در حال دریافت و نصب آخرین Release؛ این صفحه را نبندید...');erpUrls=[];let outputs=[];
+  try{for(let i=0;i<ts.length;i++){const t=ts[i];setStatus(`در حال نصب ${t.channel} (${i+1}/${ts.length})...`);const x=await installOne(t);erpUrls.push(x.localUrl);outputs.push(`=== ${t.channel} ===\n${x.output||''}`)}
+    el('finalUrl').innerHTML=erpUrls.map((u,i)=>`${ts[i].channel}: <span dir="ltr">${u}</span>`).join('<br>');el('logs').textContent=outputs.join('\n\n');setStatus(ts.length===2?'نصب Test و Production و Health Check هر دو با موفقیت انجام شد.':'نصب و Health Check با موفقیت انجام شد.','ok');showPage(3)
+  }catch(e){setStatus('نصب ناموفق: '+e.message,'warn')}
 }
-function openErp(){if(erpUrl)window.open(erpUrl,'_blank')}
-loadStatus();
+function openErp(){for(const u of erpUrls)window.open(u,'_blank')}
+syncDefaults();loadStatus();
 </script>
 </body>
 </html>
