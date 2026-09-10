@@ -145,8 +145,12 @@ function Register-Updater($info){
 function Stop-ChannelHost($info){
   $offline=Join-Path $info.Root 'app_offline.htm'
   if(Test-Path $info.Root){Set-Content $offline 'Posiran ERP is being updated.' -Encoding ASCII -ErrorAction SilentlyContinue}
-  if(Test-Path "IIS:\Sites\$($info.Site)"){Stop-Website $info.Site -ErrorAction SilentlyContinue}
-  if(Test-Path "IIS:\AppPools\$($info.Pool)"){Stop-WebAppPool $info.Pool -ErrorAction SilentlyContinue}
+  if(Test-Path "IIS:\Sites\$($info.Site)"){
+    try{if((Get-WebsiteState -Name $info.Site).Value -ne 'Stopped'){Stop-Website $info.Site -ErrorAction Stop}}catch{Write-Verbose "Website stop skipped: $($_.Exception.Message)"}
+  }
+  if(Test-Path "IIS:\AppPools\$($info.Pool)"){
+    try{if((Get-WebAppPoolState -Name $info.Pool).Value -ne 'Stopped'){Stop-WebAppPool $info.Pool -ErrorAction Stop}}catch{Write-Verbose "Application pool stop skipped: $($_.Exception.Message)"}
+  }
   $appcmd=Join-Path $env:windir 'System32\inetsrv\appcmd.exe'
   if(Test-Path $appcmd){
     $workerIds=& $appcmd list wp "/apppool.name:$($info.Pool)" /text:WP.NAME 2>$null
