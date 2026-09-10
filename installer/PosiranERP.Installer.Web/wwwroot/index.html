@@ -18,12 +18,12 @@
     <section id="page1">
       <div class="grid">
         <div><label>کانال نصب</label><select id="channel" onchange="syncDefaults()"><option value="Test">آزمایشی (Test)</option><option value="Production">اصلی (Production)</option></select></div>
-        <div><label>پورت برنامه</label><input id="appPort" type="number" value="8082"><div class="hint">Test: 8082 — Production: 8083</div></div>
+        <div><label>پورت برنامه</label><input id="appPort" type="number" value="8082"><div class="hint">پیشنهادی: Test روی 8082 و Production روی 8083</div></div>
         <div><label>آدرس سرور MySQL</label><input id="dbServer" value="127.0.0.1"></div>
         <div><label>پورت MySQL</label><input id="dbPort" type="number" value="3306"></div>
         <div><label>نام کاربری MySQL</label><input id="dbUser" value="root" autocomplete="username"></div>
         <div><label>رمز MySQL</label><input id="dbPassword" type="password" autocomplete="current-password"></div>
-        <div><label>نام دیتابیس</label><input id="dbName" value="posiran_test" disabled><div class="hint">برای جلوگیری از تداخل، نام دیتابیس طبق کانال ثابت است.</div></div>
+        <div><label>نام دیتابیس ApplicationDbContext</label><input id="dbName" value="posiran_test" disabled><div class="hint">Test: posiran_test — Production: posiran</div></div>
         <div><label>نسخه MySQL</label><input id="mysqlVersion" value="8.0.0"></div>
       </div>
       <div class="actions"><button class="primary" onclick="saveConfig()">بررسی و ذخیره تنظیمات</button></div>
@@ -55,7 +55,7 @@ async function saveConfig(){
 }
 async function installNow(){
   setStatus('در حال دریافت و نصب آخرین Release؛ این صفحه را نبندید...');
-  try{const r=await fetch('/api/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:el('channel').value,force:true,refreshInstaller:true})});const x=await r.json();if(!r.ok)throw new Error(x.detail||'Installation failed');erpUrl=x.localUrl;el('finalUrl').textContent='آدرس محلی: '+erpUrl;el('logs').textContent=x.output||'';setStatus('نصب و Health Check با موفقیت انجام شد.','ok');showPage(3)}catch(e){setStatus('نصب ناموفق: '+e.message,'warn')}
+  try{const r=await fetch('/api/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:el('channel').value,appPort:Number(el('appPort').value),force:true,refreshInstaller:true})});const x=await r.json();if(!r.ok)throw new Error(x.detail||'Installation failed');erpUrl=x.localUrl;el('finalUrl').textContent='آدرس محلی: '+erpUrl;el('logs').textContent=x.output||'';setStatus('نصب و Health Check با موفقیت انجام شد.','ok');showPage(3)}catch(e){setStatus('نصب ناموفق: '+e.message,'warn')}
 }
 function openErp(){if(erpUrl)window.open(erpUrl,'_blank')}
 loadStatus();
