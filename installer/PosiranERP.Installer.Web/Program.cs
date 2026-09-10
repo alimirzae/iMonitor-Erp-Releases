@@ -62,7 +62,7 @@ app.MapPost("/api/configure", (SetupRequest request) =>
     Directory.CreateDirectory(configDirectory);
 
     var connectionString = $"Server={request.DatabaseServer};Port={request.DatabasePort};Database={database};User={request.DatabaseUser};Password={request.DatabasePassword};Charset=utf8mb4;";
-    var config = BuildAppSettings(isTest, request, database, connectionString);
+    var config = BuildAppSettings(isTest, request, connectionString);
     var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
     File.WriteAllText(configPath, json);
 
@@ -87,6 +87,8 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     if (channel is null)
         return Results.BadRequest(new { error = "Channel must be Test or Production." });
 
+    var isTest = channel == "Test";
+    var appPort = request.AppPort is > 0 and <= 65535 ? request.AppPort.Value : (isTest ? 8082 : 8083);
     var configPath = Path.Combine(defaultConfigRoot, channel, "appsettings.json");
     if (!File.Exists(configPath))
         return Results.BadRequest(new { error = $"Configure {channel} before installation." });
@@ -124,6 +126,8 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     psi.ArgumentList.Add(defaultInstallRoot);
     psi.ArgumentList.Add("-ConfigRoot");
     psi.ArgumentList.Add(defaultConfigRoot);
+    psi.ArgumentList.Add(isTest ? "-TestPort" : "-ProductionPort");
+    psi.ArgumentList.Add(appPort.ToString());
     if (request.Force) psi.ArgumentList.Add("-Force");
 
     using var process = Process.Start(psi);
@@ -143,7 +147,7 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     {
         channel,
         exitCode = process.ExitCode,
-        localUrl = channel == "Test" ? "http://127.0.0.1:8082/" : "http://127.0.0.1:8083/",
+        localUrl = $"http://127.0.0.1:{appPort}/",
         output
     });
 });
@@ -152,7 +156,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "PosiranER
 app.MapFallbackToFile("index.html");
 app.Run();
 
-static object BuildAppSettings(bool isTest, SetupRequest request, string database, string connectionString)
+static object BuildAppSettings(bool isTest, SetupRequest request, string connectionString)
 {
     return new
     {
@@ -183,7 +187,15 @@ static object BuildAppSettings(bool isTest, SetupRequest request, string databas
                 ConnectionIdleTimeout = 60
             }
         },
-        Logging = new { LogLevel = new { Default = "Information", Microsoft = "Warning", Microsoft_AspNetCore = "Warning" } },
+        Logging = new
+        {
+            LogLevel = new Dictionary<string, string>
+            {
+                ["Default"] = "Information",
+                ["Microsoft"] = "Warning",
+                ["Microsoft.AspNetCore"] = "Warning"
+            }
+        },
         GoodsSyncSettings = new { Enabled = false, InitialDelaySeconds = 240, IntervalSeconds = 300 },
         ExternalGoodsApi = new { Enabled = false, BaseUrl = "https://api.imonitor.ir" },
         BranchSettings = new
@@ -279,4 +291,4 @@ record SetupRequest(
     string? MySqlVersion,
     int? AppPort);
 
-record InstallRequest(string Channel, bool Force = false, bool RefreshInstaller = true);
+record InstallRequest(string Channel, int? AppPort, bool Force = false, bool RefreshInstaller = true);
