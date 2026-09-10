@@ -131,7 +131,7 @@ function Get-RuntimeConfigValue([string]$ChannelName,[string]$PropertyName) {
             }
         }
     } catch {
-        Write-Warning "Could not read runtime config $path: $($_.Exception.Message)"
+        Write-Warning "Could not read runtime config ${path}: $($_.Exception.Message)"
     }
     return $null
 }

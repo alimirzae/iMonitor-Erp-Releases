@@ -114,7 +114,7 @@ function Repair-ChannelIis([string]$Name,[int]$Port) {
     $poolState='Unknown'; $siteState='Unknown'
     try { $poolState=(Get-WebAppPoolState $pool).Value } catch {}
     try { $siteState=(Get-WebsiteState $site).Value } catch {}
-    Write-Host "$Name IIS state: Site=$siteState; AppPool=$poolState; Binding=*:$Port:" -ForegroundColor Cyan
+    Write-Host "${Name} IIS state: Site=$siteState; AppPool=$poolState; Binding=*:${Port}:" -ForegroundColor Cyan
 
     for($i=1;$i -le 12;$i++) {
         Start-Sleep -Seconds 2

@@ -38,6 +38,7 @@ jobs:
         with:
           repository: alimirzae/Ecomm
           ref: posiran_test
+          token: ${{ secrets.RELEASE_REPO_TOKEN }}
           path: EcommSource
 
       - uses: actions/setup-dotnet@v4

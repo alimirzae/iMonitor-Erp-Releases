@@ -188,7 +188,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "PosiranER
 app.MapFallbackToFile("index.html");
 app.Run();
 
-static ProcessResult RunPowerShell(IEnumerable<string> args)
+static InstallerProcessResult RunPowerShell(IEnumerable<string> args)
 {
     var psi = new ProcessStartInfo { FileName = "powershell.exe", RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
     foreach (var arg in args) psi.ArgumentList.Add(arg);
@@ -196,7 +196,7 @@ static ProcessResult RunPowerShell(IEnumerable<string> args)
     var output = process.StandardOutput.ReadToEnd();
     var error = process.StandardError.ReadToEnd();
     process.WaitForExit();
-    return new ProcessResult(process.ExitCode, output, string.IsNullOrWhiteSpace(error) ? output : error);
+    return new InstallerProcessResult(process.ExitCode, output, string.IsNullOrWhiteSpace(error) ? output : error);
 }
 
 static object BuildAppSettings(bool isTest, SetupRequest request, string connectionString)
@@ -298,4 +298,4 @@ static bool MySqlServiceDetected()
 record SetupRequest(string Channel, string DatabaseServer, int DatabasePort, string DatabaseUser, string DatabasePassword, string? MySqlVersion, int? AppPort, string? InstallFolderName, bool AutoUpdate = true);
 record InstallRequest(string Channel, int? AppPort, string? InstallFolderName, bool AutoUpdate = true, bool Force = false, bool RefreshInstaller = true);
 record BackupRequest(string? Reason);
-record ProcessResult(int ExitCode, string Output, string Error);
+record InstallerProcessResult(int ExitCode, string Output, string Error);
