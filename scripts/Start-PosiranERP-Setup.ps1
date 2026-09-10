@@ -7,28 +7,93 @@ if(-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentit
   throw 'PowerShell را با Run as Administrator اجرا کنید.'
 }
 
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+Add-Type -AssemblyName System.Net.Http
+
 $root = Join-Path $env:ProgramData 'PosiranERP\Setup'
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 $zip = Join-Path $root 'PosiranERP-Setup-win-x64.zip'
 $sha = "$zip.sha256"
-$releaseBase = 'https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/posiran-installer-preview'
+$repo='alimirzae/iMonitor-Erp-Releases'
+$tag='posiran-installer-preview'
 
-function Get-File([string]$Url,[string]$Out){
-  $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-  & curl.exe -4 --http1.1 --fail --location --silent --show-error --connect-timeout 10 --retry 4 --retry-all-errors -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "${Url}?cb=$cacheBust" -o $Out
-  if($LASTEXITCODE -ne 0){ throw "Download failed: $Url" }
+function Invoke-HttpDownload([string]$Url,[string]$Out,[string]$Accept='application/octet-stream',[int]$TimeoutSeconds=300){
+  $handler=New-Object System.Net.Http.HttpClientHandler
+  $handler.AllowAutoRedirect=$true
+  $handler.AutomaticDecompression=[System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
+  $client=New-Object System.Net.Http.HttpClient($handler)
+  $client.Timeout=[TimeSpan]::FromSeconds($TimeoutSeconds)
+  $client.DefaultRequestHeaders.UserAgent.ParseAdd('PosiranERP-Setup-Bootstrap/1.0')
+  $client.DefaultRequestHeaders.CacheControl=New-Object System.Net.Http.Headers.CacheControlHeaderValue
+  $client.DefaultRequestHeaders.CacheControl.NoCache=$true
+  if(-not [string]::IsNullOrWhiteSpace($Accept)){$client.DefaultRequestHeaders.Accept.ParseAdd($Accept)}
+  $stream=$null;$file=$null;$response=$null
+  try{
+    $response=$client.GetAsync($Url,[System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+    $response.EnsureSuccessStatusCode()
+    $stream=$response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+    $file=[System.IO.File]::Open($Out,[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
+    $stream.CopyTo($file)
+  } finally {
+    if($file){$file.Dispose()};if($stream){$stream.Dispose()};if($response){$response.Dispose()};$client.Dispose();$handler.Dispose()
+  }
+}
+
+function Invoke-BitsDownload([string]$Url,[string]$Out){
+  Import-Module BitsTransfer -ErrorAction Stop
+  if(Test-Path $Out){Remove-Item $Out -Force -ErrorAction SilentlyContinue}
+  Start-BitsTransfer -Source $Url -Destination $Out -TransferType Download -DisplayName 'Posiran ERP Setup' -Description 'Downloading Posiran ERP Setup' -ErrorAction Stop
+}
+
+function Get-ReleaseAsset([string]$Name){
+  $uri="https://api.github.com/repos/$repo/releases/tags/$tag"
+  $headers=@{'User-Agent'='PosiranERP-Setup-Bootstrap/1.0';'Accept'='application/vnd.github+json';'Cache-Control'='no-cache'}
+  $release=Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -TimeoutSec 60
+  $asset=$release.assets|Where-Object{$_.name -eq $Name}|Select-Object -First 1
+  if(!$asset){throw "Release asset not found: $Name"}
+  return $asset
+}
+
+function Get-Asset([object]$Asset,[string]$Out,[int]$TimeoutSeconds=300){
+  $errors=New-Object System.Collections.Generic.List[string]
+  try{
+    Write-Host "Downloading $($Asset.name) through GitHub API / HttpClient..." -ForegroundColor Cyan
+    Invoke-HttpDownload ([string]$Asset.url) $Out 'application/octet-stream' $TimeoutSeconds
+    if((Test-Path $Out) -and (Get-Item $Out).Length -gt 0){return}
+  }catch{$errors.Add("HttpClient API: $($_.Exception.Message)")}
+  try{
+    Write-Host 'Trying Windows BITS fallback...' -ForegroundColor Yellow
+    Invoke-BitsDownload ([string]$Asset.browser_download_url) $Out
+    if((Test-Path $Out) -and (Get-Item $Out).Length -gt 0){return}
+  }catch{$errors.Add("BITS: $($_.Exception.Message)")}
+  try{
+    Write-Host 'Trying Invoke-WebRequest fallback...' -ForegroundColor Yellow
+    Invoke-WebRequest -UseBasicParsing -Uri ([string]$Asset.browser_download_url) -OutFile $Out -TimeoutSec $TimeoutSeconds -Headers @{'User-Agent'='PosiranERP-Setup-Bootstrap/1.0';'Cache-Control'='no-cache'}
+    if((Test-Path $Out) -and (Get-Item $Out).Length -gt 0){return}
+  }catch{$errors.Add("Invoke-WebRequest: $($_.Exception.Message)")}
+  throw "All native download methods failed for $($Asset.name)`n$($errors -join "`n")"
 }
 
 Write-Host 'Downloading latest Posiran ERP Setup...' -ForegroundColor Cyan
-Get-File "$releaseBase/PosiranERP-Setup-win-x64.zip" $zip
-Get-File "$releaseBase/PosiranERP-Setup-win-x64.zip.sha256" $sha
+$zipAsset=Get-ReleaseAsset 'PosiranERP-Setup-win-x64.zip'
+$shaAsset=Get-ReleaseAsset 'PosiranERP-Setup-win-x64.zip.sha256'
+Get-Asset $shaAsset $sha 60
 $expected=((Get-Content $sha -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
+
+$useCached=$false
+if(Test-Path $zip){
+  try{
+    $cachedHash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+    if($cachedHash -eq $expected){$useCached=$true;Write-Host 'Using verified cached Setup package.' -ForegroundColor Green}
+  }catch{}
+}
+if(-not $useCached){Get-Asset $zipAsset $zip 600}
 $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 if($expected -ne $actual){ throw "SHA256 mismatch. expected=$expected actual=$actual" }
 
 $extract = Join-Path $root 'current'
 
-# Stop a previously launched Setup Host before refreshing the extracted files or reusing port 8099.
 Get-Process -Name 'PosiranERP.Setup' -ErrorAction SilentlyContinue | ForEach-Object {
   try {
     $processPath = $_.Path
@@ -49,8 +114,6 @@ Expand-Archive $zip -DestinationPath $extract -Force
 $exe = Join-Path $extract 'PosiranERP.Setup.exe'
 if(!(Test-Path $exe)){ throw 'PosiranERP.Setup.exe was not found after extraction.' }
 
-# ASP.NET ContentRoot/WebRoot must resolve relative to the published setup directory,
-# not to the caller's current PowerShell directory (C:\pos, C:\Windows\System32, etc.).
 Start-Process -FilePath $exe -WorkingDirectory $extract -Verb RunAs
 
 $ready=$false
