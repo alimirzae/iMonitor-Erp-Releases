@@ -15,8 +15,7 @@ $releaseBase = 'https://github.com/alimirzae/iMonitor-Erp-Releases/releases/down
 
 function Get-File([string]$Url,[string]$Out){
   $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-  $downloadUrl = "${Url}?cb=$cacheBust"
-  & curl.exe -4 --http1.1 --fail --location --silent --show-error --connect-timeout 10 --retry 4 --retry-all-errors -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' $downloadUrl -o $Out
+  & curl.exe -4 --http1.1 --fail --location --silent --show-error --connect-timeout 10 --retry 4 --retry-all-errors -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "${Url}?cb=$cacheBust" -o $Out
   if($LASTEXITCODE -ne 0){ throw "Download failed: $Url" }
 }
 
@@ -33,7 +32,10 @@ New-Item -ItemType Directory -Force -Path $extract | Out-Null
 Expand-Archive $zip -DestinationPath $extract -Force
 $exe = Join-Path $extract 'PosiranERP.Setup.exe'
 if(!(Test-Path $exe)){ throw 'PosiranERP.Setup.exe was not found after extraction.' }
-Start-Process -FilePath $exe -Verb RunAs
+
+# Run from the extracted folder so ASP.NET ContentRoot/WebRoot resolves wwwroot correctly,
+# regardless of the caller's current directory (for example C:\pos or C:\Windows\System32).
+Start-Process -FilePath $exe -WorkingDirectory $extract -Verb RunAs
 Start-Sleep -Seconds 2
 Start-Process 'http://127.0.0.1:8099/'
 Write-Host 'Posiran ERP Setup started on http://127.0.0.1:8099/' -ForegroundColor Green
