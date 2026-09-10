@@ -14,6 +14,7 @@ foreach($p in @(
   'Ecomm\wwwroot\posiran-brand.css',
   'Ecomm\wwwroot\img\posiran-logo.svg',
   'Ecomm\wwwroot\build-info.css',
+  'Ecomm\Controllers\PosiranAuthController.cs',
   '.github\workflows\publish-posiran-windows.yml',
   '.github\workflows\deploy-posiran-local.yml',
   'POSIRAN_WHITE_LABEL.md'
