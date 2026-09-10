@@ -7,17 +7,55 @@
 نسخه پوزایران از نظر نام، لوگو، تم، پشتیبانی، IIS و Release channel مستقل است:
 
 ```text
-posiran_test       -> posiran-erp-test-v*       -> PosiranERP-Test       -> port 8082
-posiran_production -> posiran-erp-production-v* -> PosiranERP-Production -> port 8083
+posiran_test       -> posiran-erp-test-v*       -> PosiranERP-Test       -> port 8082 -> DB posiran_test
+posiran_production -> posiran-erp-production-v* -> PosiranERP-Production -> port 8083 -> DB posiran
 ```
 
-Installer اختصاصی Windows:
+### روش پیشنهادی نصب و مدیریت
+
+برای نصب جدید از **Posiran ERP Setup Host** استفاده کنید. Setup Host یک برنامه self-contained ویندوز است که فقط روی `127.0.0.1:8099` باز می‌شود و برای نصب، Repair و مدیریت Instanceهای Posiran ERP طراحی شده است.
+
+آخرین Preview در Release با tag زیر منتشر می‌شود:
 
 ```text
-scripts/Install-PosiranERP-v1.0.0.ps1
+posiran-installer-preview
+Asset: PosiranERP-Setup-win-x64.zip
 ```
 
-راهنمای کامل نصب، انتشار و مکانیزم White-label self-healing در `POSIRAN.md` قرار دارد. بسته‌های پوزایران با نام `PosiranERP-win-x64.zip` منتشر می‌شوند و `appsettings.json` در بسته عمومی قرار نمی‌گیرد.
+پس از Extract، فایل زیر را با دسترسی Administrator اجرا کنید:
+
+```text
+Start-PosiranERP-Setup.cmd
+```
+
+سپس در مرورگر باز می‌شود:
+
+```text
+http://127.0.0.1:8099/
+```
+
+Wizard/Manager کانال Test یا Production، پورت، پوشه نصب، MySQL و فعال/غیرفعال بودن Auto Update را مدیریت می‌کند. وضعیت نصب‌ها، Health، نسخه نصب‌شده، آخرین Release، Backup/Restore و Upgrade دستی نیز در Setup Host نگهداری می‌شود/در حال تکمیل است.
+
+### Installer خط فرمان
+
+نسخه جاری اسکریپت PowerShell:
+
+```text
+scripts/Install-PosiranERP-v1.0.3.ps1
+```
+
+نمونه Test:
+
+```powershell
+$installer = Join-Path $env:TEMP 'Install-PosiranERP-v1.0.3.ps1'
+$cb = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+curl.exe -4 --http1.1 -fL -H "Cache-Control: no-cache" -H "Pragma: no-cache" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1?cb=$cb" `
+  -o $installer
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer -Channel Test
+```
+
+راهنمای کامل نصب و انتشار در `POSIRAN.md`، معماری Setup Host در `installer/PosiranERP.Installer.Web/README.md` و قرارداد دیتابیس اولیه در `posiran/bootstrap/README.md` قرار دارد. بسته‌های ERP با نام `PosiranERP-win-x64.zip` منتشر می‌شوند و `appsettings.json` عمداً در بسته عمومی قرار نمی‌گیرد.
 
 ---
 
