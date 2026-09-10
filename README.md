@@ -2,13 +2,15 @@
 
 مرکز عمومی انتشار و نصب خودکار محصولات iMonitor / Ecomm / Posiran ERP.
 
-> **فرض نصب ویندوز:** IIS Manager و MySQL از قبل نصب هستند. PowerShell را با **Run as Administrator** باز کنید و دستور مربوط به محصول را Copy/Paste کنید.
+> ⚠️ **مهم برای تمام نصب‌های Windows:** ابتدا منوی Start را باز کنید، `Windows PowerShell` را جستجو کنید، روی آن راست‌کلیک کرده و **Run as Administrator** را بزنید. همه دستورهای زیر باید داخل PowerShell با دسترسی Administrator اجرا شوند.
+>
+> فرض این راهنما این است که **IIS Manager و MySQL از قبل نصب هستند**.
 
 ---
 
 ## 1) Posiran ERP — ساده‌ترین روش نصب و مدیریت
 
-برای نصب، Repair، Upgrade، Backup/Restore و مدیریت Instanceهای Posiran ERP فقط همین دو خط را کامل Copy/Paste کنید:
+PowerShell را حتماً با **Run as Administrator** اجرا کنید، سپس فقط همین دو خط را کامل Copy/Paste کنید:
 
 ```powershell
 $p="$env:TEMP\Start-PosiranERP-Setup.ps1"; curl.exe -4 --http1.1 -fL "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Start-PosiranERP-Setup.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
@@ -47,7 +49,7 @@ Setup Manager برای مدیریت نصب‌ها طراحی شده و هسته 
 
 ### نصب مستقیم Posiran Test بدون Wizard
 
-اگر Config کانال قبلاً ساخته شده است:
+PowerShell باید Administrator باشد. اگر Config کانال قبلاً ساخته شده است:
 
 ```powershell
 $p="$env:TEMP\Install-PosiranERP.ps1"; curl.exe -4 --http1.1 -fL "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
@@ -55,6 +57,8 @@ if($LASTEXITCODE -ne 0){throw 'Download failed'}; powershell.exe -NoProfile -Exe
 ```
 
 ### نصب مستقیم Posiran Production بدون Wizard
+
+PowerShell باید Administrator باشد:
 
 ```powershell
 $p="$env:TEMP\Install-PosiranERP.ps1"; curl.exe -4 --http1.1 -fL "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
@@ -68,6 +72,8 @@ if($LASTEXITCODE -ne 0){throw 'Download failed'}; powershell.exe -NoProfile -Exe
 ---
 
 ## 2) iMonitor ERP / Ecomm ERP — Windows
+
+PowerShell را با **Run as Administrator** اجرا کنید.
 
 Installer رسمی فعلی: `Install-iMonitorERP-v2.0.24.ps1`
 
@@ -109,6 +115,7 @@ Direct label print POST http://127.0.0.1:17891/api/labels/print
 
 ## نکات مهم
 
+- تمام اسکریپت‌های Windows باید از PowerShell با دسترسی Administrator اجرا شوند.
 - تمام اسکریپت‌های Windows از IPv4 و `curl --http1.1` استفاده می‌کنند تا مشکل IPv6/شبکه کاهش پیدا کند.
 - بسته‌های عمومی Posiran شامل `appsettings.json` نیستند؛ اطلاعات MySQL فقط روی سرور نصب‌شده نگهداری می‌شود.
 - Test و Production دیتابیس، IIS Site، پورت و مسیر مستقل دارند.
