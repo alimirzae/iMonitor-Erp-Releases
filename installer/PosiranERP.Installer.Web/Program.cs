@@ -15,7 +15,7 @@ var app = builder.Build();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-const string releaseRepoRaw = "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main";
+const string releaseRepository = "alimirzae/iMonitor-Erp-Releases";
 
 app.MapGet("/api/status", (OrchestratorService orchestrator) =>
 {
@@ -76,8 +76,7 @@ app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorSer
         var scriptPath = Path.Combine(scriptDirectory, "Install-PosiranERP-v1.0.3.ps1");
         var http = clients.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(60);
-        var bytes = await http.GetByteArrayAsync($"{releaseRepoRaw}/scripts/Install-PosiranERP-v1.0.3.ps1?cb={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", ct);
-        await File.WriteAllBytesAsync(scriptPath, bytes, ct);
+        await DownloadInstallerScriptAsync(http, scriptPath, ct);
         var args = new List<string>
         {
             "-NoProfile","-ExecutionPolicy","Bypass","-File",scriptPath,
@@ -157,8 +156,7 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     {
         var http = clients.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(60);
-        var bytes = await http.GetByteArrayAsync($"{releaseRepoRaw}/scripts/Install-PosiranERP-v1.0.3.ps1?cb={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
-        await File.WriteAllBytesAsync(scriptPath, bytes);
+        await DownloadInstallerScriptAsync(http, scriptPath);
     }
 
     var args = new List<string>
@@ -187,6 +185,25 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "PosiranERP.Installer.Web" }));
 app.MapFallbackToFile("index.html");
 app.Run();
+
+static async Task DownloadInstallerScriptAsync(HttpClient http, string destination, CancellationToken cancellationToken = default)
+{
+    http.DefaultRequestHeaders.UserAgent.ParseAdd("PosiranERP-Setup/1.0");
+    http.DefaultRequestHeaders.CacheControl = new() { NoCache = true, NoStore = true };
+    var nonce = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    var commitJson = await http.GetStringAsync($"https://api.github.com/repos/{releaseRepository}/commits/main?cb={nonce}", cancellationToken);
+    using var document = JsonDocument.Parse(commitJson);
+    var commitSha = document.RootElement.GetProperty("sha").GetString();
+    if (string.IsNullOrWhiteSpace(commitSha) || !Regex.IsMatch(commitSha, "^[0-9a-fA-F]{40}$"))
+        throw new InvalidOperationException("Could not resolve the current installer commit SHA.");
+    var scriptUrl = $"https://raw.githubusercontent.com/{releaseRepository}/{commitSha}/scripts/Install-PosiranERP-v1.0.3.ps1";
+    var bytes = await http.GetByteArrayAsync(scriptUrl, cancellationToken);
+    var text = System.Text.Encoding.UTF8.GetString(bytes);
+    if (!text.Contains("function Stop-ChannelHost", StringComparison.Ordinal) || !text.Contains("Get-WebAppPoolState", StringComparison.Ordinal))
+        throw new InvalidOperationException($"Downloaded installer script from {commitSha} failed the version contract.");
+    await File.WriteAllBytesAsync(destination, bytes, cancellationToken);
+    Console.WriteLine($"Installer script pinned to release-center commit {commitSha}.");
+}
 
 static InstallerProcessResult RunPowerShell(IEnumerable<string> args)
 {
