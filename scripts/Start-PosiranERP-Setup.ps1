@@ -14,7 +14,9 @@ $sha = "$zip.sha256"
 $releaseBase = 'https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/posiran-installer-preview'
 
 function Get-File([string]$Url,[string]$Out){
-  & curl.exe -4 --http1.1 --fail --location --silent --show-error --connect-timeout 10 --retry 4 --retry-all-errors -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' "$Url?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $Out
+  $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $downloadUrl = "${Url}?cb=$cacheBust"
+  & curl.exe -4 --http1.1 --fail --location --silent --show-error --connect-timeout 10 --retry 4 --retry-all-errors -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' $downloadUrl -o $Out
   if($LASTEXITCODE -ne 0){ throw "Download failed: $Url" }
 }
 
