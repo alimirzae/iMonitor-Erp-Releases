@@ -8,15 +8,14 @@
 
 ## 1) Posiran ERP — ساده‌ترین روش نصب و مدیریت
 
-برای نصب، Repair، Upgrade، Backup/Restore و مدیریت Instanceهای Posiran ERP فقط این سه خط را اجرا کنید:
+برای نصب، Repair، Upgrade، Backup/Restore و مدیریت Instanceهای Posiran ERP فقط همین دو خط را کامل Copy/Paste کنید:
 
 ```powershell
-$u='https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Start-PosiranERP-Setup.ps1'
-$p="$env:TEMP\Start-PosiranERP-Setup.ps1"; curl.exe -4 --http1.1 -fL "$u?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
+$p="$env:TEMP\Start-PosiranERP-Setup.ps1"; curl.exe -4 --http1.1 -fL "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Start-PosiranERP-Setup.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
+if($LASTEXITCODE -ne 0){throw 'Download failed'}; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
 ```
 
-Setup Host به‌صورت خودکار آخرین Setup منتشرشده را دانلود و SHA256 آن را بررسی می‌کند و سپس این آدرس را باز می‌کند:
+این دستور مستقل است و به متغیر قبلی مثل `$u` وابسته نیست. Setup Host به‌صورت خودکار آخرین Setup منتشرشده را دانلود، SHA256 آن را بررسی و سپس این آدرس را باز می‌کند:
 
 ```text
 http://127.0.0.1:8099/
@@ -51,17 +50,15 @@ Setup Manager برای مدیریت نصب‌ها طراحی شده و هسته 
 اگر Config کانال قبلاً ساخته شده است:
 
 ```powershell
-$u='https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1'; $p="$env:TEMP\Install-PosiranERP.ps1"
-curl.exe -4 --http1.1 -fL "$u?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Test -TestPort 8082 -TestFolderName test
+$p="$env:TEMP\Install-PosiranERP.ps1"; curl.exe -4 --http1.1 -fL "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
+if($LASTEXITCODE -ne 0){throw 'Download failed'}; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Test -TestPort 8082 -TestFolderName test
 ```
 
 ### نصب مستقیم Posiran Production بدون Wizard
 
 ```powershell
-$u='https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1'; $p="$env:TEMP\Install-PosiranERP.ps1"
-curl.exe -4 --http1.1 -fL "$u?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Production -ProductionPort 8083 -ProductionFolderName production
+$p="$env:TEMP\Install-PosiranERP.ps1"; curl.exe -4 --http1.1 -fL "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
+if($LASTEXITCODE -ne 0){throw 'Download failed'}; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Production -ProductionPort 8083 -ProductionFolderName production
 ```
 
 برای غیرفعال کردن Auto Update در نصب خط فرمان، `-DisableAutoUpdate` را به خط آخر اضافه کنید.
@@ -77,9 +74,8 @@ Installer رسمی فعلی: `Install-iMonitorERP-v2.0.24.ps1`
 ### نصب/به‌روزرسانی هر دو کانال
 
 ```powershell
-$u='https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.24.ps1'; $p="$env:TEMP\Install-iMonitorERP.ps1"
-curl.exe -4 --http1.1 -fL "$u?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -Force
+$p="$env:TEMP\Install-iMonitorERP.ps1"; curl.exe -4 --http1.1 -fL "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.24.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
+if($LASTEXITCODE -ne 0){throw 'Download failed'}; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -Force
 ```
 
 Mapping:
