@@ -14,10 +14,10 @@ Support phone: 0922-962-7005
 
 ## Channel mapping
 
-| Branch | Release tag | IIS site/app pool | Local port | Database |
+| Branch | Release tag | IIS site/app pool | Local port | ApplicationDbContext database |
 |---|---|---|---:|---|
-| `posiran_test` | `posiran-erp-test-v*` | `PosiranERP-Test` | `8082` | `posiran_erp_test` |
-| `posiran_production` | `posiran-erp-production-v*` | `PosiranERP-Production` | `8083` | `posiran_erp` |
+| `posiran_test` | `posiran-erp-test-v*` | `PosiranERP-Test` | `8082` | `posiran_test` |
+| `posiran_production` | `posiran-erp-production-v*` | `PosiranERP-Production` | `8083` | `posiran` |
 
 Release package هر دو کانال `PosiranERP-win-x64.zip` است. `appsettings.json` عمداً داخل بسته عمومی قرار نمی‌گیرد تا رمزها و تنظیمات محلی در Release منتشر نشوند.
 
@@ -28,20 +28,20 @@ C:\Deploy\PosiranERP\Test\appsettings.json
 C:\Deploy\PosiranERP\Production\appsettings.json
 ```
 
-Workflow استقرار روی سرور ERP در اولین اجرا یک تنظیمات اختصاصی Posiran می‌سازد و نام دیتابیس، Branding، Environment و Sync را برای همان کانال ایزوله می‌کند. پس از ساخته‌شدن، فایل اختصاصی Posiran حفظ و در استقرارهای بعدی دوباره استفاده می‌شود.
+Workflow استقرار و Installer v1.0.2 قبل از Start برنامه، `Database.Type=MySql` را enforce کرده و فقط نام دیتابیس ConnectionString را مطابق کانال نرمال می‌کنند. Host، Port، User و Password موجود حفظ می‌شوند.
 
 ## نصب Test — پورت 8082
 
 PowerShell را با **Run as Administrator** باز کنید:
 
 ```powershell
-$installer = Join-Path $env:TEMP 'Install-PosiranERP-v1.0.0.ps1'
+$installer = Join-Path $env:TEMP 'Install-PosiranERP-v1.0.2.ps1'
 $cb = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
 curl.exe -4 --http1.1 -fL `
   -H "Cache-Control: no-cache" `
   -H "Pragma: no-cache" `
-  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.0.ps1?cb=$cb" `
+  "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.2.ps1?cb=$cb" `
   -o $installer
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -51,25 +51,27 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 ```text
 http://127.0.0.1:8082/
+Database: posiran_test
 ```
 
 ## نصب Production — پورت 8083
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File $env:TEMP\Install-PosiranERP-v1.0.0.ps1 `
+  -File $env:TEMP\Install-PosiranERP-v1.0.2.ps1 `
   -Channel Production
 ```
 
 ```text
 http://127.0.0.1:8083/
+Database: posiran
 ```
 
 ## نصب هر دو کانال
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
-  -File $env:TEMP\Install-PosiranERP-v1.0.0.ps1 `
+  -File $env:TEMP\Install-PosiranERP-v1.0.2.ps1 `
   -Channel Both
 ```
 
@@ -77,7 +79,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
 
 Push روی `posiran_test` یا `posiran_production` ابتدا روی runner سرور ERP Build/Test می‌شود. فقط SHA‌ای که این مرحله را با موفقیت رد کند با event اختصاصی `posiran-erp-release` به Release Center ارسال می‌شود.
 
-Workflow `publish-posiran-erp.yml` سپس دقیقاً همان SHA را Checkout و بسته Windows را تولید می‌کند:
+Workflow `publish-posiran-erp.yml` سپس دقیقاً همان SHA را Checkout، White-label canonical را اعمال و بسته Windows را تولید می‌کند:
 
 ```text
 posiran_test       -> posiran-erp-test-v1.0.*       -> prerelease
