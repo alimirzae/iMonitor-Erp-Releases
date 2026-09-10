@@ -49,20 +49,22 @@ jobs:
           Compress-Archive -Path "$out\*" -DestinationPath $zip -CompressionLevel Optimal -Force
           $hash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  PosiranERP-Setup-win-x64.zip" | Set-Content "$zip.sha256" -Encoding ASCII
+          "SETUP_ZIP=$zip" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "SETUP_SHA=$zip.sha256" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Replace preview release
-        shell: powershell
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $tag='posiran-installer-preview'
-          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
-          if($LASTEXITCODE -eq 0){gh release delete $tag --repo $env:GITHUB_REPOSITORY --yes --cleanup-tag}
-          $zip=Join-Path $env:RUNNER_TEMP 'PosiranERP-Setup-win-x64.zip'
-          gh release create $tag $zip "$zip.sha256" `
-            --repo $env:GITHUB_REPOSITORY `
-            --target main `
-            --title 'Posiran ERP Setup Preview' `
-            --notes 'Self-contained Windows x64 setup host. Run Start-PosiranERP-Setup.cmd or PosiranERP.Setup.exe as Administrator. Wizard: http://127.0.0.1:8099/. Preview channel.' `
-            --prerelease
-          if($LASTEXITCODE -ne 0){throw 'Preview release creation failed'}
+      - name: Publish preview release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: posiran-installer-preview
+          name: Posiran ERP Setup Preview
+          body: |
+            Self-contained Windows x64 setup host for Posiran ERP.
+            Run Start-PosiranERP-Setup.cmd or PosiranERP.Setup.exe as Administrator.
+            Setup wizard listens only on http://127.0.0.1:8099/.
+            Preview channel.
+          target_commitish: main
+          prerelease: true
+          make_latest: false
+          files: |
+            ${{ env.SETUP_ZIP }}
+            ${{ env.SETUP_SHA }}
