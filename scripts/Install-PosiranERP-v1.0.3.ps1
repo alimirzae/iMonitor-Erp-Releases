@@ -119,6 +119,11 @@ function Normalize-ChannelConfig($info){
   if([string]::IsNullOrWhiteSpace($cs)){throw "Database.MySql.ConnectionString is empty in $($info.Config)"}
   if($cs -match '(?i)(Database|Initial Catalog)\s*='){$cs=[regex]::Replace($cs,'(?i)(Database|Initial Catalog)\s*=\s*[^;]*',"Database=$($info.Database)")}else{$cs=$cs.TrimEnd(';')+";Database=$($info.Database);"}
   $j.Database.MySql.ConnectionString=$cs
+  $brand=[pscustomobject][ordered]@{Key='posiran';Name='Posiran ERP | پوز ایران';Tagline='راهکار یکپارچه فروش، حسابداری و مدیریت';LogoPath='/brands/posiran/logo.jpg';FaviconPath='/brands/posiran/icon.svg';ThemePath='/brands/posiran/theme.css';PrimaryColor='#123FA3';SecondaryColor='#F5B335'}
+  $update=[pscustomobject][ordered]@{Repository='alimirzae/iMonitor-Erp-Releases';Channel=$info.Key;TestTagPrefix='posiran-erp-test-v';ProductionTagPrefix='posiran-erp-production-v';TestTaskName='PosiranERP-Update-Test';ProductionTaskName='PosiranERP-Update-Production';TestIntervalMinutes=1}
+  if($j.PSObject.Properties['Branding']){$j.Branding=$brand}else{$j|Add-Member -NotePropertyName Branding -NotePropertyValue $brand}
+  if($j.PSObject.Properties['Update']){$j.Update=$update}else{$j|Add-Member -NotePropertyName Update -NotePropertyValue $update}
+  $j.Database.AutoMigrate=$true;$j.Database.MigrateOnStartup=$true;$j.Database.UseBackgroundMigration=$false;$j.Database.DropDatabaseOnStartup=$false
   if($j.PSObject.Properties['AllowedHosts']){$j.AllowedHosts='*'}else{$j|Add-Member -NotePropertyName AllowedHosts -NotePropertyValue '*'}
   $j | ConvertTo-Json -Depth 60 | Set-Content $info.Config -Encoding UTF8
   Write-Host "[OK] Config normalized: $($info.Name) -> MySql/$($info.Database)" -ForegroundColor Green
