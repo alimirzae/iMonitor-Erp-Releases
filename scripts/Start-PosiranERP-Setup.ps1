@@ -14,6 +14,7 @@ $root = Join-Path $env:ProgramData 'PosiranERP\Setup'
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 $zip = Join-Path $root 'PosiranERP-Setup-win-x64.zip'
 $sha = "$zip.sha256"
+$assetState = Join-Path $root 'setup-asset-id.txt'
 $repo='alimirzae/iMonitor-Erp-Releases'
 $tag='posiran-installer-preview'
 
@@ -46,7 +47,7 @@ function Invoke-BitsDownload([string]$Url,[string]$Out){
 }
 
 function Get-ReleaseAsset([string]$Name){
-  $uri="https://api.github.com/repos/$repo/releases/tags/$tag"
+  $uri="https://api.github.com/repos/$repo/releases/tags/$tag?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
   $headers=@{'User-Agent'='PosiranERP-Setup-Bootstrap/1.0';'Accept'='application/vnd.github+json';'Cache-Control'='no-cache'}
   $release=Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -TimeoutSec 60
   $asset=$release.assets|Where-Object{$_.name -eq $Name}|Select-Object -First 1
@@ -82,15 +83,22 @@ $expected=((Get-Content $sha -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
 if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
 
 $useCached=$false
-if(Test-Path $zip){
+$cachedAssetId = if(Test-Path $assetState){(Get-Content $assetState -Raw).Trim()}else{''}
+$currentAssetId = [string]$zipAsset.id
+Write-Host "Current Setup asset: id=$currentAssetId updated=$($zipAsset.updated_at)" -ForegroundColor DarkCyan
+if((Test-Path $zip) -and ($cachedAssetId -eq $currentAssetId)){
   try{
     $cachedHash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-    if($cachedHash -eq $expected){$useCached=$true;Write-Host 'Using verified cached Setup package.' -ForegroundColor Green}
+    if($cachedHash -eq $expected){$useCached=$true;Write-Host 'Using verified current Setup shell (same GitHub asset and SHA256). ERP Test/Production packages are checked separately inside Setup.' -ForegroundColor Green}
   }catch{}
 }
-if(-not $useCached){Get-Asset $zipAsset $zip 600}
+if(-not $useCached){
+  Write-Host 'Setup asset changed or local asset identity is unknown; downloading the current Setup package.' -ForegroundColor Cyan
+  Get-Asset $zipAsset $zip 600
+}
 $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 if($expected -ne $actual){ throw "SHA256 mismatch. expected=$expected actual=$actual" }
+[System.IO.File]::WriteAllText($assetState,$currentAssetId,[System.Text.UTF8Encoding]::new($false))
 
 $extract = Join-Path $root 'current'
 
