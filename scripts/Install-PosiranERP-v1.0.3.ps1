@@ -122,7 +122,7 @@ function Normalize-ChannelConfig($info){
   $utf8=[System.Text.Encoding]::UTF8
   $brandName=$utf8.GetString([Convert]::FromBase64String('UG9zaXJhbiBFUlAgfCDZvtmI2LIg2KfbjNix2KfZhg=='))
   $brandTagline=$utf8.GetString([Convert]::FromBase64String('2LHYp9mH2qnYp9ixINuM2qnZvtin2LHahtmHINmB2LHZiNi02Iwg2K3Ys9in2KjYr9in2LHbjCDZiCDZhdiv24zYsduM2Ko='))
-  $brand=[pscustomobject][ordered]@{Key='posiran';Name=$brandName;Tagline=$brandTagline;LogoPath='/brands/posiran/logo.svg?v=posiran-20260911';FaviconPath='/brands/posiran/icon.svg?v=posiran-20260911';ThemePath='/brands/posiran/theme.css?v=posiran-20260911';PrimaryColor='#123FA3';SecondaryColor='#F5B335'}
+  $brand=[pscustomobject][ordered]@{Key='posiran';Name=$brandName;Tagline=$brandTagline;LogoPath='/img/logo.webp?v=posiran-official-20260912';FaviconPath='/brands/posiran/icon.svg?v=posiran-20260911';ThemePath='/brands/posiran/theme.css?v=posiran-20260911';PrimaryColor='#123FA3';SecondaryColor='#F5B335'}
   $update=[pscustomobject][ordered]@{Repository='alimirzae/iMonitor-Erp-Releases';Channel=$info.Key;TestTagPrefix='posiran-erp-test-v';ProductionTagPrefix='posiran-erp-production-v';TestTaskName='PosiranERP-Update-Test';ProductionTaskName='PosiranERP-Update-Production';TestIntervalMinutes=1}
   if($j.PSObject.Properties['Branding']){$j.Branding=$brand}else{$j|Add-Member -NotePropertyName Branding -NotePropertyValue $brand}
   if($j.PSObject.Properties['Update']){$j.Update=$update}else{$j|Add-Member -NotePropertyName Update -NotePropertyValue $update}
