@@ -81,7 +81,9 @@ jobs:
           $legacy="$env:GITHUB_WORKSPACE\EcommSource\Ecomm\wwwroot\img\logo.webp"
           New-Item -ItemType Directory -Force -Path (Split-Path $legacy -Parent)|Out-Null
           Copy-Item $asset $legacy -Force
-          if((Get-FileHash $asset -Algorithm SHA256).Hash -ne (Get-FileHash $legacy -Algorithm SHA256).Hash){throw 'Official Posiran logo pin failed.'}
+          $legacyIcon="$env:GITHUB_WORKSPACE\EcommSource\Ecomm\wwwroot\img\app-icon.webp"
+          Copy-Item $asset $legacyIcon -Force
+          foreach($pinned in @($legacy,$legacyIcon)){if((Get-FileHash $asset -Algorithm SHA256).Hash -ne (Get-FileHash $pinned -Algorithm SHA256).Hash){throw "Official Posiran asset pin failed: $pinned"}}
 
       - name: Validate isolated package contract
         shell: powershell
@@ -91,7 +93,7 @@ jobs:
           $layout=Get-Content (Join-Path $root 'Ecomm\Components\Layout\MainLayout.razor') -Raw
           if($app -notmatch 'posiran-brand\.css'){throw 'Posiran stylesheet is not loaded.'}
           if($app -match 'iMonitor ERP' -or $layout -match 'iMonitor ERP'){throw 'Visible iMonitor branding remains in Posiran shell.'}
-          foreach($p in @('Ecomm\wwwroot\posiran-brand.css','Ecomm\wwwroot\img\posiran-logo.svg','Ecomm\wwwroot\brands\posiran\logo.jpg','Ecomm\wwwroot\img\logo.webp')){if(!(Test-Path (Join-Path $root $p))){throw "Missing Posiran asset: $p"}}
+          foreach($p in @('Ecomm\wwwroot\posiran-brand.css','Ecomm\wwwroot\img\posiran-logo.svg','Ecomm\wwwroot\brands\posiran\logo.jpg','Ecomm\wwwroot\img\logo.webp','Ecomm\wwwroot\img\app-icon.webp')){if(!(Test-Path (Join-Path $root $p))){throw "Missing Posiran asset: $p"}}
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -121,6 +123,7 @@ jobs:
           if(!(Test-Path (Join-Path $out 'wwwroot\img\posiran-logo.svg'))){throw 'Posiran logo missing from package'}
           if(!(Test-Path (Join-Path $out 'wwwroot\brands\posiran\logo.jpg'))){throw 'Official Posiran logo missing from package'}
           if(!(Test-Path (Join-Path $out 'wwwroot\img\logo.webp'))){throw 'Official Posiran compatibility logo missing from package'}
+          if(!(Test-Path (Join-Path $out 'wwwroot\img\app-icon.webp'))){throw 'Official Posiran compatibility app icon missing from package'}
 
       - name: Zip checksum and release metadata
         shell: powershell
