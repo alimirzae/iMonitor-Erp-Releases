@@ -47,7 +47,8 @@ function Invoke-BitsDownload([string]$Url,[string]$Out){
 }
 
 function Get-ReleaseAsset([string]$Name){
-  $uri="https://api.github.com/repos/$repo/releases/tags/$tag?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
+  $cacheBust=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $uri="https://api.github.com/repos/${repo}/releases/tags/${tag}?cb=${cacheBust}"
   $headers=@{'User-Agent'='PosiranERP-Setup-Bootstrap/1.0';'Accept'='application/vnd.github+json';'Cache-Control'='no-cache'}
   $release=Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -TimeoutSec 60
   $asset=$release.assets|Where-Object{$_.name -eq $Name}|Select-Object -First 1
