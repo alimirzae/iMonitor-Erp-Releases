@@ -169,7 +169,7 @@ $backups=@{}
 
 try {
     Write-Host '=== iMonitor ERP CORE v2.0.24 ===' -ForegroundColor Cyan
-    Write-Host 'Core revision : 2.0.24-r2 (non-fatal IIS tuning + safe activation + MySQL recovery)' -ForegroundColor DarkCyan
+    Write-Host 'Core revision : 2.0.24-r3 (native downloads + serialized activation + MySQL recovery)' -ForegroundColor DarkCyan
 
     foreach($info in $selected) {
         $backups[$info.Name]=Backup-ChannelSettings $info

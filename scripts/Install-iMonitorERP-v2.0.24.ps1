@@ -21,7 +21,7 @@ $PackageCacheDirectory=[IO.Path]::GetFullPath($PackageCacheDirectory)
 $installerHome=Join-Path $InstallRoot 'installer'
 New-Item -ItemType Directory -Force -Path $InstallRoot,$PackageCacheDirectory,$installerHome | Out-Null
 Write-Host '=== iMonitor ERP Windows installer v2.0.24 ===' -ForegroundColor Cyan
-Write-Host 'Installer revision: 2.0.24-r2 (resilient IIS activation + enforced MySQL config)' -ForegroundColor DarkCyan
+Write-Host 'Installer revision: 2.0.24-r3 (native downloads + serialized IIS activation)' -ForegroundColor DarkCyan
 Write-Host "Install root : $InstallRoot"
 Write-Host "Package cache: $PackageCacheDirectory"
 Write-Host "Channel      : $Channel"
@@ -54,9 +54,22 @@ if($MySqlRootUser){$args+=@('-MySqlRootUser',$MySqlRootUser)}
 if($MySqlRootPassword){$args+=@('-MySqlRootPassword',$MySqlRootPassword)}
 if($Force){$args+='-Force'}
 if($UpdateOnly){$args+='-UpdateOnly'}
+$mutex=New-Object Threading.Mutex($false,'Global\iMonitorERPInstaller')
+$hasMutex=$false
 try {
+  try{$hasMutex=$mutex.WaitOne($(if($UpdateOnly){[TimeSpan]::FromSeconds(5)}else{[TimeSpan]::FromMinutes(5)}))}
+  catch [Threading.AbandonedMutexException]{$hasMutex=$true}
+  if(-not $hasMutex) {
+    if($UpdateOnly){Write-Host 'Another iMonitor ERP update is active; scheduled run skipped.' -ForegroundColor Yellow;exit 0}
+    throw 'Another iMonitor ERP installer is active. Wait for it to finish and retry.'
+  }
   $p=Start-Process powershell.exe -ArgumentList $args -Wait -PassThru -NoNewWindow
   if($p.ExitCode -ne 0){throw "Installer core returned exit code $($p.ExitCode)"}
-} finally { Remove-Item $core -Force -ErrorAction SilentlyContinue; Register-Updaters }
+} finally {
+  if($hasMutex){$mutex.ReleaseMutex()}
+  $mutex.Dispose()
+  Remove-Item $core -Force -ErrorAction SilentlyContinue
+  Register-Updaters
+}
 Write-Host 'iMonitor ERP v2.0.24 completed.' -ForegroundColor Green
 Write-Host "Installer: $self"

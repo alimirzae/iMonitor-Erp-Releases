@@ -25,7 +25,7 @@ $raw="https://raw.githubusercontent.com/$repo/$baseCommit/scripts/Install-iMonit
 
 try {
   Write-Host '=== iMonitor ERP CORE v2.0.19 ===' -ForegroundColor Cyan
-  Write-Host 'Core revision : 2.0.19-r1 (independent channels + packaged appsettings)' -ForegroundColor DarkCyan
+  Write-Host 'Core revision : 2.0.19-r2 (native downloads + non-TEMP work directory)' -ForegroundColor DarkCyan
   Write-Host 'MySQL policy  : existing installation only; no download/install/update' -ForegroundColor Cyan
   Write-Host 'Test DB       : ecomm_dev'
   Write-Host 'Production DB : ecomm'
@@ -42,6 +42,65 @@ try {
   if(-not $text.Contains($oldCurl)){ $oldCurl=$oldCurl.Replace("`r`n","`n"); $newCurl=$newCurl.Replace("`r`n","`n") }
   if(-not $text.Contains($oldCurl)){throw 'Could not patch Invoke-CurlDownload in base core.'}
   $text=$text.Replace($oldCurl,$newCurl)
+
+  # Keep installer work outside the session Temp directory. RDP/session Temp can be
+  # quota-limited and causes curl error 23 even when the target drive has free space.
+  $strictMarker="Set-StrictMode -Version Latest"
+  $workBootstrap=@'
+Set-StrictMode -Version Latest
+$installerWorkRoot=Join-Path ([IO.Path]::GetFullPath($InstallRoot)) '.installer-work'
+New-Item -ItemType Directory -Force -Path $installerWorkRoot | Out-Null
+'@
+  if(-not $text.Contains($strictMarker)){throw 'Could not locate strict-mode marker for installer work directory.'}
+  $text=$text.Replace($strictMarker,$workBootstrap)
+  $text=$text.Replace('$env:TEMP','$installerWorkRoot')
+
+  # Replace curl-only downloader with native HttpClient -> BITS -> WebRequest
+  # fallbacks. This also avoids partial writes produced by curl on constrained hosts.
+  $downloadStart=$text.IndexOf('function Invoke-CurlDownload')
+  $downloadEnd=$text.IndexOf('function Resolve-MySqlClient')
+  if($downloadStart -lt 0 -or $downloadEnd -le $downloadStart){throw 'Could not locate downloader function boundaries.'}
+  $nativeDownloader=@'
+function Invoke-CurlDownload([string]$Uri,[string]$OutFile,[string]$Label,[int]$MaxTime = 1800) {
+    $errors=New-Object System.Collections.Generic.List[string]
+    try {
+        Add-Type -AssemblyName System.Net.Http
+        $handler=New-Object System.Net.Http.HttpClientHandler
+        $handler.AllowAutoRedirect=$true
+        $client=New-Object System.Net.Http.HttpClient($handler)
+        $client.Timeout=[TimeSpan]::FromSeconds($MaxTime)
+        $client.DefaultRequestHeaders.UserAgent.ParseAdd('iMonitorERP-Installer/2.0.24-r4')
+        $response=$null;$input=$null;$output=$null
+        try {
+            $response=$client.GetAsync($Uri,[System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+            [void]$response.EnsureSuccessStatusCode()
+            $input=$response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+            $output=[IO.File]::Open($OutFile,[IO.FileMode]::Create,[IO.FileAccess]::Write,[IO.FileShare]::None)
+            $input.CopyTo($output)
+        } finally {
+            if($output){$output.Dispose()};if($input){$input.Dispose()};if($response){$response.Dispose()}
+            if($client){$client.Dispose()};if($handler){$handler.Dispose()}
+        }
+        if((Test-Path $OutFile)-and(Get-Item $OutFile).Length -gt 0){return}
+    } catch {$errors.Add("HttpClient: $($_.Exception.Message)")}
+
+    try {
+        Import-Module BitsTransfer -ErrorAction Stop
+        Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+        Start-BitsTransfer -Source $Uri -Destination $OutFile -TransferType Download -ErrorAction Stop
+        if((Test-Path $OutFile)-and(Get-Item $OutFile).Length -gt 0){return}
+    } catch {$errors.Add("BITS: $($_.Exception.Message)")}
+
+    try {
+        Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+        Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $OutFile -TimeoutSec $MaxTime -Headers @{'User-Agent'='iMonitorERP-Installer/2.0.24-r4';'Cache-Control'='no-cache'}
+        if((Test-Path $OutFile)-and(Get-Item $OutFile).Length -gt 0){return}
+    } catch {$errors.Add("Invoke-WebRequest: $($_.Exception.Message)")}
+    throw "$Label failed by every native download method: $($errors -join ' | ')"
+}
+
+'@
+  $text=$text.Substring(0,$downloadStart)+$nativeDownloader+$text.Substring($downloadEnd)
 
   $oldGetLatest=@'
 function Get-LatestRelease([string]$Prefix) {

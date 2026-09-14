@@ -26,13 +26,21 @@ $uri="https://raw.githubusercontent.com/$repo/$pinnedCommit/scripts/Install-iMon
 
 try {
     Write-Host '=== iMonitor ERP CORE v2.0.22 ===' -ForegroundColor Cyan
-    Write-Host 'Core revision : 2.0.22-r3 (parser fix + non-fatal optional IIS tuning)' -ForegroundColor DarkCyan
+    Write-Host 'Core revision : 2.0.22-r4 (native downloader chain + non-fatal IIS tuning)' -ForegroundColor DarkCyan
 
     & curl.exe -4 --http1.1 --silent --show-error --fail --location --connect-timeout 8 --max-time 300 --retry 3 --retry-all-errors -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' $uri -o $source 2>$null
     $ec=$LASTEXITCODE; $global:LASTEXITCODE=0
     if($ec -ne 0 -or -not(Test-Path $source -PathType Leaf)){ throw "Could not download pinned v2.0.21 core. curl exit=$ec uri=$uri" }
 
     $text=Get-Content $source -Raw
+
+    # Collapse the legacy wrapper chain at the maintained v2.0.19 compatibility
+    # layer, which now supplies native downloads and a durable work directory.
+    $oldPin='$pinnedCommit=''2e2df7b5583933df4ad4e52fe88d4d1b3e341434'''
+    $newPin='$pinnedCommit=''main'''
+    if(-not $text.Contains($oldPin)){throw 'Could not locate v2.0.21 pinned core reference.'}
+    $text=$text.Replace($oldPin,$newPin)
+    $text=$text.Replace('scripts/Install-iMonitorERP-v2.0.20-core.ps1','scripts/Install-iMonitorERP-v2.0.19-core.ps1')
     $bad='Write-Host "$Name IIS state: Site=$siteState; AppPool=$poolState; Binding=*:$Port:" -ForegroundColor Cyan'
     $good='Write-Host "$Name IIS state: Site=$siteState; AppPool=$poolState; Binding=*:${Port}:" -ForegroundColor Cyan'
     if(-not $text.Contains($bad)){ throw 'Could not locate the v2.0.21 parser bug for patching.' }

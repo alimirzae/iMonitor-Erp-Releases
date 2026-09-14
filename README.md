@@ -137,3 +137,11 @@ Direct label print POST http://127.0.0.1:17891/api/labels/print
 - Test و Production دیتابیس، IIS Site، پورت و مسیر مستقل دارند.
 - Releaseهای Posiran با White-label مستقل ساخته می‌شوند.
 - Bootstrap دیتابیس جدید فقط باید بعد از Validation کامل Schema/Seed وارد نصب Production شود؛ هیچ Dump عملیاتی یا Credential قدیمی نباید مستقیماً در Release قرار بگیرد.
+
+
+### Installer recovery update 2026-09-14
+
+- Release metadata and packages use native HttpClient, BITS and Invoke-WebRequest fallbacks.
+- Installer work files use `<InstallRoot>\.installer-work` instead of the RDP session Temp directory.
+- A machine-wide mutex prevents Test and Production scheduled updaters from changing IIS concurrently.
+- Missing Test configuration can be recovered from the preserved Production configuration and normalized to `ecomm_dev`.
