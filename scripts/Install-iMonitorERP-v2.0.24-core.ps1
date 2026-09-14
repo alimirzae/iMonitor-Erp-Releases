@@ -17,12 +17,12 @@ param(
 $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $repo='alimirzae/iMonitor-Erp-Releases'
-$pinnedCommit='c2e696ffb3fb9a5070eb1ad3b7d2278f70c5c5be'
-$pinned=Join-Path $env:TEMP ('Install-iMonitorERP-v2.0.23-core-'+[guid]::NewGuid().ToString('N')+'.ps1')
+$pinnedCommit='main'
+$pinned=Join-Path $env:TEMP ('Install-iMonitorERP-v2.0.22-core-'+[guid]::NewGuid().ToString('N')+'.ps1')
 $backupRoot=Join-Path $env:TEMP ('imonitor-config-backup-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
 $cb=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-$uri="https://raw.githubusercontent.com/$repo/$pinnedCommit/scripts/Install-iMonitorERP-v2.0.23-core.ps1?cb=$cb"
+$uri="https://raw.githubusercontent.com/$repo/$pinnedCommit/scripts/Install-iMonitorERP-v2.0.22-core.ps1?cb=$cb"
 
 function Get-ChannelInfo([string]$Name) {
     $lower=$Name.ToLowerInvariant()
@@ -169,7 +169,7 @@ $backups=@{}
 
 try {
     Write-Host '=== iMonitor ERP CORE v2.0.24 ===' -ForegroundColor Cyan
-    Write-Host 'Core revision : 2.0.24-r1 (safe IIS activation + enforced MySQL settings)' -ForegroundColor DarkCyan
+    Write-Host 'Core revision : 2.0.24-r2 (non-fatal IIS tuning + safe activation + MySQL recovery)' -ForegroundColor DarkCyan
 
     foreach($info in $selected) {
         $backups[$info.Name]=Backup-ChannelSettings $info
@@ -178,7 +178,7 @@ try {
 
     & curl.exe -4 --http1.1 --silent --show-error --fail --location --connect-timeout 8 --max-time 300 --retry 3 --retry-all-errors -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' $uri -o $pinned 2>$null
     $ec=$LASTEXITCODE; $global:LASTEXITCODE=0
-    if($ec -ne 0 -or -not(Test-Path $pinned -PathType Leaf)){throw "Could not download pinned v2.0.23 core. curl exit=$ec"}
+    if($ec -ne 0 -or -not(Test-Path $pinned -PathType Leaf)){throw "Could not download resilient v2.0.22 core. curl exit=$ec"}
 
     $args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$pinned,'-Channel',$Channel,'-InstallRoot',$InstallRoot,'-PackageCacheDirectory',$PackageCacheDirectory,'-TestPort',[string]$TestPort,'-ProductionPort',[string]$ProductionPort)
     if($MySqlBinPath){$args+=@('-MySqlBinPath',$MySqlBinPath)}

@@ -21,7 +21,7 @@ $PackageCacheDirectory=[IO.Path]::GetFullPath($PackageCacheDirectory)
 $installerHome=Join-Path $InstallRoot 'installer'
 New-Item -ItemType Directory -Force -Path $InstallRoot,$PackageCacheDirectory,$installerHome | Out-Null
 Write-Host '=== iMonitor ERP Windows installer v2.0.24 ===' -ForegroundColor Cyan
-Write-Host 'Installer revision: 2.0.24-r1 (safe IIS activation + enforced MySQL config)' -ForegroundColor DarkCyan
+Write-Host 'Installer revision: 2.0.24-r2 (resilient IIS activation + enforced MySQL config)' -ForegroundColor DarkCyan
 Write-Host "Install root : $InstallRoot"
 Write-Host "Package cache: $PackageCacheDirectory"
 Write-Host "Channel      : $Channel"

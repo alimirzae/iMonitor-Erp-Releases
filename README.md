@@ -106,6 +106,8 @@ Production -> latest imonitor-ecomerp-master-v* -> DB ecomm     -> IIS port 8080
 
 Installer بسته را دانلود، checksum را کنترل، IIS Site/AppPool را Repair/Configure، Config محلی را حفظ و `/health` را بررسی می‌کند.
 
+تنظیم‌های بهینه‌سازی AppPool مانند `loadUserProfile` به‌صورت best-effort اعمال می‌شوند؛ قفل موقت `applicationHost.config` دیگر فعال‌سازی بسته را متوقف نمی‌کند. استخراج بسته، ساخت تنظیمات MySQL و Health Check همچنان الزامی هستند.
+
 ---
 
 ## 3) Linux / Ubuntu ERP

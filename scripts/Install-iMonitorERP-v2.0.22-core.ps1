@@ -26,7 +26,7 @@ $uri="https://raw.githubusercontent.com/$repo/$pinnedCommit/scripts/Install-iMon
 
 try {
     Write-Host '=== iMonitor ERP CORE v2.0.22 ===' -ForegroundColor Cyan
-    Write-Host 'Core revision : 2.0.22-r2 (repository URL hotfix + PowerShell parser fix + AppPool recovery)' -ForegroundColor DarkCyan
+    Write-Host 'Core revision : 2.0.22-r3 (parser fix + non-fatal optional IIS tuning)' -ForegroundColor DarkCyan
 
     & curl.exe -4 --http1.1 --silent --show-error --fail --location --connect-timeout 8 --max-time 300 --retry 3 --retry-all-errors -H 'Cache-Control: no-cache' -H 'Pragma: no-cache' $uri -o $source 2>$null
     $ec=$LASTEXITCODE; $global:LASTEXITCODE=0
@@ -37,6 +37,32 @@ try {
     $good='Write-Host "$Name IIS state: Site=$siteState; AppPool=$poolState; Binding=*:${Port}:" -ForegroundColor Cyan'
     if(-not $text.Contains($bad)){ throw 'Could not locate the v2.0.21 parser bug for patching.' }
     $text=$text.Replace($bad,$good)
+
+    # AppPool tuning is desirable but not required for package activation. On some
+    # servers applicationHost.config is temporarily locked by IIS Manager, WAS or
+    # another updater. Do not abandon an otherwise recoverable deployment for these
+    # optional writes; health verification below remains the final gate.
+    $optionalIisWrites=@(
+        '    Set-ItemProperty "IIS:\AppPools\$pool" -Name managedRuntimeVersion -Value ''''',
+        '    Set-ItemProperty "IIS:\AppPools\$pool" -Name managedPipelineMode -Value ''Integrated''',
+        '    Set-ItemProperty "IIS:\AppPools\$pool" -Name autoStart -Value $true',
+        '    Set-ItemProperty "IIS:\AppPools\$pool" -Name startMode -Value ''AlwaysRunning''',
+        '    Set-ItemProperty "IIS:\AppPools\$pool" -Name processModel.identityType -Value ''ApplicationPoolIdentity''',
+        '    Set-ItemProperty "IIS:\AppPools\$pool" -Name processModel.loadUserProfile -Value $true',
+        '    Set-ItemProperty "IIS:\Sites\$site" -Name serverAutoStart -Value $true',
+        '    Set-ItemProperty "IIS:\Sites\$site" -Name applicationPool -Value $pool',
+        '    Set-ItemProperty "IIS:\Sites\$site" -Name physicalPath -Value $root'
+    )
+    $patchedCount=0
+    foreach($line in $optionalIisWrites) {
+        if($text.Contains($line)) {
+            $replacement='    try { '+$line.Trim()+' } catch { Write-Warning ("Optional IIS setting skipped: " + $_.Exception.Message) }'
+            $text=$text.Replace($line,$replacement)
+            $patchedCount++
+        }
+    }
+    if($patchedCount -lt 9){throw "Expected 9 optional IIS writes, patched $patchedCount."}
+
     $text=$text.Replace("=== iMonitor ERP CORE v2.0.21 ===","=== iMonitor ERP CORE v2.0.22 (patched v2.0.21 logic) ===")
     Set-Content $patched $text -Encoding UTF8
 
