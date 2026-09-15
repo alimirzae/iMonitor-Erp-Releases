@@ -45,6 +45,22 @@ jobs:
           }
           if($failed){exit 1}
 
+      - name: Validate standalone iMonitor installer contract
+        shell: pwsh
+        run: |
+          $path='scripts/Install-iMonitorERP-v2.1.0.ps1'
+          $text=Get-Content $path -Raw
+          $required=@(
+            "`$asset='iMonitor-EcomERP-win-x64.zip'",
+            "'Global\iMonitorERP-Installer-v2'",
+            "Database=if(`$isTest){'ecomm_dev'}else{'ecomm'}",
+            "MigrateOnStartup' `$true",
+            "[string]`$TestHostHeader",
+            "[string]`$ProductionHostHeader"
+          )
+          foreach($needle in $required){if(!$text.Contains($needle)){throw "Standalone installer contract missing: $needle"}}
+          if($text -match '(?i)posiran'){throw 'Posiran branding leaked into the iMonitor installer.'}
+
       - name: Commit normalization if needed
         shell: pwsh
         run: |
