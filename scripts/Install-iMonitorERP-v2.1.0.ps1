@@ -125,13 +125,30 @@ function Invoke-AssetDownload([string]$ApiUrl,[string]$BrowserUrl,[string]$Out,[
 }
 
 function Get-LatestRelease($info){
-  $cb=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();$uri="https://api.github.com/repos/$repo/releases?per_page=100&cb=$cb"
-  $headers=@{'User-Agent'='iMonitorERP-Installer/2.1.0';'Accept'='application/vnd.github+json';'Cache-Control'='no-cache'}
-  try{$rels=Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -TimeoutSec 60}
-  catch{
-    $tmp=Join-Path $workRoot ('imonitor-releases-'+[guid]::NewGuid().ToString('N')+'.json')
-    try{Invoke-HttpDownload $uri $tmp 'application/vnd.github+json' 60;$rels=Get-Content $tmp -Raw|ConvertFrom-Json}finally{Remove-Item $tmp -Force -ErrorAction SilentlyContinue}
-  }
+  $cb=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();$mirrorChannel=if($info.Name -eq 'Test'){'test'}else{'master'}
+  $mirrorRoot="https://testerp.imonitor.ir/downloads/erp/$mirrorChannel"
+  try{
+    $m=Invoke-RestMethod -Uri "$mirrorRoot/latest.json?cb=$cb" -TimeoutSec 8 -Headers @{'Cache-Control'='no-cache'}
+    if([string]$m.tag -like ($info.Prefix+'*')){
+      Write-Host '[Release] Domestic mirror selected (GitHub API not required).' -ForegroundColor Green
+      return [pscustomobject]@{Tag=[string]$m.tag;ZipApiUrl="$mirrorRoot/$asset";ZipBrowserUrl="$mirrorRoot/$asset";ShaApiUrl="$mirrorRoot/$asset.sha256.txt";ShaBrowserUrl="$mirrorRoot/$asset.sha256.txt"}
+    }
+  }catch{Write-Warning "Domestic release mirror unavailable: $($_.Exception.Message)"}
+
+  try{
+    $atomFile=Join-Path $workRoot ('imonitor-releases-'+[guid]::NewGuid().ToString('N')+'.atom')
+    try{Invoke-HttpDownload "https://github.com/$repo/releases.atom?cb=$cb" $atomFile 'application/atom+xml' 30;[xml]$feed=Get-Content $atomFile -Raw}
+    finally{Remove-Item $atomFile -Force -ErrorAction SilentlyContinue}
+    $tag=@($feed.feed.entry|ForEach-Object{([string]$_.id -split '/')[-1]}|Where-Object{$_ -like ($info.Prefix+'*')}|Select-Object -First 1)
+    if($tag.Count -gt 0 -and ![string]::IsNullOrWhiteSpace($tag[0])){
+      $releaseBase="https://github.com/$repo/releases/download/$($tag[0])"
+      Write-Host '[Release] GitHub Atom feed selected (rate-limit free).' -ForegroundColor Green
+      return [pscustomobject]@{Tag=$tag[0];ZipApiUrl="$releaseBase/$asset";ZipBrowserUrl="$releaseBase/$asset";ShaApiUrl="$releaseBase/$asset.sha256";ShaBrowserUrl="$releaseBase/$asset.sha256"}
+    }
+  }catch{Write-Warning "GitHub Atom release discovery unavailable: $($_.Exception.Message)"}
+
+  $uri="https://api.github.com/repos/$repo/releases?per_page=100&cb=$cb";$headers=@{'User-Agent'='iMonitorERP-Installer/2.1.1';'Accept'='application/vnd.github+json';'Cache-Control'='no-cache'}
+  try{$rels=Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -TimeoutSec 30}catch{throw "All release metadata sources failed. GitHub API fallback: $($_.Exception.Message)"}
   $r=$rels|Where-Object{!$_.draft -and $_.tag_name -like ($info.Prefix+'*')}|Sort-Object {[datetime]$_.published_at} -Descending|Select-Object -First 1
   if(!$r){throw "No published iMonitor ERP $($info.Key) release found."}
   $zip=$r.assets|Where-Object{$_.name -eq $asset}|Select-Object -First 1;$sha=$r.assets|Where-Object{$_.name -eq ($asset+'.sha256')}|Select-Object -First 1
