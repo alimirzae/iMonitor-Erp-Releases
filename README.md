@@ -65,7 +65,7 @@ Setup Manager برای مدیریت نصب‌ها طراحی شده و هسته 
 PowerShell باید Administrator باشد. اگر Config کانال قبلاً ساخته شده است:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $p="$env:TEMP\Install-PosiranERP.ps1"; Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $p="$env:TEMP\Install-PosiranERP.ps1"; Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.4.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Test -TestPort 8082 -TestFolderName test
 ```
 
@@ -74,11 +74,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Test -TestPo
 PowerShell باید Administrator باشد:
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $p="$env:TEMP\Install-PosiranERP.ps1"; Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.3.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $p="$env:TEMP\Install-PosiranERP.ps1"; Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.4.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Production -ProductionPort 8083 -ProductionFolderName production
 ```
 
 برای غیرفعال کردن Auto Update در نصب خط فرمان، `-DisableAutoUpdate` را به خط آخر اضافه کنید.
+
+پس از نصب، `Update-PosiranERP.ps1` داخل روت فعال هر کانال ایجاد می‌شود. Scheduled Task مربوط به Test هر ۱ دقیقه و Production هر ۵ دقیقه همین فایل را اجرا می‌کند؛ بنابراین اجرای دستی روزانه لازم نیست. صفحه `/system/update` از NavMenu امکان بررسی نسخه و ارسال درخواست ارتقا را فراهم می‌کند.
 
 راهنمای فنی Posiran: `POSIRAN.md`
 
@@ -88,13 +90,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Production -
 
 PowerShell را با **Run as Administrator** اجرا کنید.
 
-Installer رسمی فعلی: `Install-iMonitorERP-v2.1.2.ps1` (مستقل و بدون زنجیره‌ی installerهای قدیمی)
+Installer رسمی فعلی: `Install-iMonitorERP-v2.1.3.ps1` (مستقل و بدون زنجیره‌ی installerهای قدیمی)
 
 ### نصب/به‌روزرسانی هر دو کانال
 
 ```powershell
 $root='C:\ecomm\.installer-work'; New-Item -ItemType Directory -Force $root|Out-Null; $p=Join-Path $root 'Install-iMonitorERP.ps1'
-Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.1.2.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
+Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.1.3.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -Force
 ```
 
@@ -120,6 +122,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -TestPh
 ```
 
 Config پایدار در `C:\ecomm\config\Test` و `C:\ecomm\config\Production` نگهداری می‌شود. مسیرهای قدیمی `C:\Ecom-Test\appsettings.json` و `C:\Ecom\appsettings.json` در اولین اجرا خودکار وارد می‌شوند. updaterهای Test و Production با mutex سراسری هرگز هم‌زمان IIS را تغییر نمی‌دهند.
+
+پس از نصب، اسکریپت ارتقای همان کانال با نام `Update-iMonitorERP.ps1` در روت فعال برنامه قرار می‌گیرد. صفحه `/system/update` نیز از داخل NavMenu در دسترس است. Scheduled Task کانال Test هر ۱ دقیقه و Production هر ۵ دقیقه همین اسکریپت محلی را اجرا می‌کند.
 
 تنظیم‌های بهینه‌سازی AppPool مانند `loadUserProfile` به‌صورت best-effort اعمال می‌شوند؛ قفل موقت `applicationHost.config` دیگر فعال‌سازی بسته را متوقف نمی‌کند. استخراج بسته، ساخت تنظیمات MySQL و Health Check همچنان الزامی هستند.
 
