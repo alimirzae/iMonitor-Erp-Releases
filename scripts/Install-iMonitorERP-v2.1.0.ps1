@@ -107,7 +107,7 @@ function Invoke-BitsDownload([string]$Url,[string]$Out){
 function Invoke-AssetDownload([string]$ApiUrl,[string]$BrowserUrl,[string]$Out,[int]$TimeoutSeconds=600){
   $errors=New-Object System.Collections.Generic.List[string]
   try{
-    Write-Host '[Download] GitHub API via .NET HttpClient...' -ForegroundColor Cyan
+    Write-Host '[Download] Native HTTP stream...' -ForegroundColor Cyan
     Invoke-HttpDownload $ApiUrl $Out 'application/octet-stream' $TimeoutSeconds
     if((Test-Path $Out) -and (Get-Item $Out).Length -gt 0){return}
   }catch{$errors.Add("HttpClient API: $($_.Exception.Message)")}
@@ -293,7 +293,9 @@ function Install-Channel($info){
     Stop-ChannelHost $info
     $backup=$info.Root+'.rollback';if(Test-Path $backup){Remove-Item $backup -Recurse -Force}
     if(Test-Path $info.Root){Move-Item $info.Root $backup -Force}
-    New-Item -ItemType Directory -Force -Path (Split-Path $info.Root -Parent)|Out-Null;Move-Item $stage $info.Root -Force
+    $targetParent=Split-Path $info.Root -Parent
+    if(![string]::IsNullOrWhiteSpace($targetParent)){[void][IO.Directory]::CreateDirectory($targetParent)}
+    Move-Item $stage $info.Root -Force
     try{
       if(!(Test-Path "IIS:\AppPools\$($info.Pool)")){New-WebAppPool -Name $info.Pool|Out-Null}
       foreach($setting in @(@('managedRuntimeVersion',''),@('startMode','AlwaysRunning'),@('processModel.loadUserProfile',$true))){try{Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name $setting[0] -Value $setting[1] -ErrorAction Stop}catch{Write-Warning "Optional AppPool setting $($setting[0]) skipped: $($_.Exception.Message)"}}
