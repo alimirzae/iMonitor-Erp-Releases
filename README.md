@@ -88,13 +88,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Production -
 
 PowerShell را با **Run as Administrator** اجرا کنید.
 
-Installer رسمی فعلی: `Install-iMonitorERP-v2.0.24.ps1`
+Installer رسمی فعلی: `Install-iMonitorERP-v2.1.0.ps1` (مستقل و بدون زنجیره‌ی installerهای قدیمی)
 
 ### نصب/به‌روزرسانی هر دو کانال
 
 ```powershell
-$p="$env:TEMP\Install-iMonitorERP.ps1"; curl.exe -4 --http1.1 -fL "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.24.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -o $p
-if($LASTEXITCODE -ne 0){throw 'Download failed'}; powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -Force
+$root='C:\ecomm\.installer-work'; New-Item -ItemType Directory -Force $root|Out-Null; $p=Join-Path $root 'Install-iMonitorERP.ps1'
+Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.1.0.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -Force
 ```
 
 Mapping:
@@ -105,6 +106,20 @@ Production -> latest imonitor-ecomerp-master-v* -> DB ecomm     -> IIS port 8080
 ```
 
 Installer بسته را دانلود، checksum را کنترل، IIS Site/AppPool را Repair/Configure، Config محلی را حفظ و `/health` را بررسی می‌کند.
+
+در نصب کاملاً جدید که هیچ `appsettings.json` قبلی وجود ندارد، اطلاعات MySQL را صریح بدهید؛ installer دیتابیس‌های `ecomm_dev` و `ecomm` را ایجاد، اتصال MySQL را تنظیم و migration زمان startup را فعال می‌کند:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -MySqlServer 127.0.0.1 -MySqlUser root -MySqlPassword 'MYSQL_PASSWORD' -MySqlAdminUser root -MySqlAdminPassword 'MYSQL_PASSWORD'
+```
+
+برای نصب روی سرور دامنه‌های اصلی با مسیرهای فعلی:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -TestPhysicalPath 'C:\Ecom-Test' -ProductionPhysicalPath 'C:\Ecom' -TestHostHeader 'testerp.imonitor.ir' -ProductionHostHeader 'erp.imonitor.ir' -MySqlPassword 'MYSQL_PASSWORD' -MySqlAdminPassword 'MYSQL_PASSWORD'
+```
+
+Config پایدار در `C:\ecomm\config\Test` و `C:\ecomm\config\Production` نگهداری می‌شود. مسیرهای قدیمی `C:\Ecom-Test\appsettings.json` و `C:\Ecom\appsettings.json` در اولین اجرا خودکار وارد می‌شوند. updaterهای Test و Production با mutex سراسری هرگز هم‌زمان IIS را تغییر نمی‌دهند.
 
 تنظیم‌های بهینه‌سازی AppPool مانند `loadUserProfile` به‌صورت best-effort اعمال می‌شوند؛ قفل موقت `applicationHost.config` دیگر فعال‌سازی بسته را متوقف نمی‌کند. استخراج بسته، ساخت تنظیمات MySQL و Health Check همچنان الزامی هستند.
 
