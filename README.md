@@ -88,13 +88,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Production -
 
 PowerShell را با **Run as Administrator** اجرا کنید.
 
-Installer رسمی فعلی: `Install-iMonitorERP-v2.1.1.ps1` (مستقل و بدون زنجیره‌ی installerهای قدیمی)
+Installer رسمی فعلی: `Install-iMonitorERP-v2.1.2.ps1` (مستقل و بدون زنجیره‌ی installerهای قدیمی)
 
 ### نصب/به‌روزرسانی هر دو کانال
 
 ```powershell
 $root='C:\ecomm\.installer-work'; New-Item -ItemType Directory -Force $root|Out-Null; $p=Join-Path $root 'Install-iMonitorERP.ps1'
-Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.1.1.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
+Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.1.2.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -Force
 ```
 
