@@ -76,8 +76,18 @@ jobs:
         run: |
           $asset="$env:GITHUB_WORKSPACE\EcommSource\Ecomm\wwwroot\brands\posiran\logo.jpg"
           New-Item -ItemType Directory -Force -Path (Split-Path $asset -Parent)|Out-Null
-          Invoke-WebRequest 'https://posiran.ir/storage/files/2026/6/cropped-photo_2025-09-08_13-49-25.jpg' -OutFile $asset -UseBasicParsing -TimeoutSec 60
-          if((Get-Item $asset).Length -lt 1024){throw 'Official Posiran logo download is invalid.'}
+          # posiran.ir is not reliably reachable from GitHub runners, and a release
+          # must not depend on that. Fall back to the copy committed in the source
+          # branch so a network blip cannot stop a build.
+          $committed="$env:GITHUB_WORKSPACE\EcommSource\Ecomm\wwwroot\img\logo-posiran.png"
+          try{
+            Invoke-WebRequest 'https://posiran.ir/storage/files/2026/6/cropped-photo_2025-09-08_13-49-25.jpg' -OutFile $asset -UseBasicParsing -TimeoutSec 60
+          }catch{
+            if(!(Test-Path $committed)){throw "Official Posiran logo download failed and no committed fallback exists: $($_.Exception.Message)"}
+            Write-Warning "Official logo download failed: $($_.Exception.Message). Using the committed asset instead."
+            Copy-Item $committed $asset -Force
+          }
+          if((Get-Item $asset).Length -lt 1024){throw 'Official Posiran logo is invalid.'}
           $legacy="$env:GITHUB_WORKSPACE\EcommSource\Ecomm\wwwroot\img\logo.webp"
           New-Item -ItemType Directory -Force -Path (Split-Path $legacy -Parent)|Out-Null
           Copy-Item $asset $legacy -Force
