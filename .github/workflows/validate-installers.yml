@@ -48,7 +48,7 @@ jobs:
       - name: Validate standalone iMonitor installer contract
         shell: pwsh
         run: |
-          $path='scripts/Install-iMonitorERP-v2.1.3.ps1'
+          $path='scripts/Install-iMonitorERP-v2.1.4.ps1'
           $text=Get-Content $path -Raw
           $required=@(
             "`$asset='iMonitor-EcomERP-win-x64.zip'",
@@ -61,10 +61,14 @@ jobs:
           foreach($needle in $required){if(!$text.Contains($needle)){throw "Standalone installer contract missing: $needle"}}
           if($text -match '(?i)posiran'){throw 'Posiran branding leaked into the iMonitor installer.'}
           if(!$text.Contains("Update-iMonitorERP.ps1")){throw 'Local iMonitor updater is not generated in the active installation root.'}
+          if(!$text.Contains("release-tag.txt")){throw 'iMonitor installer does not persist the installed release tag.'}
+          if(!$text.Contains("Install-iMonitorERP.ps1")){throw 'iMonitor installer is not carried into the active installation root.'}
 
-          $posiran='scripts/Install-PosiranERP-v1.0.4.ps1'
+          $posiran='scripts/Install-PosiranERP-v1.0.5.ps1'
           $posiranText=Get-Content $posiran -Raw
           if(!$posiranText.Contains("Update-PosiranERP.ps1")){throw 'Local Posiran updater is not generated in the active installation root.'}
+          if(!$posiranText.Contains("release-tag.txt")){throw 'Posiran installer does not persist the installed release tag.'}
+          if(!$posiranText.Contains("Install-PosiranERP.ps1")){throw 'Posiran installer is not carried into the active installation root.'}
 
       - name: Commit normalization if needed
         shell: pwsh
