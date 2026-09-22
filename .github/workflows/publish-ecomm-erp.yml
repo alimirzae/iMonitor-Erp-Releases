@@ -134,13 +134,10 @@ jobs:
           $title = "iMonitor Ecomm ERP $channel $version"
           $notesPath = Join-Path $env:GITHUB_WORKSPACE 'EcommSource\RELEASE_NOTES.md'
           $featureNotes = if (Test-Path $notesPath) { Get-Content $notesPath -Raw } else { (& git -C "$env:GITHUB_WORKSPACE\EcommSource" log -1 --pretty=%B) }
-          $notes = @"
-$featureNotes
-
----
-نسخه تأییدشده از $env:SOURCE_REPO@$env:SOURCE_SHA
-بیلد کامل و آزمون‌ها پیش از انتشار موفق بوده‌اند.
-"@
+          $notes = $featureNotes + [Environment]::NewLine + [Environment]::NewLine +
+            '---' + [Environment]::NewLine +
+            "نسخه تأییدشده از $env:SOURCE_REPO@$env:SOURCE_SHA" + [Environment]::NewLine +
+            'بیلد کامل و آزمون‌ها پیش از انتشار موفق بوده‌اند.'
           $zip = Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
           $shaFile = "$zip.sha256"
 
