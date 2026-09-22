@@ -1,0 +1,59 @@
+name: Publish iMonitor ERP Installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/Install-iMonitorERP-v2.1.4.ps1'
+      - 'scripts/Start-iMonitorERP-Setup.ps1'
+      - '.github/workflows/publish-imonitor-installer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-imonitor-erp-installer-v2.1.4
+  cancel-in-progress: true
+
+jobs:
+  validate-and-publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate PowerShell syntax
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $files=@(
+            'scripts/Install-iMonitorERP-v2.1.4.ps1',
+            'scripts/Start-iMonitorERP-Setup.ps1'
+          )
+          foreach($file in $files){
+            $tokens=$null;$errors=$null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $file),[ref]$tokens,[ref]$errors)
+            if($errors.Count){$errors|ForEach-Object{Write-Error $_};throw "Syntax validation failed: $file"}
+          }
+
+      - name: Publish fixed installer release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $tag='imonitor-erp-installer-v2.1.4'
+          $assets=@(
+            'scripts/Install-iMonitorERP-v2.1.4.ps1',
+            'scripts/Start-iMonitorERP-Setup.ps1'
+          )
+          $exists=$false
+          & gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+          if($LASTEXITCODE -eq 0){$exists=$true}
+          if($exists){
+            & gh release upload $tag @assets --clobber --repo $env:GITHUB_REPOSITORY
+          }else{
+            & gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --target main --title 'iMonitor ERP Installer 2.1.4' --notes 'Bootstrap and installer without dependency on raw.githubusercontent.com. Includes channel-aware Test/Production installation, verified package cache, rollback, health check, and scheduled self-update.'
+          }
+          if($LASTEXITCODE -ne 0){throw 'Installer release publication failed.'}
