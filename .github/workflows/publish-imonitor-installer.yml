@@ -51,8 +51,12 @@ jobs:
             'scripts/Start-iMonitorERP-Setup.ps1'
           )
           $exists=$false
+          $oldPreference=$ErrorActionPreference
+          $ErrorActionPreference='Continue'
           & gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
           if($LASTEXITCODE -eq 0){$exists=$true}
+          $global:LASTEXITCODE=0
+          $ErrorActionPreference=$oldPreference
           if($exists){
             & gh release upload $tag @assets --clobber --repo $env:GITHUB_REPOSITORY
           }else{
@@ -63,8 +67,12 @@ jobs:
           $posiranTag='posiran-erp-installer-v1.0.5'
           $posiranAsset='scripts/Install-PosiranERP-v1.0.5.ps1'
           $posiranExists=$false
+          $oldPreference=$ErrorActionPreference
+          $ErrorActionPreference='Continue'
           & gh release view $posiranTag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
           if($LASTEXITCODE -eq 0){$posiranExists=$true}
+          $global:LASTEXITCODE=0
+          $ErrorActionPreference=$oldPreference
           if($posiranExists){
             & gh release upload $posiranTag $posiranAsset --clobber --repo $env:GITHUB_REPOSITORY
           }else{
