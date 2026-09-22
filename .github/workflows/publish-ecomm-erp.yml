@@ -102,7 +102,7 @@ jobs:
           $tag = "imonitor-ecomerp-$channel-v$version"
           $subject = (& git -C "$env:GITHUB_WORKSPACE\EcommSource" log -1 --pretty=%s).Trim()
           $notesPath = Join-Path $env:GITHUB_WORKSPACE 'EcommSource\RELEASE_NOTES.md'
-          $notes = if (Test-Path $notesPath) { Get-Content $notesPath -Raw } else { "Primary change: $subject" }
+          $notes = if (Test-Path $notesPath) { Get-Content $notesPath -Raw -Encoding UTF8 } else { "Primary change: $subject" }
           Set-Content (Join-Path $out 'release-tag.txt') $tag -Encoding ASCII
           Set-Content (Join-Path $out 'release-notes.md') $notes -Encoding UTF8
           [ordered]@{product='imonitor';channel=$channel;tag=$tag;version=$version;sourceSha=$env:SOURCE_SHA;publishedAt=(Get-Date).ToUniversalTime().ToString('o')} |
@@ -133,7 +133,7 @@ jobs:
           $tag = "imonitor-ecomerp-$channel-v$version"
           $title = "iMonitor Ecomm ERP $channel $version"
           $notesPath = Join-Path $env:GITHUB_WORKSPACE 'EcommSource\RELEASE_NOTES.md'
-          $featureNotes = if (Test-Path $notesPath) { Get-Content $notesPath -Raw } else { (& git -C "$env:GITHUB_WORKSPACE\EcommSource" log -1 --pretty=%B) }
+          $featureNotes = if (Test-Path $notesPath) { Get-Content $notesPath -Raw -Encoding UTF8 } else { (& git -C "$env:GITHUB_WORKSPACE\EcommSource" log -1 --pretty=%B) }
           $notes = $featureNotes + [Environment]::NewLine + [Environment]::NewLine +
             '---' + [Environment]::NewLine +
             "Verified source: $env:SOURCE_REPO@$env:SOURCE_SHA" + [Environment]::NewLine +
