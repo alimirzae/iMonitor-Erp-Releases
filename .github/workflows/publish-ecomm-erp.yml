@@ -102,7 +102,7 @@ jobs:
           $tag = "imonitor-ecomerp-$channel-v$version"
           $subject = (& git -C "$env:GITHUB_WORKSPACE\EcommSource" log -1 --pretty=%s).Trim()
           $notesPath = Join-Path $env:GITHUB_WORKSPACE 'EcommSource\RELEASE_NOTES.md'
-          $notes = if (Test-Path $notesPath) { Get-Content $notesPath -Raw } else { "تغییر اصلی: $subject" }
+          $notes = if (Test-Path $notesPath) { Get-Content $notesPath -Raw } else { "Primary change: $subject" }
           Set-Content (Join-Path $out 'release-tag.txt') $tag -Encoding ASCII
           Set-Content (Join-Path $out 'release-notes.md') $notes -Encoding UTF8
           [ordered]@{product='imonitor';channel=$channel;tag=$tag;version=$version;sourceSha=$env:SOURCE_SHA;publishedAt=(Get-Date).ToUniversalTime().ToString('o')} |
@@ -136,8 +136,8 @@ jobs:
           $featureNotes = if (Test-Path $notesPath) { Get-Content $notesPath -Raw } else { (& git -C "$env:GITHUB_WORKSPACE\EcommSource" log -1 --pretty=%B) }
           $notes = $featureNotes + [Environment]::NewLine + [Environment]::NewLine +
             '---' + [Environment]::NewLine +
-            "نسخه تأییدشده از $env:SOURCE_REPO@$env:SOURCE_SHA" + [Environment]::NewLine +
-            'بیلد کامل و آزمون‌ها پیش از انتشار موفق بوده‌اند.'
+            "Verified source: $env:SOURCE_REPO@$env:SOURCE_SHA" + [Environment]::NewLine +
+            'Full build and tests passed before publication.'
           $zip = Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
           $shaFile = "$zip.sha256"
 
