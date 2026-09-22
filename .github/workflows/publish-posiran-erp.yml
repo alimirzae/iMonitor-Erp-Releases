@@ -135,7 +135,7 @@ jobs:
           $version="1.0.$env:SOURCE_RUN_NUMBER"
           $tag="posiran-erp-$channel-v$version"
           $notesSource=Join-Path $env:GITHUB_WORKSPACE 'EcommSource\RELEASE_NOTES.md'
-          $notes=if(Test-Path $notesSource){Get-Content $notesSource -Raw}else{(& git -C "$env:GITHUB_WORKSPACE\EcommSource" log -1 --pretty=%B)}
+          $notes=if(Test-Path $notesSource){Get-Content $notesSource -Raw -Encoding UTF8}else{(& git -C "$env:GITHUB_WORKSPACE\EcommSource" log -1 --pretty=%B)}
           $notesFile=Join-Path $env:RUNNER_TEMP 'posiran-release-notes.md'
           $releaseBody = $notes + [Environment]::NewLine + [Environment]::NewLine +
             '---' + [Environment]::NewLine +
