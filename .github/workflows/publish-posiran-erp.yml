@@ -137,15 +137,13 @@ jobs:
           $notesSource=Join-Path $env:GITHUB_WORKSPACE 'EcommSource\RELEASE_NOTES.md'
           $notes=if(Test-Path $notesSource){Get-Content $notesSource -Raw}else{(& git -C "$env:GITHUB_WORKSPACE\EcommSource" log -1 --pretty=%B)}
           $notesFile=Join-Path $env:RUNNER_TEMP 'posiran-release-notes.md'
-          @"
-$notes
-
----
-کانال: $channel
-شاخه منبع: $env:SOURCE_BRANCH
-کد منبع: $env:SOURCE_SHA
-تنظیمات و رمزهای دیتابیس در بسته انتشار قرار نمی‌گیرند و هنگام ارتقا حفظ می‌شوند.
-"@ | Set-Content $notesFile -Encoding UTF8
+          $releaseBody = $notes + [Environment]::NewLine + [Environment]::NewLine +
+            '---' + [Environment]::NewLine +
+            "کانال: $channel" + [Environment]::NewLine +
+            "شاخه منبع: $env:SOURCE_BRANCH" + [Environment]::NewLine +
+            "کد منبع: $env:SOURCE_SHA" + [Environment]::NewLine +
+            'تنظیمات و رمزهای دیتابیس در بسته انتشار قرار نمی‌گیرند و هنگام ارتقا حفظ می‌شوند.'
+          Set-Content $notesFile $releaseBody -Encoding UTF8
           Set-Content (Join-Path $out 'release-tag.txt') $tag -Encoding ASCII
           Set-Content (Join-Path $out 'release-notes.md') $notes -Encoding UTF8
           [ordered]@{product='posiran';channel=$channel;tag=$tag;version=$version;sourceSha=$env:SOURCE_SHA;publishedAt=(Get-Date).ToUniversalTime().ToString('o')} |
