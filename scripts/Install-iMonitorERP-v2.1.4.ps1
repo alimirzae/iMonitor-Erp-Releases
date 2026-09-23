@@ -347,8 +347,35 @@ function Install-Channel($info){
       Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue
     }catch{throw "IIS activation failed: $($_.Exception.Message)"}
     $headers=@{};if($info.HostHeader){$headers.Host=$info.HostHeader}
-    $ok=$false;for($i=1;$i -le 45;$i++){Start-Sleep 2;try{$r=Invoke-WebRequest "http://127.0.0.1:$bindingPort/health" -Headers $headers -UseBasicParsing -TimeoutSec 8;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
-    if(!$ok){throw "Health check failed on port $bindingPort for $($info.HostHeader). Check $($info.Root)\logs and IIS logs."}
+    $healthUrls=New-Object System.Collections.Generic.List[string]
+    [void]$healthUrls.Add("http://127.0.0.1:$bindingPort/health")
+    if($bindingPort -ne $info.Port){[void]$healthUrls.Add("http://127.0.0.1:$($info.Port)/health")}
+    if($info.HostHeader){[void]$healthUrls.Add("http://$($info.HostHeader)/health")}
+    $lastHealthError=''
+    $ok=$false
+    for($i=1;$i -le 60 -and !$ok;$i++){
+      Start-Sleep 2
+      foreach($healthUrl in ($healthUrls|Select-Object -Unique)){
+        try{
+          $r=Invoke-WebRequest $healthUrl -Headers $headers -UseBasicParsing -TimeoutSec 8
+          if($r.StatusCode -eq 200){$ok=$true;break}
+          $lastHealthError="HTTP $($r.StatusCode) from $healthUrl"
+        }catch{$lastHealthError="$healthUrl -> $($_.Exception.Message)"}
+      }
+    }
+    if(!$ok){
+      $siteState='unknown';$poolState='unknown'
+      try{$siteState=(Get-WebsiteState -Name $info.Site).Value}catch{}
+      try{$poolState=(Get-WebAppPoolState -Name $info.Pool).Value}catch{}
+      $eventHint=''
+      try{
+        $events=Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
+          Where-Object{$_.ProviderName -match 'IIS AspNetCore Module V2|IIS AspNetCore Module|Application Error|.NET Runtime'} |
+          Select-Object -First 3
+        if($events){$eventHint=($events|ForEach-Object{"[$($_.TimeCreated)] $($_.ProviderName): $($_.Message -replace '[\r\n]+',' ')"}) -join ' | '}
+      }catch{}
+      throw "Health check failed for $($info.Name) after deployment. Site=$siteState Pool=$poolState Port=$bindingPort Host='$($info.HostHeader)' LastError='$lastHealthError' EventLog='$eventHint'. Check $($info.Root)\logs and IIS logs."
+    }
     if(Test-Path $backup){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
     Copy-Item (Join-Path $info.Root 'Install-iMonitorERP.ps1') $stableInstaller -Force
     Set-Content $info.State $rel.Tag -Encoding ASCII;Write-Host "[OK] $($rel.Tag) -> http://127.0.0.1:$($info.Port)/ ; DB=$($info.Database) ; Folder=$($info.Folder)" -ForegroundColor Green;Register-Updater $info
