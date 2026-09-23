@@ -360,7 +360,23 @@ function Install-Channel($info){
           $r=Invoke-WebRequest $healthUrl -Headers $headers -UseBasicParsing -TimeoutSec 8
           if($r.StatusCode -eq 200){$ok=$true;break}
           $lastHealthError="HTTP $($r.StatusCode) from $healthUrl"
-        }catch{$lastHealthError="$healthUrl -> $($_.Exception.Message)"}
+        }catch{
+          $lastHealthError="$healthUrl -> $($_.Exception.Message)"
+          # Some IIS sites force HTTP to HTTPS. Loopback HTTPS commonly presents the
+          # public certificate for the host name, not 127.0.0.1, so PowerShell 5.1
+          # reports a trust/name mismatch even though the application is healthy.
+          if($_.Exception.Message -match 'trust relationship|SSL/TLS secure channel'){
+            try{
+              $oldCallback=[System.Net.ServicePointManager]::ServerCertificateValidationCallback
+              [System.Net.ServicePointManager]::ServerCertificateValidationCallback={ $true }
+              $httpsUrl=$healthUrl -replace '^http://','https://'
+              $r=Invoke-WebRequest $httpsUrl -Headers $headers -UseBasicParsing -TimeoutSec 8
+              if($r.StatusCode -eq 200){$ok=$true;break}
+              $lastHealthError="HTTPS HTTP $($r.StatusCode) from $httpsUrl"
+            }catch{$lastHealthError="$httpsUrl -> $($_.Exception.Message)"}
+            finally{[System.Net.ServicePointManager]::ServerCertificateValidationCallback=$oldCallback}
+          }
+        }
       }
     }
     if(!$ok){
