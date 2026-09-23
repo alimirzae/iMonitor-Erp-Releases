@@ -172,7 +172,7 @@ function Initialize-ChannelConfig($info){
   $sibling=if($info.Name -eq 'Test'){Join-Path (Join-Path $ConfigRoot 'Production') 'appsettings.json'}else{Join-Path (Join-Path $ConfigRoot 'Test') 'appsettings.json'}
   $source=@($current,$legacy,$sibling)|Where-Object{Test-Path $_}|Select-Object -First 1
   if($source){Copy-Item $source $info.Config -Force;Write-Host "[OK] Initial config copied from $source" -ForegroundColor Green;return}
-  if([string]::IsNullOrWhiteSpace($MySqlPassword)){throw "No existing configuration was found for $($info.Name). Rerun with -MySqlUser and -MySqlPassword (and optionally -MySqlServer/-MySqlPort)."}
+  if([string]::IsNullOrWhiteSpace($MySqlPassword)){throw "No existing configuration was found for $($info.Name). This is expected on a brand-new server: the README 'Standard Setup' quick command does not include MySQL credentials. Rerun with credentials, e.g.:`n  -Channel $($info.Name) -MySqlServer $MySqlServer -MySqlUser $MySqlUser -MySqlPassword '<password>' -MySqlAdminUser $MySqlAdminUser -MySqlAdminPassword '<password>'"}
   [pscustomobject]@{AllowedHosts='*';Database=[pscustomobject]@{Type='MySql';MySql=[pscustomobject]@{}};ConnectionStrings=[pscustomobject]@{}} |
     ConvertTo-Json -Depth 20 | Set-Content $info.Config -Encoding UTF8
 }
@@ -184,7 +184,7 @@ function Normalize-ChannelConfig($info){
   $existing=if($mysql.PSObject.Properties['ConnectionString']){[string]$mysql.ConnectionString}else{''}
   if([string]::IsNullOrWhiteSpace($existing) -and $connections.PSObject.Properties['MySql']){$existing=[string]$connections.MySql}
   if([string]::IsNullOrWhiteSpace($existing)){
-    if([string]::IsNullOrWhiteSpace($MySqlPassword)){throw "MySQL connection string is missing in $($info.Config). Supply -MySqlPassword."}
+    if([string]::IsNullOrWhiteSpace($MySqlPassword)){throw "MySQL connection string is missing in $($info.Config). Supply -MySqlPassword (e.g. -Channel $($info.Name) -MySqlServer $MySqlServer -MySqlUser $MySqlUser -MySqlPassword '<password>')."}
     $existing="Server=$MySqlServer;Port=$MySqlPort;Database=$($info.Database);User=$MySqlUser;Password=$MySqlPassword;CharSet=utf8mb4;"
   }
   if($existing -match '(?i)(Database|Initial Catalog)\s*='){$existing=[regex]::Replace($existing,'(?i)(Database|Initial Catalog)\s*=\s*[^;]*',"Database=$($info.Database)")}else{$existing=$existing.TrimEnd(';')+";Database=$($info.Database);"}
@@ -405,6 +405,14 @@ try{
   Ensure-IisPrerequisites
   $selected=@();if($Channel -in @('Both','Test')){$selected+=Get-ChannelInfo 'Test'};if($Channel -in @('Both','Production')){$selected+=Get-ChannelInfo 'Production'}
   foreach($i in $selected){Stop-ScheduledTask -TaskName $i.Task -ErrorAction SilentlyContinue}
-  foreach($i in $selected){Install-Channel $i}
+  $channelErrors=@()
+  foreach($i in $selected){
+    try{Install-Channel $i}
+    catch{
+      $channelErrors += "$($i.Name): $($_.Exception.Message)"
+      Write-Warning "$($i.Name) channel failed: $($_.Exception.Message)"
+    }
+  }
+  if($channelErrors.Count -gt 0){throw ("One or more channels failed:" + [Environment]::NewLine + ($channelErrors -join [Environment]::NewLine))}
 }
 finally{if($installMutex){$installMutex.ReleaseMutex();$installMutex.Dispose()}}
