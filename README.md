@@ -1,6 +1,6 @@
 # iMonitor Release Center
 
-مرکز عمومی انتشار و نصب خودکار محصولات iMonitor / Ecomm / Posiran ERP.
+مرکز عمومی انتشار و نصب محصولات iMonitor / Ecomm / Posiran ERP.
 
 > ⚠️ **مهم برای تمام نصب‌های Windows:** ابتدا منوی Start را باز کنید، `Windows PowerShell` را جستجو کنید، روی آن راست‌کلیک کرده و **Run as Administrator** را بزنید. همه دستورهای زیر باید داخل PowerShell با دسترسی Administrator اجرا شوند.
 >
@@ -121,9 +121,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -MySqlS
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -TestPhysicalPath 'C:\Ecom-Test' -ProductionPhysicalPath 'C:\Ecom' -TestHostHeader 'testerp.imonitor.ir' -ProductionHostHeader 'erp.imonitor.ir' -MySqlPassword 'MYSQL_PASSWORD' -MySqlAdminPassword 'MYSQL_PASSWORD'
 ```
 
-Config پایدار در `C:\ecomm\config\Test` و `C:\ecomm\config\Production` نگهداری می‌شود. مسیرهای قدیمی `C:\Ecom-Test\appsettings.json` و `C:\Ecom\appsettings.json` در اولین اجرا خودکار وارد می‌شوند. updaterهای Test و Production با mutex سراسری هرگز هم‌زمان IIS را تغییر نمی‌دهند.
+Config پایدار در `C:\ecomm\config\Test` و `C:\ecomm\config\Production` نگهداری می‌شود. مسیرهای قدیمی `C:\Ecom-Test\appsettings.json` و `C:\Ecom\appsettings.json` در اولین اجرا خودکار وارد می‌شوند. اجرای هم‌زمان نصب/ارتقای دستی با mutex سراسری کنترل می‌شود.
 
-پس از نصب، اسکریپت ارتقای همان کانال با نام `Update-iMonitorERP.ps1` در روت فعال برنامه قرار می‌گیرد. صفحه `/system/update` نیز از داخل NavMenu در دسترس است. Scheduled Task کانال Test هر ۱ دقیقه و Production هر ۵ دقیقه همین اسکریپت محلی را اجرا می‌کند.
+پس از نصب، اسکریپت ارتقای همان کانال با نام `Update-iMonitorERP.ps1` در روت فعال برنامه قرار می‌گیرد. ارتقا به‌صورت **دستی** از صفحه `/system/update` در NavMenu انجام می‌شود. Installer دیگر هیچ Scheduled Task برای Auto Update ایجاد نمی‌کند و Taskهای قدیمی `iMonitorERP-Update-Test` و `iMonitorERP-Update-Production` را در زمان اجرا حذف می‌کند.
 
 تنظیم‌های بهینه‌سازی AppPool مانند `loadUserProfile` به‌صورت best-effort اعمال می‌شوند؛ قفل موقت `applicationHost.config` دیگر فعال‌سازی بسته را متوقف نمی‌کند. استخراج بسته، ساخت تنظیمات MySQL و Health Check همچنان الزامی هستند.
 
@@ -162,5 +162,6 @@ Direct label print POST http://127.0.0.1:17891/api/labels/print
 
 - Release metadata and packages use native HttpClient, BITS and Invoke-WebRequest fallbacks.
 - Installer work files use `<InstallRoot>\.installer-work` instead of the RDP session Temp directory.
-- A machine-wide mutex prevents Test and Production scheduled updaters from changing IIS concurrently.
+- A machine-wide mutex prevents concurrent manual install/update operations from changing IIS concurrently.
+- Automatic iMonitor ERP update tasks are removed; updates are initiated manually from `/system/update`.
 - Missing Test configuration can be recovered from the preserved Production configuration and normalized to `ecomm_dev`.
