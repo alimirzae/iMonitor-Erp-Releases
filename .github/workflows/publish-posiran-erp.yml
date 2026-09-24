@@ -7,6 +7,8 @@ on:
     branches: [main]
     paths:
       - 'posiran/release-production.request'
+  schedule:
+    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
       branch:
@@ -31,7 +33,7 @@ jobs:
     timeout-minutes: 30
     env:
       SOURCE_REPO: alimirzae/Ecomm
-      SOURCE_BRANCH: ${{ github.event.client_payload.branch || inputs.branch || 'posiran_production' }}
+      SOURCE_BRANCH: ${{ github.event.client_payload.branch || inputs.branch || 'posiran_test' }}
       SOURCE_SHA: ${{ github.event.client_payload.sha }}
       SOURCE_RUN_NUMBER: ${{ github.event.client_payload.run_number || github.run_number }}
       ASSET_NAME: PosiranERP-win-x64.zip
