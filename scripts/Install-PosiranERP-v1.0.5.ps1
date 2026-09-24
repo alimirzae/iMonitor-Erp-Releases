@@ -140,7 +140,12 @@ function Register-Updater($info){
     return
   }
   $localUpdater=Join-Path $info.Root 'Update-PosiranERP.ps1'
-  if(!(Test-Path $localUpdater)){throw "Local updater missing: $localUpdater"}
+  if(!(Test-Path $localUpdater)){
+    Write-Warning "Local updater missing; repairing it before task registration: $localUpdater"
+    if(!(Test-Path $info.Root)){throw "ERP current folder is missing: $($info.Root)"}
+    Write-LocalUpdater $info $info.Root
+  }
+  if(!(Test-Path $localUpdater)){throw "Could not repair local updater: $localUpdater"}
   $args="-NoProfile -ExecutionPolicy Bypass -File `"$localUpdater`""
   $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $args
   Unregister-ScheduledTask -TaskName $info.Task -Confirm:$false -ErrorAction SilentlyContinue
@@ -211,7 +216,13 @@ function Install-Channel($info){
   if(!(Test-Path $info.Config)){if($Mode -eq 'UpdateOnly'){Write-Warning "Config missing for $($info.Name); update skipped.";return};throw "Dedicated Posiran ERP configuration not found: $($info.Config)"}
   Normalize-ChannelConfig $info
   $rel=Get-LatestRelease $info;$installed=if(Test-Path $info.State){(Get-Content $info.State -Raw).Trim()}else{''}
-  if(!$Force -and $installed -eq $rel.Tag){Write-Host "Already current: $($rel.Tag)";Register-Updater $info;return}
+  if(!$Force -and $installed -eq $rel.Tag){
+    Write-Host "Already current: $($rel.Tag)"
+    # Repair support/update files even when application binaries are already current.
+    Write-LocalUpdater $info $info.Root
+    Register-Updater $info
+    return
+  }
   $work=Join-Path $env:TEMP ('posiran-'+$info.Key+'-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Force -Path $work,(Split-Path $info.State -Parent),$info.Root|Out-Null
   $zip=Join-Path $work $asset;$shaFile=$zip+'.sha256'
   try{
