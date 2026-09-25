@@ -32,7 +32,7 @@ Add-Type -AssemblyName System.Net.Http
 $repo='alimirzae/iMonitor-Erp-Releases'
 $asset='iMonitor-EcomERP-win-x64.zip'
 $stableDir=Join-Path $InstallRoot 'installer'
-$stableInstaller=Join-Path $stableDir 'Install-iMonitorERP-v2.1.4.ps1'
+$stableInstaller=Join-Path $stableDir 'Install-iMonitorERP-v2.1.5.ps1'
 $packageCache=Join-Path $InstallRoot 'packages'
 $workRoot=Join-Path $InstallRoot '.installer-work'
 New-Item -ItemType Directory -Force -Path $InstallRoot,$ConfigRoot,$stableDir,$packageCache,$workRoot | Out-Null
