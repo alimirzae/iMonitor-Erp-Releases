@@ -115,11 +115,27 @@ public sealed class OrchestratorService
             var zip = Path.Combine(packageDir, assetName);
             var shaFile = zip + ".sha256";
             var http = _clients.CreateClient();
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("ERPDeploymentManager/1.0");
-            http.Timeout = TimeSpan.FromMinutes(10);
-            await DownloadAsync(http, shaUrl, shaFile, cancellationToken);
-            var expected = File.ReadAllText(shaFile).Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
-            if (!File.Exists(zip) || Hash(zip) != expected) await DownloadAsync(http, releaseUrl, zip, cancellationToken);
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("ERPDeploymentManager/1.1");
+            http.Timeout = TimeSpan.FromMinutes(3);
+
+            // Offline-first: a manually copied/cached package is authoritative when its checksum is present and valid.
+            string? expected = null;
+            if (File.Exists(shaFile))
+            {
+                expected = File.ReadAllText(shaFile).Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()?.ToLowerInvariant();
+                if (!string.IsNullOrWhiteSpace(expected) && File.Exists(zip) && string.Equals(Hash(zip), expected, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Valid local cache: do not touch the network.
+                }
+                else expected = null;
+            }
+            if (expected is null)
+            {
+                await DownloadWithFallbackAsync(http, shaUrl, shaFile, cancellationToken);
+                expected = File.ReadAllText(shaFile).Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
+            }
+            if (!File.Exists(zip) || !string.Equals(Hash(zip), expected, StringComparison.OrdinalIgnoreCase))
+                await DownloadWithFallbackAsync(http, releaseUrl, zip, cancellationToken);
             var actual = Hash(zip);
             if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Package checksum mismatch.");
 
@@ -219,13 +235,41 @@ public sealed class OrchestratorService
             throw new InvalidOperationException("Release tag does not belong to this product/channel.");
     }
 
-    private static async Task DownloadAsync(HttpClient http, string url, string destination, CancellationToken ct)
+    private static async Task DownloadWithFallbackAsync(HttpClient http, string url, string destination, CancellationToken ct)
     {
-        using var r = await http.GetAsync(url, ct);
-        r.EnsureSuccessStatusCode();
-        await using var src = await r.Content.ReadAsStreamAsync(ct);
-        await using var dst = File.Create(destination);
-        await src.CopyToAsync(dst, ct);
+        var errors = new List<string>();
+        // Route 1: .NET HTTPS. Each attempt has a hard bound; no server may hang the manager for hours.
+        for (var attempt=1; attempt<=2; attempt++)
+        {
+            try
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromMinutes(3));
+                using var r = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+                r.EnsureSuccessStatusCode();
+                var temp = destination + ".part";
+                await using (var src = await r.Content.ReadAsStreamAsync(timeout.Token))
+                await using (var dst = File.Create(temp))
+                    await src.CopyToAsync(dst, timeout.Token);
+                File.Move(temp, destination, true);
+                return;
+            }
+            catch(Exception ex) { errors.Add($"HTTP attempt {attempt}: {ex.Message}"); }
+        }
+
+        // Route 2: Windows curl forced to IPv4 + HTTP/1.1, useful on hosts with broken IPv6/TLS routing.
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                var temp = destination + ".part";
+                var r = RunProcess("curl.exe", new[] { "-4","--http1.1","--tlsv1.2","-fL","--retry","2","--retry-delay","2","--connect-timeout","15","--max-time","600",url,"-o",temp }, 11 * 60 * 1000);
+                if (r.ExitCode == 0 && File.Exists(temp)) { File.Move(temp,destination,true); return; }
+                errors.Add("curl IPv4: " + (string.IsNullOrWhiteSpace(r.StdErr) ? r.StdOut : r.StdErr));
+            }
+            catch(Exception ex) { errors.Add("curl IPv4: " + ex.Message); }
+        }
+        throw new InvalidOperationException("All download routes failed. You can manually copy the release file into the package cache. " + string.Join(" | ", errors));
     }
 
     private static string Hash(string path)
