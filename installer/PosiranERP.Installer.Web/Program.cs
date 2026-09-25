@@ -15,8 +15,6 @@ var app = builder.Build();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-const string releaseRepository = "alimirzae/iMonitor-Erp-Releases";
-
 app.MapGet("/api/status", (OrchestratorService orchestrator) =>
 {
     var isWindows = OperatingSystem.IsWindows();
@@ -194,7 +192,7 @@ static async Task DownloadInstallerScriptAsync(HttpClient http, string destinati
     var bytes = await http.GetByteArrayAsync(scriptUrl, cancellationToken);
     var text = System.Text.Encoding.UTF8.GetString(bytes);
     if (!text.Contains("function Stop-ChannelHost", StringComparison.Ordinal) || !text.Contains("Get-WebAppPoolState", StringComparison.Ordinal))
-        throw new InvalidOperationException($"Downloaded installer script from {commitSha} failed the version contract.");
+        throw new InvalidOperationException("Downloaded Posiran installer asset failed the version contract.");
     await File.WriteAllBytesAsync(destination, bytes, cancellationToken);
     Console.WriteLine("Installer script downloaded from Posiran ERP installer release v1.0.5.");
 }
