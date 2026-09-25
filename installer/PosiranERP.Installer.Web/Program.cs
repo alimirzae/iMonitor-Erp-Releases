@@ -170,7 +170,7 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
         isTest ? "-TestPort" : "-ProductionPort",appPort.ToString(),
         isTest ? "-TestFolderName" : "-ProductionFolderName",installFolderName
     };
-    if (!request.AutoUpdate) args.Add("-DisableAutoUpdate");
+    if (!isIMonitor && !request.AutoUpdate) args.Add("-DisableAutoUpdate");
     if (request.Force) args.Add("-Force");
     var r = RunPowerShell(args);
     if (r.ExitCode != 0) return Results.Problem(title: "Installation failed", detail: r.Error, statusCode: 500);
