@@ -74,7 +74,7 @@ app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorSer
         var scriptPath = Path.Combine(scriptDirectory, "Install-PosiranERP-v1.0.5.ps1");
         var http = clients.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(60);
-        await DownloadInstallerScriptAsync(http, scriptPath, ct);
+        await DownloadInstallerScriptAsync(http, scriptPath, false, ct);
         var args = new List<string>
         {
             "-NoProfile","-ExecutionPolicy","Bypass","-File",scriptPath,
