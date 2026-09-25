@@ -95,7 +95,18 @@ function Invoke-AssetDownload([string]$ApiUrl,[string]$BrowserUrl,[string]$Out,[
 }
 
 function Get-LatestRelease($info){
-  $cb=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();$uri="https://api.github.com/repos/$repo/releases?per_page=100&cb=$cb"
+  $cb=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $manifestChannel=if($info.Name -eq 'Test'){'test'}else{'production'}
+  $manifestUrl="https://raw.githubusercontent.com/$repo/main/channels/posiran/$manifestChannel/latest.json?cb=$cb"
+  try{
+    $m=Invoke-RestMethod -Uri $manifestUrl -TimeoutSec 15 -Headers @{'User-Agent'='PosiranERP-Installer/1.0.5';'Cache-Control'='no-cache'}
+    if([string]$m.tag -like ($info.Prefix+'*')){
+      $releaseBase="https://github.com/$repo/releases/download/$([string]$m.tag)"
+      Write-Host '[Release] Static channel manifest selected (GitHub API not required).' -ForegroundColor Green
+      return [pscustomobject]@{Tag=[string]$m.tag;ZipApiUrl="$releaseBase/$asset";ZipBrowserUrl="$releaseBase/$asset";ShaApiUrl="$releaseBase/$asset.sha256";ShaBrowserUrl="$releaseBase/$asset.sha256"}
+    }
+  }catch{Write-Warning "Static channel manifest unavailable: $($_.Exception.Message)"}
+  $uri="https://api.github.com/repos/$repo/releases?per_page=100&cb=$cb"
   $headers=@{'User-Agent'='PosiranERP-Installer/1.0.5';'Accept'='application/vnd.github+json';'Cache-Control'='no-cache'}
   try{$rels=Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -TimeoutSec 60}
   catch{
