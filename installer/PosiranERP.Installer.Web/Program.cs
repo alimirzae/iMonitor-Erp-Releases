@@ -5,8 +5,9 @@ using System.Text.RegularExpressions;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService(options => options.ServiceName = "ERP Deployment Manager");
-builder.WebHost.UseUrls(builder.Configuration["Installer:Url"] ?? "http://127.0.0.1:8099");
+builder.WebHost.UseUrls("http://127.0.0.1:8099");
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<OperationLogStore>();
 builder.Services.AddHostedService<AutoUpdateWorker>();
 
 var defaultInstallRoot = builder.Configuration["Installer:InstallRoot"] ?? @"C:\PosiranERP";
@@ -59,6 +60,22 @@ app.MapPost("/api/installations/{id}/rollback/{tag}", async (string id, string t
     catch (Exception ex) { return Results.Problem(ex.Message); }
 });
 
+app.MapGet("/api/operations", (OperationLogStore logs) => Results.Ok(logs.Recent()));
+app.MapGet("/api/operations/{id}", (string id, OperationLogStore logs) =>
+{
+    var state = logs.Get(id);
+    return state is null ? Results.NotFound() : Results.Ok(state);
+});
+app.MapGet("/api/manual-help", () => Results.Ok(new
+{
+    cache = @"Place downloaded release ZIP and its .sha256 file under <InstallRoot>\packages\<tag>\.",
+    powershell = new {
+        tls = "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12",
+        githubIPv4 = "curl.exe -4 --http1.1 -fL --connect-timeout 15 --max-time 600 <URL> -o <FILE>",
+        inspect = "Test-NetConnection github.com -Port 443; Resolve-DnsName github.com; curl.exe -4 -I --connect-timeout 15 https://github.com"
+    },
+    note = "If GitHub is blocked, download the ZIP and .sha256 in a browser/another machine and copy both files into the cache folder. The deployment manager will use a valid cached package without downloading it again."
+}));
 app.MapGet("/api/mysql/services", (OrchestratorService orchestrator) => Results.Ok(orchestrator.ListMySqlServices()));
 
 app.MapPost("/api/installations/{id}/backup", async (string id, BackupRequest? request, OrchestratorService orchestrator, CancellationToken ct) =>
@@ -150,8 +167,10 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
     });
 });
 
-app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory clients) =>
+app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory clients, OperationLogStore logs, CancellationToken requestCt) =>
 {
+    var op = logs.Start($"Install {request.Product} {request.Channel}");
+    logs.Add(op.Id,"info","مرحله 1: اعتبارسنجی سیستم و تنظیمات");
     if (!OperatingSystem.IsWindows()) return Results.BadRequest(new { error = "This installer currently supports Windows only." });
     if (!IsAdministrator()) return Results.BadRequest(new { error = "Run the installer service as Administrator." });
 
@@ -176,9 +195,12 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
 
     if (!File.Exists(scriptPath) || request.RefreshInstaller)
     {
+        logs.Add(op.Id,"info",$"مرحله 2: بررسی اسکریپت نصاب در cache: {scriptPath}");
         var http = clients.CreateClient();
-        http.Timeout = TimeSpan.FromSeconds(60);
-        await DownloadInstallerScriptAsync(http, scriptPath, isIMonitor);
+        http.Timeout = TimeSpan.FromSeconds(45);
+        try { await DownloadInstallerScriptAsync(http, scriptPath, isIMonitor, requestCt); logs.Add(op.Id,"ok","اسکریپت نصاب دریافت/تأیید شد."); }
+        catch(Exception ex) when(File.Exists(scriptPath)) { logs.Add(op.Id,"warn","دریافت اسکریپت ناموفق بود؛ از نسخه cache شده استفاده می‌شود. "+ex.Message); }
+        catch(Exception ex) { logs.Complete(op.Id,false,"دریافت اسکریپت ناموفق: "+ex.Message); throw; }
     }
 
     var args = new List<string>
@@ -190,8 +212,12 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     };
     if (!isIMonitor && !request.AutoUpdate) args.Add("-DisableAutoUpdate");
     if (request.Force) args.Add("-Force");
-    var r = RunPowerShell(args);
-    if (r.ExitCode != 0) return Results.Problem(title: "Installation failed", detail: r.Error, statusCode: 500);
+    logs.Add(op.Id,"info","مرحله 3: اجرای PowerShell. timeout کل: 30 دقیقه؛ خروجی پس از پایان/timeout در کنسول ثبت می‌شود.");
+    var r = RunPowerShell(args, 30 * 60 * 1000);
+    if(!string.IsNullOrWhiteSpace(r.Output)) logs.Add(op.Id,"stdout",r.Output);
+    if(!string.IsNullOrWhiteSpace(r.Error) && r.Error != r.Output) logs.Add(op.Id,"stderr",r.Error);
+    if (r.ExitCode != 0) { logs.Complete(op.Id,false,$"PowerShell exit code {r.ExitCode}: {r.Error}"); return Results.Problem(title: "Installation failed", detail: $"Operation {op.Id}: {r.Error}", statusCode: 500); }
+    logs.Complete(op.Id,true,"نصب با موفقیت پایان یافت.");
 
     return Results.Ok(new
     {
@@ -200,6 +226,7 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
         localUrl = $"http://127.0.0.1:{appPort}/",
         installPath = Path.Combine(installRoot, installFolderName, "current"),
         autoUpdate = request.AutoUpdate,
+        operationId = op.Id,
         output = r.Output
     });
 });
@@ -221,14 +248,18 @@ static async Task DownloadInstallerScriptAsync(HttpClient http, string destinati
     Console.WriteLine("Installer script downloaded from Posiran ERP installer release v1.0.5.");
 }
 
-static InstallerProcessResult RunPowerShell(IEnumerable<string> args)
+static InstallerProcessResult RunPowerShell(IEnumerable<string> args, int timeoutMs = 30 * 60 * 1000)
 {
     var psi = new ProcessStartInfo { FileName = "powershell.exe", RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
     foreach (var arg in args) psi.ArgumentList.Add(arg);
     using var process = Process.Start(psi) ?? throw new InvalidOperationException("Could not start PowerShell.");
     var output = process.StandardOutput.ReadToEnd();
     var error = process.StandardError.ReadToEnd();
-    process.WaitForExit();
+    if (!process.WaitForExit(timeoutMs))
+    {
+        try { process.Kill(true); } catch { }
+        return new InstallerProcessResult(124, output, $"PowerShell timed out after {TimeSpan.FromMilliseconds(timeoutMs)}. {error}");
+    }
     return new InstallerProcessResult(process.ExitCode, output, string.IsNullOrWhiteSpace(error) ? output : error);
 }
 
