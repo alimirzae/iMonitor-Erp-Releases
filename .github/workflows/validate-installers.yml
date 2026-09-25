@@ -48,7 +48,7 @@ jobs:
       - name: Validate standalone iMonitor installer contract
         shell: pwsh
         run: |
-          $path='scripts/Install-iMonitorERP-v2.1.4.ps1'
+          $path='scripts/Install-iMonitorERP-v2.1.5.ps1'
           $text=Get-Content $path -Raw
           $required=@(
             "`$asset='iMonitor-EcomERP-win-x64.zip'",
