@@ -260,6 +260,11 @@ function Install-Channel($info){
     $backup=$info.Root+'.rollback';if(Test-Path $backup){Remove-Item $backup -Recurse -Force}
     if(Test-Path $info.Root){Move-Item $info.Root $backup -Force}
     Move-Item $stage $info.Root -Force
+    # Ensure IIS worker can read/execute the deployed application after Move-Item/rollback operations.
+    & icacls.exe $info.Root /grant:r "IIS_IUSRS:(OI)(CI)RX" /T /C | Out-Null
+    if($LASTEXITCODE -ne 0){throw "Failed to grant IIS_IUSRS read/execute permission on $($info.Root)."}
+    & icacls.exe $info.Root /grant:r "IIS AppPool\$($info.Pool):(OI)(CI)RX" /T /C | Out-Null
+    if($LASTEXITCODE -ne 0){Write-Warning "Could not grant explicit AppPool ACL; IIS_IUSRS permission is present."}
     if(!(Test-Path "IIS:\AppPools\$($info.Pool)")){New-WebAppPool -Name $info.Pool|Out-Null};Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name managedRuntimeVersion -Value '';Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name startMode -Value 'AlwaysRunning'
     if(!(Test-Path "IIS:\Sites\$($info.Site)")){New-Website -Name $info.Site -PhysicalPath $info.Root -Port $info.Port -ApplicationPool $info.Pool|Out-Null}else{Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name physicalPath -Value $info.Root;Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name applicationPool -Value $info.Pool;Get-WebBinding -Name $info.Site -Protocol http|Remove-WebBinding -ErrorAction SilentlyContinue;New-WebBinding -Name $info.Site -Protocol http -IPAddress '*' -Port $info.Port|Out-Null}
     Start-WebAppPool $info.Pool;Start-Website $info.Site
