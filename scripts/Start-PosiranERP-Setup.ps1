@@ -12,10 +12,10 @@ Add-Type -AssemblyName System.Net.Http
 
 $root = Join-Path $env:ProgramData 'PosiranERP\Setup'
 New-Item -ItemType Directory -Force -Path $root | Out-Null
-$zip = Join-Path $root 'PosiranERP-Setup-win-x64.zip'
+$zip = Join-Path $root 'ERP-Deployment-Manager-win-x64.zip'
 $sha = "$zip.sha256"
 $repo='alimirzae/iMonitor-Erp-Releases'
-$tag='posiran-installer-preview'
+$tag='erp-deployment-manager'
 
 function Invoke-HttpDownload([string]$Url,[string]$Out,[string]$Accept='application/octet-stream',[int]$TimeoutSeconds=300){
   $handler=New-Object System.Net.Http.HttpClientHandler
@@ -70,8 +70,8 @@ function Get-DirectAsset([string]$Name,[string]$Out,[int]$TimeoutSeconds=300){
   throw ("All native download methods failed for {0}: {1}" -f $Name,($errors -join '; '))
 }
 
-Write-Host 'Downloading latest Posiran ERP Setup...' -ForegroundColor Cyan
-Get-DirectAsset 'PosiranERP-Setup-win-x64.zip.sha256' $sha 60
+Write-Host 'Downloading latest ERP Deployment Manager...' -ForegroundColor Cyan
+Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip.sha256' $sha 60
 $expected=((Get-Content $sha -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
 if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
 
@@ -87,7 +87,7 @@ if(Test-Path $zip){
 }
 if(-not $useCached){
   Write-Host 'Cached Setup is missing or outdated; downloading the current Setup package.' -ForegroundColor Cyan
-  Get-DirectAsset 'PosiranERP-Setup-win-x64.zip' $zip 600
+  Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip' $zip 600
 }
 $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 if($expected -ne $actual){ throw "SHA256 mismatch. expected=$expected actual=$actual" }
