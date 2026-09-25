@@ -94,34 +94,80 @@ if($expected -ne $actual){ throw "SHA256 mismatch. expected=$expected actual=$ac
 
 
 $serviceName='ERPDeploymentManager'
-$serviceDir=Join-Path $env:ProgramData 'iMonitor\ERPDeploymentManager\current'
-if(Test-Path $serviceDir){Remove-Item $serviceDir -Recurse -Force}
-New-Item -ItemType Directory -Force -Path $serviceDir | Out-Null
-Expand-Archive $zip -DestinationPath $serviceDir -Force
-$exe=Join-Path $serviceDir 'PosiranERP.Setup.exe'
-if(!(Test-Path $exe)){throw 'ERP Deployment Manager executable was not found after extraction.'}
+$managerRoot=Join-Path $env:ProgramData 'iMonitor\ERPDeploymentManager'
+$serviceDir=Join-Path $managerRoot 'current'
+$stagingDir=Join-Path $managerRoot ('staging-'+[guid]::NewGuid().ToString('N'))
+$previousDir=Join-Path $managerRoot 'previous'
+New-Item -ItemType Directory -Force -Path $managerRoot | Out-Null
 
-$existing=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
-if($existing){
-  try{Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue}catch{}
-  sc.exe delete $serviceName | Out-Null
-  Start-Sleep -Seconds 1
-}
-$bin='"'+$exe+'"'
-sc.exe create $serviceName binPath= $bin start= auto DisplayName= "ERP Deployment Manager" | Out-Null
-sc.exe description $serviceName "Localhost-only ERP install, update, health and rollback manager on 127.0.0.1:8099" | Out-Null
-sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
-Start-Service -Name $serviceName
+# Never extract over a running service. Prepare and validate the new manager in staging first.
+New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
+try {
+  Expand-Archive $zip -DestinationPath $stagingDir -Force
+  $stagedExe=Join-Path $stagingDir 'PosiranERP.Setup.exe'
+  if(!(Test-Path $stagedExe)){throw 'ERP Deployment Manager executable was not found after extraction.'}
 
-$ready=$false
-for($i=0;$i -lt 20;$i++){
-  Start-Sleep -Milliseconds 500
-  try {
-    $r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8099/health' -TimeoutSec 2
-    if($r.StatusCode -eq 200){$ready=$true;break}
-  } catch {}
+  $existing=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+  if($existing){
+    Write-Host 'Stopping ERP Deployment Manager for self-update...' -ForegroundColor Cyan
+    Stop-Service -Name $serviceName -Force -ErrorAction Stop
+    $existing.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
+  }
+
+  # Give Windows a short moment to release executable/DLL handles.
+  $unlocked=$false
+  for($i=0;$i -lt 20;$i++){
+    try{
+      if(Test-Path $serviceDir){
+        $probe=Join-Path $serviceDir '.upgrade-write-test'
+        [IO.File]::WriteAllText($probe,'ok');Remove-Item $probe -Force
+      }
+      $unlocked=$true;break
+    }catch{Start-Sleep -Milliseconds 500}
+  }
+  if(-not $unlocked){throw 'ERP Deployment Manager files are still locked after stopping the service.'}
+
+  if(Test-Path $previousDir){Remove-Item $previousDir -Recurse -Force}
+  if(Test-Path $serviceDir){Move-Item $serviceDir $previousDir -Force}
+  Move-Item $stagingDir $serviceDir -Force
+  $exe=Join-Path $serviceDir 'PosiranERP.Setup.exe'
+
+  if(-not $existing){
+    $bin='"'+$exe+'"'
+    sc.exe create $serviceName binPath= $bin start= auto DisplayName= "ERP Deployment Manager" | Out-Null
+  } else {
+    $bin='"'+$exe+'"'
+    sc.exe config $serviceName binPath= $bin start= auto | Out-Null
+  }
+  sc.exe description $serviceName "Localhost-only ERP install, update, health and rollback manager on 127.0.0.1:8099" | Out-Null
+  sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
+  Start-Service -Name $serviceName
+
+  $ready=$false
+  for($i=0;$i -lt 40;$i++){
+    Start-Sleep -Milliseconds 500
+    try{$r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8099/health' -TimeoutSec 2;if($r.StatusCode -eq 200){$ready=$true;break}}catch{}
+  }
+  if(-not $ready){
+    Write-Warning 'New Deployment Manager failed health check; rolling back the manager itself.'
+    Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    $failedDir=Join-Path $managerRoot ('failed-'+(Get-Date -Format 'yyyyMMdd-HHmmss'))
+    if(Test-Path $serviceDir){Move-Item $serviceDir $failedDir -Force}
+    if(Test-Path $previousDir){
+      Move-Item $previousDir $serviceDir -Force
+      $exe=Join-Path $serviceDir 'PosiranERP.Setup.exe'
+      $bin='"'+$exe+'"';sc.exe config $serviceName binPath= $bin start= auto | Out-Null
+      Start-Service -Name $serviceName
+      throw 'New ERP Deployment Manager was unhealthy and the previous manager was restored.'
+    }
+    throw 'ERP Deployment Manager did not become healthy and no previous manager was available.'
+  }
+  if(Test-Path $previousDir){Remove-Item $previousDir -Recurse -Force -ErrorAction SilentlyContinue}
 }
-if(-not $ready){ throw 'ERP Deployment Manager did not become healthy on http://127.0.0.1:8099/health' }
+finally {
+  if(Test-Path $stagingDir){Remove-Item $stagingDir -Recurse -Force -ErrorAction SilentlyContinue}
+}
 
 Start-Process 'http://127.0.0.1:8099/'
 Write-Host 'ERP Deployment Manager Windows Service is running on http://127.0.0.1:8099/' -ForegroundColor Green
