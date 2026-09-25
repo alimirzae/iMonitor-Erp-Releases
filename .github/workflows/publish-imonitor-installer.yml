@@ -7,6 +7,7 @@ on:
       - 'scripts/Install-iMonitorERP-v2.1.5.ps1'
       - 'scripts/Start-iMonitorERP-Setup.ps1'
       - 'scripts/Install-PosiranERP-v1.0.5.ps1'
+      - 'installer/iMonitorERP.Installer.Web/**'
       - '.github/workflows/publish-imonitor-installer.yml'
   workflow_dispatch:
 
@@ -39,6 +40,21 @@ jobs:
             if($errors.Count){$errors|ForEach-Object{Write-Error $_};throw "Syntax validation failed: $file"}
           }
 
+      - name: Build iMonitor web setup host
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'imonitor-installer-web'
+          dotnet publish installer\iMonitorERP.Installer.Web\iMonitorERP.Installer.Web.csproj -c Release -r win-x64 --self-contained true -o $out
+          if($LASTEXITCODE -ne 0){throw 'iMonitor Setup Host publish failed'}
+          if(!(Test-Path (Join-Path $out 'iMonitorERP.Setup.exe'))){throw 'iMonitorERP.Setup.exe missing'}
+          $zip=Join-Path $env:RUNNER_TEMP 'iMonitorERP-Setup-win-x64.zip'
+          Compress-Archive -Path "$out\*" -DestinationPath $zip -CompressionLevel Optimal -Force
+          $hash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  iMonitorERP-Setup-win-x64.zip" | Set-Content "$zip.sha256" -Encoding ASCII
+          "SETUP_ZIP=$zip" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "SETUP_SHA=$zip.sha256" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Publish fixed installer release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -63,6 +79,22 @@ jobs:
             & gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --target main --title 'iMonitor ERP Installer 2.1.5' --notes 'Bootstrap and installer without dependency on raw.githubusercontent.com. Includes channel-aware Test/Production installation, verified package cache, rollback, health check, and scheduled self-update.'
           }
           if($LASTEXITCODE -ne 0){throw 'Installer release publication failed.'}
+
+          $preview='imonitor-installer-preview'
+          $previewAssets=@($env:SETUP_ZIP,$env:SETUP_SHA)
+          $previewExists=$false
+          $oldPreference=$ErrorActionPreference
+          $ErrorActionPreference='Continue'
+          & gh release view $preview --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+          if($LASTEXITCODE -eq 0){$previewExists=$true}
+          $global:LASTEXITCODE=0
+          $ErrorActionPreference=$oldPreference
+          if($previewExists){
+            & gh release upload $preview @previewAssets --clobber --repo $env:GITHUB_REPOSITORY
+          }else{
+            & gh release create $preview @previewAssets --repo $env:GITHUB_REPOSITORY --target main --title 'iMonitor ERP Setup Preview' --prerelease --notes 'Self-contained web setup host on http://127.0.0.1:8099/.'
+          }
+          if($LASTEXITCODE -ne 0){throw 'iMonitor web setup publication failed.'}
 
           $posiranTag='posiran-erp-installer-v1.0.5'
           $posiranAsset='scripts/Install-PosiranERP-v1.0.5.ps1'
