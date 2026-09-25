@@ -125,6 +125,18 @@ function Invoke-AssetDownload([string]$ApiUrl,[string]$BrowserUrl,[string]$Out,[
 
 function Get-LatestRelease($info){
   $cb=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();$mirrorChannel=if($info.Name -eq 'Test'){'test'}else{'master'}
+  # Primary discovery is a tiny static manifest on raw.githubusercontent.com.
+  # It is not rate-limited like api.github.com and does not depend on the ERP server being healthy.
+  $manifestUrl="https://raw.githubusercontent.com/$repo/main/channels/imonitor/$mirrorChannel/latest.json?cb=$cb"
+  try{
+    $m=Invoke-RestMethod -Uri $manifestUrl -TimeoutSec 15 -Headers @{'User-Agent'='iMonitorERP-Installer/2.1.5';'Cache-Control'='no-cache'}
+    if([string]$m.tag -like ($info.Prefix+'*')){
+      $releaseBase="https://github.com/$repo/releases/download/$([string]$m.tag)"
+      Write-Host '[Release] Static channel manifest selected (GitHub API not required).' -ForegroundColor Green
+      return [pscustomobject]@{Tag=[string]$m.tag;ZipApiUrl="$releaseBase/$asset";ZipBrowserUrl="$releaseBase/$asset";ShaApiUrl="$releaseBase/$asset.sha256";ShaBrowserUrl="$releaseBase/$asset.sha256"}
+    }
+  }catch{Write-Warning "Static channel manifest unavailable: $($_.Exception.Message)"}
+  $mirrorChannel=if($info.Name -eq 'Test'){'test'}else{'master'}
   $mirrorRoot="https://testerp.imonitor.ir/downloads/erp/$mirrorChannel"
   try{
     $m=Invoke-RestMethod -Uri "$mirrorRoot/latest.json?cb=$cb" -TimeoutSec 8 -Headers @{'Cache-Control'='no-cache'}
