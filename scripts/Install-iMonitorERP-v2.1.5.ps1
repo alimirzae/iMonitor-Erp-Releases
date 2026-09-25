@@ -176,11 +176,12 @@ function Initialize-ChannelConfig($info){
 }
 
 function Get-ExistingConnectionString($info){
+  $legacyPath = if($info.Name -eq 'Test'){'C:\Ecom-Test\appsettings.json'}else{'C:\Ecom\appsettings.json'}
   $candidates=@(
     $info.Config,
     (Join-Path $info.Root 'appsettings.json'),
     (Join-Path (Join-Path $info.Root 'current') 'appsettings.json'),
-    (if($info.Name -eq 'Test'){'C:\Ecom-Test\appsettings.json'}else{'C:\Ecom\appsettings.json'})
+    $legacyPath
   ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
   foreach($path in $candidates){
     try{
