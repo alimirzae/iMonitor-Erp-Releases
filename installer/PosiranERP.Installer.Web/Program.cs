@@ -106,8 +106,9 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
 
     var isTest = channel == "Test";
     var isIMonitor = string.Equals(request.Product, "iMonitor", StringComparison.OrdinalIgnoreCase);
-    var installRoot = isIMonitor ? @"C:\ecomm" : defaultInstallRoot;
-    var configRoot = isIMonitor ? @"C:\ecomm\config" : defaultConfigRoot;
+    var installRoot = ResolveInstallRoot(request.InstallRoot, isIMonitor ? @"C:\ecomm" : defaultInstallRoot);
+    Directory.CreateDirectory(installRoot);
+    var configRoot = Path.Combine(installRoot, "config");
     var database = request.DatabaseName.Trim();
     var appPort = request.AppPort is > 0 and <= 65535 ? request.AppPort.Value : (isIMonitor ? (isTest ? 8081 : 8080) : (isTest ? 8082 : 8083));
     var installFolderName = string.IsNullOrWhiteSpace(request.InstallFolderName) ? (isTest ? "test" : "production") : request.InstallFolderName.Trim();
@@ -145,8 +146,9 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
 
     var isTest = channel == "Test";
     var isIMonitor = string.Equals(request.Product, "iMonitor", StringComparison.OrdinalIgnoreCase);
-    var installRoot = isIMonitor ? @"C:\ecomm" : defaultInstallRoot;
-    var configRoot = isIMonitor ? @"C:\ecomm\config" : defaultConfigRoot;
+    var installRoot = ResolveInstallRoot(request.InstallRoot, isIMonitor ? @"C:\ecomm" : defaultInstallRoot);
+    Directory.CreateDirectory(installRoot);
+    var configRoot = Path.Combine(installRoot, "config");
     var appPort = request.AppPort is > 0 and <= 65535 ? request.AppPort.Value : (isIMonitor ? (isTest ? 8081 : 8080) : (isTest ? 8082 : 8083));
     var installFolderName = string.IsNullOrWhiteSpace(request.InstallFolderName) ? (isTest ? "test" : "production") : request.InstallFolderName.Trim();
     var configPath = Path.Combine(configRoot, channel, "appsettings.json");
@@ -281,6 +283,16 @@ static string? ValidateDatabaseFields(SetupRequest request)
     return null;
 }
 
+static string ResolveInstallRoot(string? requested, string fallback)
+{
+    var value = string.IsNullOrWhiteSpace(requested) ? fallback : requested.Trim();
+    if (!Path.IsPathRooted(value)) throw new InvalidOperationException("Install root must be an absolute path including drive letter.");
+    var full = Path.GetFullPath(value);
+    var root = Path.GetPathRoot(full);
+    if (string.IsNullOrWhiteSpace(root) || root.Length < 3) throw new InvalidOperationException("Install root must include a valid Windows drive.");
+    return full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+}
+
 static string? ValidateFolderName(string? folderName)
 {
     if (string.IsNullOrWhiteSpace(folderName)) return null;
@@ -312,7 +324,7 @@ static bool MySqlServiceDetected()
     catch { return false; }
 }
 
-record SetupRequest(string? Product, string Channel, string DatabaseServer, int DatabasePort, string DatabaseUser, string DatabasePassword, string DatabaseName, string? MySqlVersion, int? AppPort, string? InstallFolderName, bool AutoUpdate = true);
-record InstallRequest(string? Product, string Channel, int? AppPort, string? InstallFolderName, bool AutoUpdate = true, bool Force = false, bool RefreshInstaller = true);
+record SetupRequest(string? Product, string Channel, string DatabaseServer, int DatabasePort, string DatabaseUser, string DatabasePassword, string DatabaseName, string? MySqlVersion, int? AppPort, string? InstallRoot, string? InstallFolderName, bool AutoUpdate = true);
+record InstallRequest(string? Product, string Channel, int? AppPort, string? InstallRoot, string? InstallFolderName, bool AutoUpdate = true, bool Force = false, bool RefreshInstaller = true);
 record BackupRequest(string? Reason);
 record InstallerProcessResult(int ExitCode, string Output, string Error);
