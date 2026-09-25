@@ -1,4 +1,4 @@
-name: Validate Posiran Installer Web
+name: Validate Unified ERP Deployment Manager
 
 on:
   push:
@@ -32,8 +32,9 @@ jobs:
           $program=Get-Content installer\PosiranERP.Installer.Web\Program.cs -Raw
           $ui=Get-Content installer\PosiranERP.Installer.Web\wwwroot\index.html -Raw
           if($program -notmatch '127\.0\.0\.1:8099'){throw 'Installer must default to loopback port 8099.'}
-          if($program -notmatch 'posiran_test' -or $program -notmatch '"posiran"'){throw 'Canonical Posiran databases are missing.'}
-          if($ui -notmatch 'راه‌اندازی پوزایران ERP'){throw 'Wizard UI is missing.'}
+          if($program -notmatch 'posiran_test' -or $program -notmatch 'ecomm_dev'){throw 'Canonical ERP databases are missing.'}
+          if($ui -notmatch 'راه‌اندازی یکپارچه ERP'){throw 'Unified manager UI is missing.'}
+          if($program -notmatch 'UseWindowsService'){throw 'Windows Service hosting is missing.'}
 
       - name: Smoke test setup host on port 8099
         shell: powershell
@@ -57,7 +58,7 @@ jobs:
               if(Test-Path $stderr){Get-Content $stderr}
               throw 'Setup host smoke test failed on 127.0.0.1:8099.'
             }
-            Write-Host '[OK] Posiran setup host responded on http://127.0.0.1:8099/health'
+            Write-Host '[OK] Unified ERP Deployment Manager responded on http://127.0.0.1:8099/health'
           }
           finally {
             if(!$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
