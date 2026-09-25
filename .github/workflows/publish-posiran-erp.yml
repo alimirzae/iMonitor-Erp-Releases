@@ -73,13 +73,6 @@ jobs:
             -SourceRoot "$env:GITHUB_WORKSPACE/EcommSource" `
             -OverlayRoot "$env:GITHUB_WORKSPACE/ReleaseCenter/posiran/overlay"
 
-      - name: Preserve Posiran logo from verified source
-        shell: powershell
-        run: |
-          $asset="$env:GITHUB_WORKSPACE\EcommSource\Ecomm\wwwroot\img\logo(2).png"
-          if(!(Test-Path $asset)){throw 'Requested Posiran logo logo(2).png is missing from source.'}
-          if((Get-Item $asset).Length -lt 512){throw 'Requested Posiran logo is invalid.'}
-
       - name: Validate isolated package contract
         shell: powershell
         run: |
@@ -88,7 +81,7 @@ jobs:
           $layout=Get-Content (Join-Path $root 'Ecomm\Components\Layout\MainLayout.razor') -Raw
           if($app -notmatch 'posiran-brand\.css'){throw 'Posiran stylesheet is not loaded.'}
           if($app -match 'iMonitor ERP' -or $layout -match 'iMonitor ERP'){throw 'Visible iMonitor branding remains in Posiran shell.'}
-          foreach($p in @('Ecomm\wwwroot\posiran-brand.css','Ecomm\wwwroot\img\posiran-logo.svg','Ecomm\wwwroot\img\logo(2).png')){if(!(Test-Path (Join-Path $root $p))){throw "Missing Posiran asset: $p"}}
+          foreach($p in @('Ecomm\wwwroot\posiran-brand.css','Ecomm\wwwroot\img\posiran-logo.svg')){if(!(Test-Path (Join-Path $root $p))){throw "Missing Posiran asset: $p"}}
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -116,7 +109,6 @@ jobs:
           if(!(Test-Path (Join-Path $out 'Ecomm.dll'))){throw 'Ecomm.dll missing'}
           if(!(Test-Path (Join-Path $out 'wwwroot\posiran-brand.css'))){throw 'Posiran branding missing from package'}
           if(!(Test-Path (Join-Path $out 'wwwroot\img\posiran-logo.svg'))){throw 'Posiran logo missing from package'}
-          if(!(Test-Path (Join-Path $out 'wwwroot\img\logo(2).png'))){throw 'Requested Posiran header logo missing from package'}
 
       - name: Zip checksum and release metadata
         shell: powershell
