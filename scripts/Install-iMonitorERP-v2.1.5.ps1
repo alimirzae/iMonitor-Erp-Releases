@@ -175,12 +175,36 @@ function Initialize-ChannelConfig($info){
     ConvertTo-Json -Depth 20 | Set-Content $info.Config -Encoding UTF8
 }
 
+function Get-ExistingConnectionString($info){
+  $candidates=@(
+    $info.Config,
+    (Join-Path $info.Root 'appsettings.json'),
+    (Join-Path (Join-Path $info.Root 'current') 'appsettings.json'),
+    (if($info.Name -eq 'Test'){'C:\Ecom-Test\appsettings.json'}else{'C:\Ecom\appsettings.json'})
+  ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+  foreach($path in $candidates){
+    try{
+      $j=Get-Content $path -Raw|ConvertFrom-Json
+      if($j.Database -and $j.Database.MySql -and $j.Database.MySql.ConnectionString){
+        $v=[string]$j.Database.MySql.ConnectionString
+        if(![string]::IsNullOrWhiteSpace($v)){Write-Host "[OK] Recovered MySQL connection from $path" -ForegroundColor Green;return $v}
+      }
+      if($j.ConnectionStrings -and $j.ConnectionStrings.MySql){
+        $v=[string]$j.ConnectionStrings.MySql
+        if(![string]::IsNullOrWhiteSpace($v)){Write-Host "[OK] Recovered MySQL connection from $path" -ForegroundColor Green;return $v}
+      }
+    }catch{}
+  }
+  return ''
+}
+
 function Normalize-ChannelConfig($info){
   Initialize-ChannelConfig $info
   $j=Get-Content $info.Config -Raw|ConvertFrom-Json
   $db=Ensure-Object $j 'Database';$mysql=Ensure-Object $db 'MySql';$connections=Ensure-Object $j 'ConnectionStrings'
   $existing=if($mysql.PSObject.Properties['ConnectionString']){[string]$mysql.ConnectionString}else{''}
   if([string]::IsNullOrWhiteSpace($existing) -and $connections.PSObject.Properties['MySql']){$existing=[string]$connections.MySql}
+  if([string]::IsNullOrWhiteSpace($existing)){$existing=Get-ExistingConnectionString $info}
   if([string]::IsNullOrWhiteSpace($existing)){
     if([string]::IsNullOrWhiteSpace($MySqlPassword)){throw "MySQL connection string is missing in $($info.Config). Supply -MySqlPassword (e.g. -Channel $($info.Name) -MySqlServer $MySqlServer -MySqlUser $MySqlUser -MySqlPassword '<password>')."}
     $existing="Server=$MySqlServer;Port=$MySqlPort;Database=$($info.Database);User=$MySqlUser;Password=$MySqlPassword;CharSet=utf8mb4;"
