@@ -6,7 +6,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
-$version='2.1.4'
+$version='2.1.5'
 $file="Install-iMonitorERP-v$version.ps1"
 $work=Join-Path $env:TEMP 'iMonitorERP-Setup'
 New-Item -ItemType Directory -Force -Path $work|Out-Null
