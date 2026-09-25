@@ -71,8 +71,8 @@ public sealed class OrchestratorService
             var latest = await GetStaticLatestAsync(normalizedProduct, normalizedChannel, cancellationToken);
             return latest is null ? Array.Empty<ReleaseInfo>() : new[] { new ReleaseInfo(latest, DateTime.UtcNow, Array.Empty<string>(), !IsFailedRelease(normalizedProduct, normalizedChannel, latest)) };
         }
-        using (response)
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        using var ownedResponse = response;
+        using var doc = JsonDocument.Parse(await ownedResponse.Content.ReadAsStringAsync(cancellationToken));
         var result = new List<ReleaseInfo>();
         foreach (var e in doc.RootElement.EnumerateArray())
         {
