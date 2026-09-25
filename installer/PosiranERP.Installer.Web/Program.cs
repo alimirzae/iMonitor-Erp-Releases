@@ -105,17 +105,20 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
     if (folderValidation is not null) return Results.BadRequest(new { error = folderValidation });
 
     var isTest = channel == "Test";
+    var isIMonitor = string.Equals(request.Product, "iMonitor", StringComparison.OrdinalIgnoreCase);
+    var installRoot = isIMonitor ? @"C:\ecomm" : defaultInstallRoot;
+    var configRoot = isIMonitor ? @"C:\ecomm\config" : defaultConfigRoot;
     var database = request.DatabaseName.Trim();
-    var appPort = request.AppPort is > 0 and <= 65535 ? request.AppPort.Value : (isTest ? 8082 : 8083);
+    var appPort = request.AppPort is > 0 and <= 65535 ? request.AppPort.Value : (isIMonitor ? (isTest ? 8081 : 8080) : (isTest ? 8082 : 8083));
     var installFolderName = string.IsNullOrWhiteSpace(request.InstallFolderName) ? (isTest ? "test" : "production") : request.InstallFolderName.Trim();
-    var configDirectory = Path.Combine(defaultConfigRoot, channel);
+    var configDirectory = Path.Combine(configRoot, channel);
     var configPath = Path.Combine(configDirectory, "appsettings.json");
     Directory.CreateDirectory(configDirectory);
 
     var connectionString = $"Server={request.DatabaseServer};Port={request.DatabasePort};Database={database};User={request.DatabaseUser};Password={request.DatabasePassword};Charset=utf8mb4;";
-    var config = BuildAppSettings(isTest, request, connectionString);
+    var config = BuildAppSettings(isTest, request, connectionString, isIMonitor);
     File.WriteAllText(configPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
-    orchestrator.RegisterInstance(channel, appPort, installFolderName, database, request.AutoUpdate, configPath);
+    if (!isIMonitor) orchestrator.RegisterInstance(channel, appPort, installFolderName, database, request.AutoUpdate, configPath);
 
     return Results.Ok(new
     {
@@ -125,7 +128,7 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
         installFolderName,
         autoUpdate = request.AutoUpdate,
         configPath,
-        installPath = Path.Combine(defaultInstallRoot, installFolderName, "current"),
+        installPath = Path.Combine(installRoot, installFolderName, "current"),
         message = "Configuration saved and instance registered. Password is intentionally not returned by the API."
     });
 });
@@ -141,26 +144,29 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     if (folderValidation is not null) return Results.BadRequest(new { error = folderValidation });
 
     var isTest = channel == "Test";
-    var appPort = request.AppPort is > 0 and <= 65535 ? request.AppPort.Value : (isTest ? 8082 : 8083);
+    var isIMonitor = string.Equals(request.Product, "iMonitor", StringComparison.OrdinalIgnoreCase);
+    var installRoot = isIMonitor ? @"C:\ecomm" : defaultInstallRoot;
+    var configRoot = isIMonitor ? @"C:\ecomm\config" : defaultConfigRoot;
+    var appPort = request.AppPort is > 0 and <= 65535 ? request.AppPort.Value : (isIMonitor ? (isTest ? 8081 : 8080) : (isTest ? 8082 : 8083));
     var installFolderName = string.IsNullOrWhiteSpace(request.InstallFolderName) ? (isTest ? "test" : "production") : request.InstallFolderName.Trim();
-    var configPath = Path.Combine(defaultConfigRoot, channel, "appsettings.json");
+    var configPath = Path.Combine(configRoot, channel, "appsettings.json");
     if (!File.Exists(configPath)) return Results.BadRequest(new { error = $"Configure {channel} before installation." });
 
-    var scriptDirectory = Path.Combine(defaultInstallRoot, "installer");
+    var scriptDirectory = Path.Combine(installRoot, "installer");
     Directory.CreateDirectory(scriptDirectory);
-    var scriptPath = Path.Combine(scriptDirectory, "Install-PosiranERP-v1.0.5.ps1");
+    var scriptPath = Path.Combine(scriptDirectory, isIMonitor ? "Install-iMonitorERP-v2.1.5.ps1" : "Install-PosiranERP-v1.0.5.ps1");
 
     if (!File.Exists(scriptPath) || request.RefreshInstaller)
     {
         var http = clients.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(60);
-        await DownloadInstallerScriptAsync(http, scriptPath);
+        await DownloadInstallerScriptAsync(http, scriptPath, isIMonitor);
     }
 
     var args = new List<string>
     {
         "-NoProfile","-ExecutionPolicy","Bypass","-File",scriptPath,
-        "-Channel",channel,"-Mode","InstallOrUpdate","-InstallRoot",defaultInstallRoot,"-ConfigRoot",defaultConfigRoot,
+        "-Channel",channel,"-Mode","InstallOrUpdate","-InstallRoot",installRoot,"-ConfigRoot",configRoot,
         isTest ? "-TestPort" : "-ProductionPort",appPort.ToString(),
         isTest ? "-TestFolderName" : "-ProductionFolderName",installFolderName
     };
@@ -174,7 +180,7 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
         channel,
         exitCode = r.ExitCode,
         localUrl = $"http://127.0.0.1:{appPort}/",
-        installPath = Path.Combine(defaultInstallRoot, installFolderName, "current"),
+        installPath = Path.Combine(installRoot, installFolderName, "current"),
         autoUpdate = request.AutoUpdate,
         output = r.Output
     });
@@ -184,11 +190,11 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "PosiranER
 app.MapFallbackToFile("index.html");
 app.Run();
 
-static async Task DownloadInstallerScriptAsync(HttpClient http, string destination, CancellationToken cancellationToken = default)
+static async Task DownloadInstallerScriptAsync(HttpClient http, string destination, bool isIMonitor = false, CancellationToken cancellationToken = default)
 {
     http.DefaultRequestHeaders.UserAgent.ParseAdd("PosiranERP-Setup/1.0");
     http.DefaultRequestHeaders.CacheControl = new() { NoCache = true, NoStore = true };
-    var scriptUrl = "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/posiran-erp-installer-v1.0.5/Install-PosiranERP-v1.0.5.ps1";
+    var scriptUrl = isIMonitor ? "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/imonitor-erp-installer-v2.1.5/Install-iMonitorERP-v2.1.5.ps1" : "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/posiran-erp-installer-v1.0.5/Install-PosiranERP-v1.0.5.ps1";
     var bytes = await http.GetByteArrayAsync(scriptUrl, cancellationToken);
     var text = System.Text.Encoding.UTF8.GetString(bytes);
     if (!text.Contains("function Stop-ChannelHost", StringComparison.Ordinal) || !text.Contains("Get-WebAppPoolState", StringComparison.Ordinal))
@@ -208,7 +214,7 @@ static InstallerProcessResult RunPowerShell(IEnumerable<string> args)
     return new InstallerProcessResult(process.ExitCode, output, string.IsNullOrWhiteSpace(error) ? output : error);
 }
 
-static object BuildAppSettings(bool isTest, SetupRequest request, string connectionString)
+static object BuildAppSettings(bool isTest, SetupRequest request, string connectionString, bool isIMonitor)
 {
     return new
     {
@@ -242,13 +248,13 @@ static object BuildAppSettings(bool isTest, SetupRequest request, string connect
         Logging = new { LogLevel = new Dictionary<string, string> { ["Default"] = "Information", ["Microsoft"] = "Warning", ["Microsoft.AspNetCore"] = "Warning" } },
         GoodsSyncSettings = new { Enabled = false, InitialDelaySeconds = 240, IntervalSeconds = 300 },
         ExternalGoodsApi = new { Enabled = false, BaseUrl = "https://api.imonitor.ir" },
-        BranchSettings = new { MasterServer = "", CompanyId = 1, MasterBranchId = isTest ? 11001 : 12001, BranchId = isTest ? 11002 : 12002, BranchName = isTest ? "Posiran ERP Test" : "Posiran ERP Production", BranchCode = isTest ? "POSIRAN-TEST" : "POSIRAN-PROD", IsHeadOffice = true, AutoSyncFromMaster = false, SyncIntervalSeconds = 15, AllowSwagger = isTest, SyncTimeoutSeconds = 60 },
+        BranchSettings = new { MasterServer = "", CompanyId = 1, MasterBranchId = isTest ? 11001 : 12001, BranchId = isTest ? 11002 : 12002, BranchName = isIMonitor ? (isTest ? "iMonitor ERP Test" : "iMonitor ERP Production") : (isTest ? "Posiran ERP Test" : "Posiran ERP Production"), BranchCode = isIMonitor ? (isTest ? "IMONITOR-TEST" : "IMONITOR-PROD") : (isTest ? "POSIRAN-TEST" : "POSIRAN-PROD"), IsHeadOffice = true, AutoSyncFromMaster = false, SyncIntervalSeconds = 15, AllowSwagger = isTest, SyncTimeoutSeconds = 60 },
         Environment = new { Name = isTest ? "Staging" : "Production", IsDevelopment = false, IsStaging = isTest, IsProduction = !isTest, EnableSyncDebug = false },
         SyncSettings = new { RetryCount = 10, RetryDelaySeconds = 30, BatchSize = 100, HealthCheckIntervalSeconds = 120, EnableDebugLog = false },
         AutoSync = new { Enabled = false, InitialDelaySeconds = 60, IdleIntervalSeconds = 60, ActiveIntervalSeconds = 120, ErrorRetrySeconds = 120, MaxRowsPerPull = 100, SyncDirection = "both", ShowToast = false },
         AI = new { Enabled = false, ApiKey = "", Model = "", MaxTokens = 1000, Temperature = 0.7, ApiUrl = "" },
         SMS = new { DefaultProvider = "ParsGreen", ParsGreen = new { ApiKey = "" } },
-        Branding = new { ProductName = "Posiran ERP", DisplayName = "پوزایران ERP", Website = "https://www.posiran.ir/", SupportPhone = "0922-962-7005", SupportEmail = "" },
+        Branding = isIMonitor ? new { ProductName = "iMonitor ERP", DisplayName = "iMonitor ERP", Website = "https://imonitor.ir/", SupportPhone = "", SupportEmail = "" } : new { ProductName = "Posiran ERP", DisplayName = "پوزایران ERP", Website = "https://www.posiran.ir/", SupportPhone = "0922-962-7005", SupportEmail = "" },
         TestDiagnostics = new { Enabled = false, AllowedHost = "", RootPath = "" },
         AllowedHosts = "*"
     };
@@ -306,7 +312,7 @@ static bool MySqlServiceDetected()
     catch { return false; }
 }
 
-record SetupRequest(string Channel, string DatabaseServer, int DatabasePort, string DatabaseUser, string DatabasePassword, string DatabaseName, string? MySqlVersion, int? AppPort, string? InstallFolderName, bool AutoUpdate = true);
-record InstallRequest(string Channel, int? AppPort, string? InstallFolderName, bool AutoUpdate = true, bool Force = false, bool RefreshInstaller = true);
+record SetupRequest(string? Product, string Channel, string DatabaseServer, int DatabasePort, string DatabaseUser, string DatabasePassword, string DatabaseName, string? MySqlVersion, int? AppPort, string? InstallFolderName, bool AutoUpdate = true);
+record InstallRequest(string? Product, string Channel, int? AppPort, string? InstallFolderName, bool AutoUpdate = true, bool Force = false, bool RefreshInstaller = true);
 record BackupRequest(string? Reason);
 record InstallerProcessResult(int ExitCode, string Output, string Error);
