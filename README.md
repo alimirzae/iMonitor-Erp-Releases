@@ -113,6 +113,31 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
 
 ---
 
+
+## ERP Deployment Manager — سرویس دائمی 8099
+
+Unified Setup از این پس فقط یک نصب‌کننده موقت نیست؛ معماری هدف آن **ERP Deployment Manager** دائمی روی سرور است.
+
+- فقط روی `http://127.0.0.1:8099` گوش می‌کند و نباید روی LAN/WAN bind شود.
+- به‌صورت Windows Service با شروع خودکار پس از Boot اجرا می‌شود.
+- چهار کانال `Posiran Test`، `Posiran Production`، `iMonitor Test` و `iMonitor Production` را مستقل مدیریت می‌کند.
+- برای هر کانال Root Path مطلق (همراه Drive)، Port، Database و Auto Update مستقل ذخیره می‌شود.
+- اگر Root Path وجود نداشته باشد Manager آن را ایجاد می‌کند.
+- شکست نصب/Health یک کانال نباید اجرای عملیات کانال‌های دیگر را متوقف کند.
+- تاریخچه Releaseها برای هر کانال شامل Tag، SHA256، زمان نصب، نتیجه نصب و نتیجه Health در registry محلی JSON ثبت می‌شود.
+- نسخه فقط پس از موفقیت نصب و Health Check به‌عنوان `Healthy` علامت می‌خورد.
+- نسخه خراب با `Failed` ثبت می‌شود و برای Auto Update انتخاب نمی‌شود.
+- قبل از Upgrade از دیتابیس‌ها و وضعیت نسخه فعلی backup گرفته می‌شود.
+- Manager باید امکان نصب یک Release مشخص، Upgrade، Downgrade و Rollback به آخرین نسخه سالم یا نسخه سالم انتخابی را بدهد.
+- Rollback نسخه برنامه و backup متناظر دیتابیس را هماهنگ بازیابی می‌کند.
+- Auto Update برای هر کانال مستقل است؛ Manager Release جدید را کشف و validate می‌کند، backup می‌گیرد، نصب می‌کند، Health را می‌سنجد و در صورت شکست rollback می‌کند.
+- Packageهای دانلودشده با SHA256 نگهداری می‌شوند تا نسخه سالم قبلی بدون دانلود مجدد قابل بازیابی باشد.
+- UI روی 8099 باید وضعیت Installed / Latest / Healthy / Failed / Update Available / Auto Update و تاریخچه نسخه‌ها را نمایش دهد.
+- هیچ خطای یک نصب نباید باعث توقف Windows Service یا از دسترس خارج شدن UI مدیریت 8099 شود.
+
+State مدیریتی باید خارج از پوشه `current` نگهداری شود تا با Upgrade برنامه ERP از بین نرود. Credentialهای دیتابیس نیز نباید در Release عمومی قرار گیرند.
+
+
 ## معماری استاندارد Installer
 
 منطق نصب باید تا حد ممکن مشترک باشد. تفاوت محصول نباید باعث دو مسیر نصب مستقل شود.
