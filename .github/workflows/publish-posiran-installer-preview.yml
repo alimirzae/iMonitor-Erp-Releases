@@ -6,7 +6,7 @@ on:
     branches: [ main ]
     paths:
       - 'installer/PosiranERP.Installer.Web/**'
-      - '.github/workflows/publish-erp-deployment-manager.yml'
+      - '.github/workflows/publish-posiran-installer-preview.yml'
 
 permissions:
   contents: write
@@ -36,10 +36,10 @@ jobs:
           @'
           @echo off
           cd /d "%~dp0"
-          start "Posiran ERP Setup" "PosiranERP.Setup.exe"
+          start "ERP Deployment Manager" "PosiranERP.Setup.exe"
           timeout /t 2 /nobreak >nul
           start "" "http://127.0.0.1:8099/"
-          '@ | Set-Content (Join-Path $out 'Start-PosiranERP-Setup.cmd') -Encoding ASCII
+          '@ | Set-Content (Join-Path $out 'Start-ERP-Deployment-Manager.cmd') -Encoding ASCII
 
       - name: Package preview
         shell: powershell
