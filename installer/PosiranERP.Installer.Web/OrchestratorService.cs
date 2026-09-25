@@ -86,7 +86,7 @@ public sealed class OrchestratorService
         ValidateInstanceId(id);
         var path = HistoryPath(id);
         if (!File.Exists(path)) return Array.Empty<VersionHealthRecord>();
-        try { return JsonSerializer.Deserialize<List<VersionHealthRecord>>(File.ReadAllText(path), JsonOptions) ?? Array.Empty<VersionHealthRecord>(); }
+        try { return JsonSerializer.Deserialize<List<VersionHealthRecord>>(File.ReadAllText(path), JsonOptions) ?? new List<VersionHealthRecord>(); }
         catch { return Array.Empty<VersionHealthRecord>(); }
     }
 
@@ -434,10 +434,22 @@ public sealed class OrchestratorService
             var root = Path.Combine(_installRoot, folder, "current");
             var cfg = Path.Combine(_configRoot, channel, "appsettings.json");
             if (!Directory.Exists(root) && !File.Exists(cfg)) continue;
-            manifests[id] = new InstallationManifest(id, channel == "Test" ? "Posiran ERP Test" : "Posiran ERP Production", channel,
-                channel == "Test" ? 8082 : 8083, folder, root, cfg, channel == "Test" ? "posiran_test" : "posiran",
-                channel == "Test" ? "PosiranERP-Test" : "PosiranERP-Production", channel == "Test" ? "PosiranERP-Test" : "PosiranERP-Production",
-                ScheduledTaskExists(channel == "Test" ? "PosiranERP-Update-Test" : "PosiranERP-Update-Production"), DateTime.UtcNow, DateTime.UtcNow);
+            manifests[id] = new InstallationManifest(
+                id,
+                channel == "Test" ? "Posiran ERP Test" : "Posiran ERP Production",
+                "Posiran",
+                channel,
+                _installRoot,
+                channel == "Test" ? 8082 : 8083,
+                folder,
+                root,
+                cfg,
+                channel == "Test" ? "posiran_test" : "posiran",
+                channel == "Test" ? "PosiranERP-Test" : "PosiranERP-Production",
+                channel == "Test" ? "PosiranERP-Test" : "PosiranERP-Production",
+                ScheduledTaskExists(channel == "Test" ? "PosiranERP-Update-Test" : "PosiranERP-Update-Production"),
+                DateTime.UtcNow,
+                DateTime.UtcNow);
         }
     }
 
