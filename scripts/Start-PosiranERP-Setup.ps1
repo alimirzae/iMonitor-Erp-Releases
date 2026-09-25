@@ -92,29 +92,26 @@ if(-not $useCached){
 $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 if($expected -ne $actual){ throw "SHA256 mismatch. expected=$expected actual=$actual" }
 
-$extract = Join-Path $root 'current'
 
-Get-Process -Name 'PosiranERP.Setup' -ErrorAction SilentlyContinue | ForEach-Object {
-  try {
-    $processPath = $_.Path
-    if([string]::IsNullOrWhiteSpace($processPath) -or $processPath.StartsWith($root,[System.StringComparison]::OrdinalIgnoreCase)) {
-      Write-Host "Stopping previous Posiran ERP Setup process (PID $($_.Id))..." -ForegroundColor Yellow
-      Stop-Process -Id $_.Id -Force -ErrorAction Stop
-      $_.WaitForExit(5000) | Out-Null
-    }
-  } catch {
-    Write-Warning "Could not stop previous Setup process PID $($_.Id): $($_.Exception.Message)"
-  }
+$serviceName='ERPDeploymentManager'
+$serviceDir=Join-Path $env:ProgramData 'iMonitor\ERPDeploymentManager\current'
+if(Test-Path $serviceDir){Remove-Item $serviceDir -Recurse -Force}
+New-Item -ItemType Directory -Force -Path $serviceDir | Out-Null
+Expand-Archive $zip -DestinationPath $serviceDir -Force
+$exe=Join-Path $serviceDir 'PosiranERP.Setup.exe'
+if(!(Test-Path $exe)){throw 'ERP Deployment Manager executable was not found after extraction.'}
+
+$existing=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+if($existing){
+  try{Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue}catch{}
+  sc.exe delete $serviceName | Out-Null
+  Start-Sleep -Seconds 1
 }
-Start-Sleep -Milliseconds 500
-
-if(Test-Path $extract){ Remove-Item $extract -Recurse -Force }
-New-Item -ItemType Directory -Force -Path $extract | Out-Null
-Expand-Archive $zip -DestinationPath $extract -Force
-$exe = Join-Path $extract 'PosiranERP.Setup.exe'
-if(!(Test-Path $exe)){ throw 'PosiranERP.Setup.exe was not found after extraction.' }
-
-Start-Process -FilePath $exe -WorkingDirectory $extract -Verb RunAs
+$bin='"'+$exe+'"'
+sc.exe create $serviceName binPath= $bin start= auto DisplayName= "ERP Deployment Manager" | Out-Null
+sc.exe description $serviceName "Localhost-only ERP install, update, health and rollback manager on 127.0.0.1:8099" | Out-Null
+sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
+Start-Service -Name $serviceName
 
 $ready=$false
 for($i=0;$i -lt 20;$i++){
@@ -124,7 +121,7 @@ for($i=0;$i -lt 20;$i++){
     if($r.StatusCode -eq 200){$ready=$true;break}
   } catch {}
 }
-if(-not $ready){ throw 'Posiran ERP Setup did not become healthy on http://127.0.0.1:8099/health' }
+if(-not $ready){ throw 'ERP Deployment Manager did not become healthy on http://127.0.0.1:8099/health' }
 
 Start-Process 'http://127.0.0.1:8099/'
-Write-Host 'Posiran ERP Setup started on http://127.0.0.1:8099/' -ForegroundColor Green
+Write-Host 'ERP Deployment Manager Windows Service is running on http://127.0.0.1:8099/' -ForegroundColor Green
