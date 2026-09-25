@@ -80,7 +80,10 @@ async function saveConfig(){
 }
 async function installOne(t){
   const r=await fetch('/api/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:t.channel,appPort:t.appPort,installFolderName:t.installFolderName,autoUpdate:el('autoUpdate').checked,force:true,refreshInstaller:true})});
-  const x=await r.json();if(!r.ok)throw new Error(`${t.channel}: ${x.detail||x.error||'Installation failed'}`);return x;
+  const raw=await r.text(); let x={};
+  try{x=raw?JSON.parse(raw):{}}catch(_){x={detail:raw||('HTTP '+r.status+' '+r.statusText)}}
+  if(!r.ok)throw new Error(t.channel+': '+(x.detail||x.error||raw||'Installation failed'));
+  return x;
 }
 async function installNow(){
   const ts=targets();setStatus(ts.length===2?'در حال نصب Test؛ سپس Production نصب خواهد شد...':'در حال دریافت و نصب آخرین Release؛ این صفحه را نبندید...');erpUrls=[];let outputs=[];
