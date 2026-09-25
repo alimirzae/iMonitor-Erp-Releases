@@ -167,3 +167,19 @@ jobs:
           "channel=$env:RELEASE_CHANNEL" | Add-Content $env:GITHUB_STEP_SUMMARY
           "tag=$env:RELEASE_TAG" | Add-Content $env:GITHUB_STEP_SUMMARY
           "source=$env:SOURCE_SHA" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Publish API-free channel manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $channel=$env:RELEASE_CHANNEL
+          $path="channels/posiran/$channel/latest.json"
+          $json=[ordered]@{product='posiran';channel=$channel;tag=$env:RELEASE_TAG;asset=$env:ASSET_NAME;publishedAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json -Compress
+          $content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
+          $existing=(& gh api "repos/$env:GITHUB_REPOSITORY/contents/$path" --jq .sha 2>$null)
+          $args=@('api',"repos/$env:GITHUB_REPOSITORY/contents/$path",'--method','PUT','-f',"message=chore(releases): update Posiran $channel manifest",'-f',"content=$content",'-f','branch=main')
+          if($LASTEXITCODE -eq 0 -and $existing){$args+=@('-f',"sha=$($existing.Trim())")}
+          & gh @args
+          if($LASTEXITCODE -ne 0){throw 'Failed to update API-free channel manifest.'}
