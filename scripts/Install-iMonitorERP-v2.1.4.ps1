@@ -188,7 +188,7 @@ function Normalize-ChannelConfig($info){
   if($existing -match '(?i)(Database|Initial Catalog)\s*='){$existing=[regex]::Replace($existing,'(?i)(Database|Initial Catalog)\s*=\s*[^;]*',"Database=$($info.Database)")}else{$existing=$existing.TrimEnd(';')+";Database=$($info.Database);"}
   Set-Value $db 'Type' 'MySql';Set-Value $db 'AutoMigrate' $true;Set-Value $db 'MigrateOnStartup' $true;Set-Value $db 'UseBackgroundMigration' $false;Set-Value $db 'DropDatabaseOnStartup' $false
   Set-Value $mysql 'ConnectionString' $existing;Set-Value $connections 'MySql' $existing;Set-Value $j 'AllowedHosts' '*'
-  $update=[pscustomobject][ordered]@{Repository=$repo;Channel=$info.Key;TestTagPrefix='imonitor-ecomerp-test-v';ProductionTagPrefix='imonitor-ecomerp-master-v';ManualUpdateOnly=$true}
+  $update=[pscustomobject][ordered]@{Repository=$repo;Channel=$info.Key;TestTagPrefix='imonitor-ecomerp-test-v';ProductionTagPrefix='imonitor-ecomerp-master-v';TestTaskName='iMonitorERP-Update-Test';ProductionTaskName='iMonitorERP-Update-Production';ManualUpdateOnly=($info.Name -ne 'Test');AutoUpdate=($info.Name -eq 'Test');AutoUpdateIntervalMinutes=10}
   Set-Value $j 'Update' $update
   $j|ConvertTo-Json -Depth 100|Set-Content $info.Config -Encoding UTF8
   Write-Host "[OK] Config normalized: $($info.Name) -> MySql/$($info.Database); startup migrations enabled." -ForegroundColor Green
@@ -234,12 +234,29 @@ function Reset-TestDatabase($info){
   }finally{if($null -eq $old){Remove-Item Env:MYSQL_PWD -ErrorAction SilentlyContinue}else{$env:MYSQL_PWD=$old}}
 }
 
-function Remove-LegacyAutoUpdateTasks{
-  foreach($taskName in @('iMonitorERP-Update-Test','iMonitorERP-Update-Production')){
-    try{Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue}catch{}
-    try{Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue}catch{}
+function Configure-UpdateTask($info){
+  $taskName=if($info.Name -eq 'Test'){'iMonitorERP-Update-Test'}else{'iMonitorERP-Update-Production'}
+  $updater=Join-Path $info.Root 'Update-iMonitorERP.ps1'
+  try{Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue}catch{}
+  try{Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue}catch{}
+  if($SkipTaskRegistration){return}
+  if(!(Test-Path $updater)){throw "Updater script not found: $updater"}
+  $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$updater`""
+  if($info.Name -eq 'Test'){
+    $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration ([TimeSpan]::MaxValue)
+  }else{
+    # Production is intentionally manual-only: the task has no recurring trigger and is started explicitly by /system/update.
+    $trigger=$null
   }
-  Write-Host '[OK] Automatic updater tasks are disabled/removed. Updates are manual via /system/update.' -ForegroundColor Green
+  $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1) -MultipleInstances IgnoreNew
+  $principal=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+  if($trigger){
+    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force|Out-Null
+    Write-Host "[OK] Test auto updater registered every 10 minutes: $taskName" -ForegroundColor Green
+  }else{
+    Register-ScheduledTask -TaskName $taskName -Action $action -Settings $settings -Principal $principal -Force|Out-Null
+    Write-Host "[OK] Production updater registered as manual-only task: $taskName" -ForegroundColor Green
+  }
 }
 
 function Write-LocalUpdater($info,[string]$Destination){
@@ -250,6 +267,28 @@ function Write-LocalUpdater($info,[string]$Destination){
 [CmdletBinding()]
 param([switch]`$Force)
 `$ErrorActionPreference='Stop'
+`$root=$(Q $info.Root)
+`$rollback=`$root+'.rollback'
+`$port=$($info.Port)
+`$hostHeader=$(Q $info.HostHeader)
+function Test-Health {
+  try{
+    `$headers=@{};if(`$hostHeader){`$headers.Host=`$hostHeader}
+    `$bindingPort=if(`$hostHeader){80}else{`$port}
+    `$r=Invoke-WebRequest "http://127.0.0.1:`$bindingPort/health" -Headers `$headers -UseBasicParsing -TimeoutSec 8
+    return `$r.StatusCode -eq 200
+  }catch{return `$false}
+}
+# Every invocation is also a self-healing pass. If the previous update left the current version unhealthy
+# and a rollback directory still exists, restore it before attempting another release.
+if((Test-Path `$rollback) -and -not (Test-Health)){
+  try{Import-Module WebAdministration -ErrorAction SilentlyContinue}catch{}
+  if(Test-Path `$root){Remove-Item `$root -Recurse -Force -ErrorAction SilentlyContinue}
+  Move-Item `$rollback `$root -Force
+  try{Start-WebAppPool $(Q $info.Pool) -ErrorAction SilentlyContinue;Start-Website $(Q $info.Site) -ErrorAction SilentlyContinue}catch{}
+  Start-Sleep 5
+  if(-not (Test-Health)){throw 'Automatic rollback was attempted but the previous version is still unhealthy.'}
+}
 & $(Q $channelInstaller) -Channel $(Q $info.Name) -Mode UpdateOnly -InstallRoot $(Q $InstallRoot) -ConfigRoot $(Q $ConfigRoot) -TestFolderName $(Q $TestFolderName) -ProductionFolderName $(Q $ProductionFolderName) -TestPort $TestPort -ProductionPort $ProductionPort -TestHostHeader $(Q $TestHostHeader) -ProductionHostHeader $(Q $ProductionHostHeader) -TestPhysicalPath $(Q $TestPhysicalPath) -ProductionPhysicalPath $(Q $ProductionPhysicalPath) -SkipMySqlProvisioning -SkipTaskRegistration -Force:`$Force
 "@
   Set-Content (Join-Path $Destination 'Update-iMonitorERP.ps1') $content -Encoding UTF8
@@ -381,6 +420,7 @@ function Install-Channel($info){
     }
     if(Test-Path $backup){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
     Copy-Item (Join-Path $info.Root 'Install-iMonitorERP.ps1') $stableInstaller -Force
+    Configure-UpdateTask $info
     Set-Content $info.State $rel.Tag -Encoding ASCII;Write-Host "[OK] $($rel.Tag) -> http://127.0.0.1:$($info.Port)/ ; DB=$($info.Database) ; Folder=$($info.Folder)" -ForegroundColor Green
   }catch{
     $failure=$_
@@ -391,7 +431,6 @@ function Install-Channel($info){
 try{
   Ensure-IisPrerequisites
   $selected=@();if($Channel -in @('Both','Test')){$selected+=Get-ChannelInfo 'Test'};if($Channel -in @('Both','Production')){$selected+=Get-ChannelInfo 'Production'}
-  Remove-LegacyAutoUpdateTasks
   $channelErrors=@()
   foreach($i in $selected){
     try{Install-Channel $i}
