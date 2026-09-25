@@ -1,135 +1,256 @@
 # iMonitor Release Center
 
-مرکز عمومی انتشار و نصب محصولات iMonitor / Ecomm / Posiran ERP.
+مرکز عمومی انتشار، نصب و ارتقای محصولات **iMonitor ERP / Ecomm ERP / Posiran ERP**.
 
-> ⚠️ **مهم برای تمام نصب‌های Windows:** ابتدا منوی Start را باز کنید، `Windows PowerShell` را جستجو کنید، روی آن راست‌کلیک کرده و **Run as Administrator** را بزنید. همه دستورهای زیر باید داخل PowerShell با دسترسی Administrator اجرا شوند.
+> **Windows:** همه عملیات نصب و ارتقا باید از Windows PowerShell با **Run as Administrator** انجام شوند.
 >
-> فرض این راهنما این است که **IIS Manager و MySQL از قبل نصب هستند**.
+> پیش‌فرض این راهنما این است که IIS و MySQL/MariaDB روی سیستم موجود هستند.
 
 ---
 
-## 1) Posiran ERP — ساده‌ترین روش نصب و مدیریت
+## استاندارد نصب Windows: Unified ERP Setup
 
-PowerShell را حتماً با **Run as Administrator** اجرا کنید، سپس فقط همین دو خط را کامل Copy/Paste کنید. این روش برای Windows به `curl` وابسته نیست:
-
-```powershell
-[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $p="$env:TEMP\Start-PosiranERP-Setup.ps1"; Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Start-PosiranERP-Setup.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
-```
-
-Setup Host به‌صورت خودکار آخرین Setup منتشرشده را دانلود، SHA256 آن را بررسی و سپس این آدرس را باز می‌کند:
+مسیر استاندارد نصب و ارتقای ERPها یک **Setup Host وب واحد** است که فقط روی سیستم محلی گوش می‌کند:
 
 ```text
 http://127.0.0.1:8099/
 ```
 
-برای دانلود فایل‌های Release، Posiran ERP دیگر به `curl` متکی نیست. ترتیب دانلود به این صورت است:
+این Setup چهار انتخاب مستقل دارد:
 
-1. GitHub Release Assets API با .NET `HttpClient`
-2. Windows BITS در صورت شکست مسیر اول
-3. `Invoke-WebRequest` به‌عنوان fallback بعدی
-4. استفاده از Package Cache محلی در صورت موجود بودن نسخه صحیح
+- Posiran Test
+- Posiran Production
+- iMonitor Test
+- iMonitor Production
 
-بسته‌های دانلودشده بعد از تأیید SHA256 در مسیر زیر Cache می‌شوند تا نصب/ارتقای بعدی بی‌دلیل دوباره دانلود نشود:
+کاربر می‌تواند یک، چند یا هر چهار مورد را هم‌زمان انتخاب کند. برای هر مورد، Setup اطلاعات دیتابیس، پورت، مسیر نصب و تنظیمات لازم را تولید و سپس آخرین Release همان کانال را نصب می‌کند.
+
+### نگاشت استاندارد کانال‌ها
 
 ```text
-C:\PosiranERP\packages\<release-tag>\
+Posiran Test
+  Source branch: posiran_test
+  Release: posiran-erp-test-v*
+  Port: 8082
+  Database: posiran_test
+  Root: C:\PosiranERP\test\current
+
+Posiran Production
+  Source branch: posiran_production
+  Release: posiran-erp-production-v*
+  Port: 8083
+  Database: posiran
+  Root: C:\PosiranERP\production\current
+
+iMonitor Test
+  Source branch: test
+  Release: imonitor-ecomerp-test-v*
+  Port: 8081
+  Database: ecomm_dev
+  Root: C:\ecomm\test\current
+
+iMonitor Production
+  Source branch: master
+  Release: imonitor-ecomerp-master-v*
+  Port: 8080
+  Database: ecomm
+  Root: C:\ecomm\production\current
 ```
 
-در Wizard مشخص می‌کنید:
+### اطلاعاتی که Setup دریافت می‌کند
 
-- Test یا Production
-- پورت برنامه
+- انتخاب یک یا چند کانال از چهار کانال بالا
+- MySQL Server
+- MySQL Port
+- Username
+- Password
+- نسخه MySQL
+- پورت ERP هر کانال
 - نام پوشه نصب
-- اطلاعات MySQL
-- Auto Update روشن یا خاموش
+- فعال/غیرفعال بودن Auto Update در کانال‌هایی که پشتیبانی می‌کنند
 
-مقادیر استاندارد:
+Setup پس از ذخیره Config:
 
-```text
-Posiran Test       -> port 8082 -> DB posiran_test -> folder test
-Posiran Production -> port 8083 -> DB posiran      -> folder production
+1. Release صحیح همان کانال را پیدا می‌کند.
+2. package و SHA256 را دریافت می‌کند.
+3. cache محلی را در صورت معتبر بودن استفاده می‌کند.
+4. فایل‌ها را در stage استخراج می‌کند.
+5. Config محلی و credentialها را خارج از package عمومی حفظ می‌کند.
+6. IIS Site و AppPool را ایجاد/Repair می‌کند.
+7. ACL پوشه نصب را برای IIS تنظیم می‌کند.
+8. Migration/Startup configuration را فعال می‌کند.
+9. ERP را اجرا می‌کند.
+10. `/health` را بررسی می‌کند.
+11. در صورت شکست، rollback انجام می‌دهد.
+
+---
+
+## اجرای Setup
+
+### Bootstrap عمومی
+
+PowerShell را با دسترسی Administrator اجرا کنید. Bootstrap باید آخرین Setup Host منتشرشده را دانلود، checksum را بررسی و UI محلی را باز کند.
+
+### Posiran bootstrap
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+$p="$env:TEMP\Start-PosiranERP-Setup.ps1"
+Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Start-PosiranERP-Setup.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
 ```
 
-Releaseهای ERP:
+### iMonitor bootstrap
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+$p="$env:TEMP\Start-iMonitorERP-Setup.ps1"
+Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Start-iMonitorERP-Setup.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
+```
+
+هدف نهایی این است که هر دو bootstrap به **همان Unified ERP Setup Host** برسند؛ تفاوت bootstrap فقط برای سازگاری با لینک‌های موجود است.
+
+---
+
+## معماری استاندارد Installer
+
+منطق نصب باید تا حد ممکن مشترک باشد. تفاوت محصول نباید باعث دو مسیر نصب مستقل شود.
+
+### لایه مشترک
+
+- Web Setup Host روی 8099
+- انتخاب کانال‌ها
+- دریافت credentialهای MySQL
+- تولید Config
+- Release discovery
+- checksum
+- package cache
+- staged deployment
+- IIS Site/AppPool
+- ACL repair
+- health check
+- rollback
+- backup/restore
+- start/stop/restart
+
+### تنظیمات متغیر بر اساس کانال
+
+- Product/Brand
+- Source branch
+- Release tag prefix
+- Port
+- Database name
+- Install root
+- Config root
+- IIS site/app pool name
+- Auto Update policy
+
+هیچ credential دیتابیس، password، token یا داده عملیاتی مشتری نباید در Release عمومی ذخیره شود.
+
+---
+
+## Release Center
+
+### Posiran
 
 ```text
 posiran_test       -> posiran-erp-test-v*
 posiran_production -> posiran-erp-production-v*
 ```
 
-Setup Manager برای مدیریت نصب‌ها طراحی شده و هسته Orchestrator آن وضعیت Instance، IIS، Health، MySQL، نسخه نصب‌شده/آخرین Release، Backup/Restore و Start/Stop/Restart را پشتیبانی می‌کند.
-
-### نصب مستقیم Posiran Test بدون Wizard
-
-PowerShell باید Administrator باشد. اگر Config کانال قبلاً ساخته شده است:
-
-```powershell
-[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $p="$env:TEMP\Install-PosiranERP.ps1"; Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.5.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Test -TestPort 8082 -TestFolderName test
-```
-
-### نصب مستقیم Posiran Production بدون Wizard
-
-PowerShell باید Administrator باشد:
-
-```powershell
-[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $p="$env:TEMP\Install-PosiranERP.ps1"; Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-PosiranERP-v1.0.5.ps1?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" -OutFile $p
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Production -ProductionPort 8083 -ProductionFolderName production
-```
-
-برای غیرفعال کردن Auto Update در نصب خط فرمان، `-DisableAutoUpdate` را به خط آخر اضافه کنید.
-
-پس از نصب، `Update-PosiranERP.ps1` داخل روت فعال هر کانال ایجاد می‌شود. Scheduled Task مربوط به Test هر ۱ دقیقه و Production هر ۵ دقیقه همین فایل را اجرا می‌کند؛ بنابراین اجرای دستی روزانه لازم نیست. صفحه `/system/update` از NavMenu امکان بررسی نسخه و ارسال درخواست ارتقا را فراهم می‌کند.
-
-راهنمای فنی Posiran: `POSIRAN.md`
-
----
-
-## 2) iMonitor ERP / Ecomm ERP — Windows
-
-PowerShell را با **Run as Administrator** اجرا کنید.
-
-Installer رسمی فعلی: `Install-iMonitorERP-v2.1.4.ps1` (مستقل، نسخه‌دار و بدون وابستگی به raw.githubusercontent.com)
-
-### نصب/به‌روزرسانی هر دو کانال
-
-```powershell
-$root='C:\ecomm\.installer-work'; New-Item -ItemType Directory -Force $root|Out-Null; $p=Join-Path $root 'Start-iMonitorERP-Setup.ps1'
-Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/imonitor-erp-installer-v2.1.4/Start-iMonitorERP-Setup.ps1" -OutFile $p
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -Force
-```
-
-Mapping:
+### iMonitor
 
 ```text
-Test       -> latest imonitor-ecomerp-test-v*   -> DB ecomm_dev -> IIS port 8081
-Production -> latest imonitor-ecomerp-master-v* -> DB ecomm     -> IIS port 8080
+test   -> imonitor-ecomerp-test-v*
+master -> imonitor-ecomerp-master-v*
 ```
 
-Installer بسته را دانلود، checksum را کنترل، IIS Site/AppPool را Repair/Configure، Config محلی را حفظ و `/health` را بررسی می‌کند.
-
-در نصب کاملاً جدید که هیچ `appsettings.json` قبلی وجود ندارد، اطلاعات MySQL را صریح بدهید؛ installer دیتابیس‌های `ecomm_dev` و `ecomm` را ایجاد، اتصال MySQL را تنظیم و migration زمان startup را فعال می‌کند:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -MySqlServer 127.0.0.1 -MySqlUser root -MySqlPassword 'MYSQL_PASSWORD' -MySqlAdminUser root -MySqlAdminPassword 'MYSQL_PASSWORD'
-```
-
-برای نصب روی سرور دامنه‌های اصلی با مسیرهای فعلی:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -Channel Both -TestPhysicalPath 'C:\Ecom-Test' -ProductionPhysicalPath 'C:\Ecom' -TestHostHeader 'testerp.imonitor.ir' -ProductionHostHeader 'erp.imonitor.ir' -MySqlPassword 'MYSQL_PASSWORD' -MySqlAdminPassword 'MYSQL_PASSWORD'
-```
-
-Config پایدار در `C:\ecomm\config\Test` و `C:\ecomm\config\Production` نگهداری می‌شود. مسیرهای قدیمی `C:\Ecom-Test\appsettings.json` و `C:\Ecom\appsettings.json` در اولین اجرا خودکار وارد می‌شوند. اجرای هم‌زمان نصب/ارتقای دستی با mutex سراسری کنترل می‌شود.
-
-پس از نصب، اسکریپت ارتقای همان کانال با نام `Update-iMonitorERP.ps1` در روت فعال برنامه قرار می‌گیرد. ارتقا به‌صورت **دستی** از صفحه `/system/update` در NavMenu انجام می‌شود. Installer دیگر هیچ Scheduled Task برای Auto Update ایجاد نمی‌کند و Taskهای قدیمی `iMonitorERP-Update-Test` و `iMonitorERP-Update-Production` را در زمان اجرا حذف می‌کند.
-
-تنظیم‌های بهینه‌سازی AppPool مانند `loadUserProfile` به‌صورت best-effort اعمال می‌شوند؛ قفل موقت `applicationHost.config` دیگر فعال‌سازی بسته را متوقف نمی‌کند. استخراج بسته، ساخت تنظیمات MySQL و Health Check همچنان الزامی هستند.
+Releaseها باید فقط بعد از Build/Verify موفق منتشر شوند.
 
 ---
 
-## 3) Linux / Ubuntu ERP
+## Configهای پایدار
+
+### Posiran
+
+```text
+C:\Deploy\PosiranERP\Test\appsettings.json
+C:\Deploy\PosiranERP\Production\appsettings.json
+```
+
+### iMonitor
+
+```text
+C:\ecomm\config\Test\appsettings.json
+C:\ecomm\config\Production\appsettings.json
+```
+
+در Upgrade، Config و credentialهای محلی باید حفظ شوند.
+
+---
+
+## Package Cache
+
+بسته‌های تأییدشده می‌توانند برای جلوگیری از دانلود مجدد نگهداری شوند.
+
+نمونه:
+
+```text
+C:\PosiranERP\packages\<release-tag>\
+C:\ecomm\packages\<release-tag>\
+```
+
+فایل cache فقط در صورت تطابق SHA256 معتبر است.
+
+---
+
+## IIS و ACL
+
+Installer موظف است دسترسی NTFS لازم را برای پوشه deploy اعمال کند تا خطاهای `401.3 / 0x80070005` رخ ندهند.
+
+حداقل دسترسی:
+
+```text
+IIS_IUSRS            -> Read & Execute
+IIS AppPool\<pool>   -> Read & Execute
+```
+
+ACL باید روی پوشه current و زیرشاخه‌های آن inheritance داشته باشد.
+
+---
+
+## Database / Book Scope
+
+ERPهای چنددفتره نباید قبل از بازیابی دفتر فعال به BookDbContext دسترسی بزنند.
+
+صفحات و سرویس‌ها باید قبل از query، BookScope/UserState را به‌صورت async restore کنند و فقط با `bookId > 0` DbContext بسازند.
+
+---
+
+## Upgrade Policy
+
+- Config محلی حفظ شود.
+- credentialها حفظ شوند.
+- package جدید ابتدا در stage آماده شود.
+- نسخه قبلی تا پایان health-check سالم نگه داشته شود.
+- در صورت شکست health-check rollback انجام شود.
+- Production نباید بدون Verify موفق Release شود.
+
+---
+
+## مسیرهای فنی مستقیم
+
+اسکریپت‌های زیر برای Repair، CI یا استفاده فنی نگه داشته می‌شوند، اما مسیر پیشنهادی کاربر عادی **Unified Web Setup** است:
+
+```text
+scripts/Install-PosiranERP-v1.0.5.ps1
+scripts/Install-iMonitorERP-v2.1.5.ps1
+```
+
+---
+
+## Linux / Ubuntu ERP
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorERP-v2.0.0.sh | sudo bash -s -- --channel both
@@ -137,7 +258,7 @@ curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/mai
 
 ---
 
-## 4) New Windows Edge
+## New Windows Edge
 
 ```text
 Health             http://127.0.0.1:17891/health
@@ -147,21 +268,15 @@ Direct label print POST http://127.0.0.1:17891/api/labels/print
 
 ---
 
-## نکات مهم
+## قواعد انتشار
 
-- تمام اسکریپت‌های Windows باید از PowerShell با دسترسی Administrator اجرا شوند.
-- نصب Posiran ERP در Windows برای Releaseها از GitHub API/.NET HttpClient، BITS و Invoke-WebRequest استفاده می‌کند و به curl وابسته نیست.
-- خطای `curl -4` به معنی این است که مشکل گزارش‌شده از انتخاب IPv6 توسط curl نبوده؛ در برخی شبکه‌ها دسترسی به مسیر عادی GitHub Release Asset یا CDN آن می‌تواند متفاوت از `raw.githubusercontent.com` یا `api.github.com` باشد.
-- بسته‌های عمومی Posiran شامل `appsettings.json` نیستند؛ اطلاعات MySQL فقط روی سرور نصب‌شده نگهداری می‌شود.
-- Test و Production دیتابیس، IIS Site، پورت و مسیر مستقل دارند.
-- Releaseهای Posiran با White-label مستقل ساخته می‌شوند.
-- Bootstrap دیتابیس جدید فقط باید بعد از Validation کامل Schema/Seed وارد نصب Production شود؛ هیچ Dump عملیاتی یا Credential قدیمی نباید مستقیماً در Release قرار بگیرد.
+- Test و Production دیتابیس، پورت، مسیر و IIS مستقل دارند.
+- Posiran به‌صورت white-label مستقل منتشر می‌شود.
+- iMonitor و Posiran باید تا حد ممکن از یک Installer Engine استفاده کنند.
+- Release package نباید `appsettings.json` عملیاتی یا credential داشته باشد.
+- Bootstrap DB فقط از schema/seed تمیز و versioned استفاده کند.
+- dump دیتابیس مشتری نباید وارد Release شود.
+- Installer باید با Windows PowerShell 5.1 سازگار باشد.
+- دانلود باید fallback مناسب، checksum و cache معتبر داشته باشد.
+- Health check و rollback بخش اجباری deployment هستند.
 
-
-### Installer recovery update 2026-09-14
-
-- Release metadata and packages use native HttpClient, BITS and Invoke-WebRequest fallbacks.
-- Installer work files use `<InstallRoot>\.installer-work` instead of the RDP session Temp directory.
-- A machine-wide mutex prevents concurrent manual install/update operations from changing IIS concurrently.
-- Automatic iMonitor ERP update tasks are removed; updates are initiated manually from `/system/update`.
-- Missing Test configuration can be recovered from the preserved Production configuration and normalized to `ecomm_dev`.
