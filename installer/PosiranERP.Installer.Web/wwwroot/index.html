@@ -1,98 +1,22 @@
 <!doctype html>
-<html lang="fa" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>نصب پوزایران ERP</title>
-  <style>
-    *{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#182230;font-family:Tahoma,Arial,sans-serif}.wrap{max-width:900px;margin:38px auto;padding:18px}.card{background:#fff;border:1px solid #e4e9f0;border-radius:20px;box-shadow:0 18px 55px rgba(22,34,51,.08);overflow:hidden}.head{padding:26px 30px;background:linear-gradient(135deg,#0f4772,#1277ad);color:#fff}.head h1{margin:0 0 7px;font-size:25px}.head p{margin:0;opacity:.88}.body{padding:28px 30px}.steps{display:flex;gap:8px;margin-bottom:25px}.step{flex:1;height:7px;border-radius:9px;background:#dbe3eb}.step.on{background:#1386bd}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.full{grid-column:1/-1}label{display:block;font-size:13px;font-weight:700;margin:0 0 7px}input,select{width:100%;padding:11px 12px;border:1px solid #ccd5df;border-radius:10px;font:inherit;background:#fff}input:focus,select:focus{outline:2px solid #c6e9fa;border-color:#1386bd}.hint{font-size:12px;color:#677588;margin-top:6px}.checkrow{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid #dde5ee;border-radius:10px;background:#f9fbfd}.checkrow input{width:auto}.checkrow label{margin:0}.actions{display:flex;gap:10px;justify-content:flex-start;margin-top:24px}button{border:0;border-radius:10px;padding:11px 18px;font:inherit;font-weight:700;cursor:pointer}.primary{background:#0e78aa;color:#fff}.secondary{background:#eaf0f5;color:#263747}.status{margin:0 0 22px;padding:13px 15px;border-radius:12px;background:#eef7fb;color:#244457;white-space:pre-wrap}.warn{background:#fff4e5;color:#744c08}.ok{background:#eaf8ef;color:#1e6137}.hidden{display:none}.summary{line-height:2;background:#f7f9fb;border:1px solid #e5eaf0;border-radius:12px;padding:15px}.mono{direction:ltr;text-align:left;font-family:Consolas,monospace;font-size:12px;max-height:260px;overflow:auto}@media(max-width:650px){.grid{grid-template-columns:1fr}.full{grid-column:auto}.wrap{margin:0;padding:0}.card{border-radius:0;min-height:100vh}.head,.body{padding:22px}}
-  </style>
-</head>
-<body>
-<div class="wrap"><div class="card">
-  <div class="head"><h1>راه‌اندازی پوزایران ERP</h1><p>انتخاب Test، Production یا هر دو و نصب آخرین نسخه</p></div>
-  <div class="body">
-    <div class="steps"><div class="step on" id="s1"></div><div class="step" id="s2"></div><div class="step" id="s3"></div></div>
-    <div id="status" class="status">در حال بررسی سیستم...</div>
-
-    <section id="page1">
-      <div class="grid">
-        <div><label>نوع نصب</label><select id="channel" onchange="syncDefaults()"><option value="Both">هر دو (Test + Production)</option><option value="Test">فقط آزمایشی (Test)</option><option value="Production">فقط اصلی (Production)</option></select><div class="hint">در حالت هر دو، Test روی 8082 و Production روی 8083 نصب می‌شود.</div></div>
-        <div id="testFields" class="full grid">
-          <div><label>پورت Test</label><input id="testPort" type="number" value="8082"></div>
-          <div><label>نام پوشه Test</label><input id="testFolder" value="test"><div class="hint">C:\PosiranERP\test\current</div></div>
-          <div><label>دیتابیس Test</label><input id="testDbName" value="posiran_test" dir="ltr"></div>
-        </div>
-        <div id="productionFields" class="full grid">
-          <div><label>پورت Production</label><input id="productionPort" type="number" value="8083"></div>
-          <div><label>نام پوشه Production</label><input id="productionFolder" value="production"><div class="hint">C:\PosiranERP\production\current</div></div>
-          <div><label>دیتابیس Production</label><input id="productionDbName" value="posiran" dir="ltr"></div>
-        </div>
-        <div><label>آدرس سرور MySQL</label><input id="dbServer" value="127.0.0.1"></div>
-        <div><label>پورت MySQL</label><input id="dbPort" type="number" value="3306"></div>
-        <div><label>نام کاربری MySQL</label><input id="dbUser" value="root" autocomplete="username"></div>
-        <div><label>رمز MySQL</label><input id="dbPassword" type="password" autocomplete="current-password"></div>
-        <div><label>نسخه MySQL</label><input id="mysqlVersion" value="8.0.0"></div>
-        <div class="full checkrow"><input id="autoUpdate" type="checkbox" checked><label for="autoUpdate">به‌روزرسانی خودکار فعال باشد</label></div>
-      </div>
-      <div class="actions"><button class="primary" onclick="saveConfig()">بررسی و ذخیره تنظیمات</button></div>
-    </section>
-
-    <section id="page2" class="hidden">
-      <div class="summary" id="summary"></div>
-      <div class="actions"><button class="primary" onclick="installNow()">نصب آخرین نسخه</button><button class="secondary" onclick="showPage(1)">بازگشت</button></div>
-    </section>
-
-    <section id="page3" class="hidden">
-      <div class="summary"><strong>نصب تکمیل شد.</strong><br><span id="finalUrl"></span></div>
-      <pre class="status mono" id="logs"></pre>
-      <div class="actions"><button class="primary" onclick="openErp()">باز کردن ERP</button></div>
-    </section>
-  </div>
-</div></div>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>راه‌اندازی ERP</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#182230;font-family:Tahoma,Arial,sans-serif}.wrap{max-width:980px;margin:32px auto;padding:18px}.card{background:#fff;border:1px solid #e4e9f0;border-radius:20px;box-shadow:0 18px 55px rgba(22,34,51,.08);overflow:hidden}.head{padding:26px 30px;background:linear-gradient(135deg,#102d5b,#176fa5);color:#fff}.head h1{margin:0 0 7px}.body{padding:28px 30px}.status{padding:13px 15px;border-radius:12px;background:#eef7fb;margin-bottom:20px;white-space:pre-wrap}.ok{background:#eaf8ef}.warn{background:#fff4e5}.products{display:grid;grid-template-columns:1fr 1fr;gap:14px}.target{border:1px solid #dce5ee;border-radius:14px;padding:16px}.target h3{margin:0 0 12px}.row{display:flex;gap:10px;align-items:center;margin-bottom:10px}.row input[type=checkbox]{width:auto}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}label{font-size:12px;font-weight:700;display:block;margin-bottom:5px}input{width:100%;padding:10px;border:1px solid #ccd5df;border-radius:9px;font:inherit}.db{margin-top:18px;padding-top:18px;border-top:1px solid #e5eaf0}.actions{margin-top:20px;display:flex;gap:10px}button{border:0;border-radius:10px;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer}.primary{background:#116f9f;color:white}.summary{margin-top:18px;line-height:1.9}.hidden{display:none}@media(max-width:720px){.products,.grid{grid-template-columns:1fr}.wrap{margin:0;padding:0}.card{border-radius:0}}
+</style></head><body><div class="wrap"><div class="card"><div class="head"><h1>راه‌اندازی یکپارچه ERP</h1><p>نصب و ارتقای Posiran ERP و iMonitor ERP از یک صفحه</p></div><div class="body">
+<div id="status" class="status">در حال بررسی سیستم...</div>
+<div class="products">
+<div class="target"><div class="row"><input id="pt" type="checkbox" checked><h3>Posiran Test</h3></div><div class="grid"><div><label>پورت</label><input id="ptPort" type="number" value="8082"></div><div><label>دیتابیس</label><input id="ptDb" value="posiran_test" dir="ltr"></div></div></div>
+<div class="target"><div class="row"><input id="pp" type="checkbox"><h3>Posiran Production</h3></div><div class="grid"><div><label>پورت</label><input id="ppPort" type="number" value="8083"></div><div><label>دیتابیس</label><input id="ppDb" value="posiran" dir="ltr"></div></div></div>
+<div class="target"><div class="row"><input id="it" type="checkbox"><h3>iMonitor Test</h3></div><div class="grid"><div><label>پورت</label><input id="itPort" type="number" value="8081"></div><div><label>دیتابیس</label><input id="itDb" value="ecomm_dev" dir="ltr"></div></div></div>
+<div class="target"><div class="row"><input id="ip" type="checkbox"><h3>iMonitor Production</h3></div><div class="grid"><div><label>پورت</label><input id="ipPort" type="number" value="8080"></div><div><label>دیتابیس</label><input id="ipDb" value="ecomm" dir="ltr"></div></div></div>
+</div>
+<div class="db"><div class="grid"><div><label>سرور MySQL</label><input id="dbServer" value="127.0.0.1"></div><div><label>پورت MySQL</label><input id="dbPort" type="number" value="3306"></div><div><label>نام کاربری</label><input id="dbUser" value="root"></div><div><label>رمز MySQL</label><input id="dbPassword" type="password"></div><div><label>نسخه MySQL</label><input id="mysqlVersion" value="8.0.0"></div></div></div>
+<div class="actions"><button class="primary" onclick="runAll()">ذخیره تنظیمات و نصب انتخاب‌ها</button></div><div id="summary" class="summary"></div>
+</div></div></div>
 <script>
-let saved=[], erpUrls=[];
-const el=id=>document.getElementById(id);
-function showPage(n){for(let i=1;i<=3;i++){el('page'+i).classList.toggle('hidden',i!==n);el('s'+i).classList.toggle('on',i<=n)}}
-function syncDefaults(){
-  const ch=el('channel').value;
-  el('testFields').classList.toggle('hidden',ch==='Production');
-  el('productionFields').classList.toggle('hidden',ch==='Test');
-}
-function setStatus(text,kind=''){el('status').textContent=text;el('status').className='status '+kind}
-async function loadStatus(){try{const r=await fetch('/api/status');const x=await r.json();let text=`Windows: ${x.isWindows?'✓':'✗'}   Administrator: ${x.isAdministrator?'✓':'✗'}   IIS: ${x.prerequisites.iis?'✓':'✗'}   MySQL: ${x.prerequisites.mysqlServiceDetected?'✓':'تشخیص داده نشد'}`;setStatus(text,x.isWindows&&x.isAdministrator?'ok':'warn')}catch(e){setStatus('خطا در دریافت وضعیت Installer: '+e,'warn')}}
-function targets(){
-  const ch=el('channel').value, result=[];
-  if(ch!=='Production')result.push({channel:'Test',appPort:Number(el('testPort').value),installFolderName:el('testFolder').value,databaseName:el('testDbName').value});
-  if(ch!=='Test')result.push({channel:'Production',appPort:Number(el('productionPort').value),installFolderName:el('productionFolder').value,databaseName:el('productionDbName').value});
-  return result;
-}
-async function saveOne(t){
-  const body={channel:t.channel,databaseServer:el('dbServer').value,databasePort:Number(el('dbPort').value),databaseUser:el('dbUser').value,databasePassword:el('dbPassword').value,databaseName:t.databaseName,mySqlVersion:el('mysqlVersion').value,appPort:t.appPort,installFolderName:t.installFolderName,autoUpdate:el('autoUpdate').checked};
-  const r=await fetch('/api/configure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const x=await r.json();if(!r.ok)throw new Error(x.error||x.detail||'Configuration failed');return x;
-}
-async function saveConfig(){
-  setStatus('در حال ذخیره تنظیمات...');saved=[];
-  try{for(const t of targets()){setStatus(`در حال آماده‌سازی ${t.channel}...`);saved.push(await saveOne(t))}
-    el('summary').innerHTML=saved.map(x=>`کانال: <b>${x.channel}</b> — دیتابیس: <b>${x.database}</b> — پورت: <b>${x.appPort}</b><br>پوشه: <span dir="ltr">${x.installPath}</span><br>Config: <span dir="ltr">${x.configPath}</span>`).join('<hr>');
-    setStatus(saved.length===2?'تنظیمات هر دو کانال آماده است. مرحله بعد Test و Production پشت‌سرهم نصب می‌شوند.':'تنظیمات آماده است. مرحله بعد آخرین Release نصب می‌شود.','ok');showPage(2)
-  }catch(e){setStatus('خطا: '+e.message,'warn')}
-}
-async function installOne(t){
-  const r=await fetch('/api/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:t.channel,appPort:t.appPort,installFolderName:t.installFolderName,autoUpdate:el('autoUpdate').checked,force:true,refreshInstaller:true})});
-  const raw=await r.text(); let x={};
-  try{x=raw?JSON.parse(raw):{}}catch(_){x={detail:raw||('HTTP '+r.status+' '+r.statusText)}}
-  if(!r.ok)throw new Error(t.channel+': '+(x.detail||x.error||raw||'Installation failed'));
-  return x;
-}
-async function installNow(){
-  const ts=targets();setStatus(ts.length===2?'در حال نصب Test؛ سپس Production نصب خواهد شد...':'در حال دریافت و نصب آخرین Release؛ این صفحه را نبندید...');erpUrls=[];let outputs=[];
-  try{for(let i=0;i<ts.length;i++){const t=ts[i];setStatus(`در حال نصب ${t.channel} (${i+1}/${ts.length})...`);const x=await installOne(t);erpUrls.push(x.localUrl);outputs.push(`=== ${t.channel} ===\n${x.output||''}`)}
-    el('finalUrl').innerHTML=erpUrls.map((u,i)=>`${ts[i].channel}: <span dir="ltr">${u}</span>`).join('<br>');el('logs').textContent=outputs.join('\n\n');setStatus(ts.length===2?'نصب Test و Production و Health Check هر دو با موفقیت انجام شد.':'نصب و Health Check با موفقیت انجام شد.','ok');showPage(3)
-  }catch(e){setStatus('نصب ناموفق: '+e.message,'warn')}
-}
-function openErp(){for(const u of erpUrls)window.open(u,'_blank')}
-syncDefaults();loadStatus();
-</script>
-</body>
-</html>
+const el=id=>document.getElementById(id);function st(t,k=''){el('status').textContent=t;el('status').className='status '+k}
+function targets(){let a=[];if(el('pt').checked)a.push({product:'Posiran',channel:'Test',appPort:+el('ptPort').value,databaseName:el('ptDb').value,installFolderName:'test'});if(el('pp').checked)a.push({product:'Posiran',channel:'Production',appPort:+el('ppPort').value,databaseName:el('ppDb').value,installFolderName:'production'});if(el('it').checked)a.push({product:'iMonitor',channel:'Test',appPort:+el('itPort').value,databaseName:el('itDb').value,installFolderName:'test'});if(el('ip').checked)a.push({product:'iMonitor',channel:'Production',appPort:+el('ipPort').value,databaseName:el('ipDb').value,installFolderName:'production'});return a}
+async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const raw=await r.text();let x={};try{x=raw?JSON.parse(raw):{}}catch(_){x={detail:raw}}if(!r.ok)throw new Error(x.detail||x.error||raw||('HTTP '+r.status));return x}
+async function runAll(){const ts=targets();if(!ts.length){st('حداقل یک کانال را انتخاب کنید.','warn');return}el('summary').innerHTML='';try{for(let i=0;i<ts.length;i++){const t=ts[i];st('در حال آماده‌سازی '+t.product+' '+t.channel+' ('+(i+1)+'/'+ts.length+')...');const common={...t,databaseServer:el('dbServer').value,databasePort:+el('dbPort').value,databaseUser:el('dbUser').value,databasePassword:el('dbPassword').value,mySqlVersion:el('mysqlVersion').value,autoUpdate:t.product==='Posiran'};const c=await post('/api/configure',common);st('در حال نصب '+t.product+' '+t.channel+' ('+(i+1)+'/'+ts.length+')...');const x=await post('/api/install',{product:t.product,channel:t.channel,appPort:t.appPort,installFolderName:t.installFolderName,autoUpdate:t.product==='Posiran',force:true,refreshInstaller:true});el('summary').innerHTML+=('<b>'+t.product+' '+t.channel+'</b> — <span dir=ltr>'+x.localUrl+'</span><br>')}st('همه کانال‌های انتخاب‌شده با موفقیت نصب و Health Check شدند.','ok')}catch(e){st('نصب ناموفق: '+e.message,'warn')}}
+fetch('/api/status').then(r=>r.json()).then(x=>st('Windows: '+(x.isWindows?'✓':'✗')+'   Administrator: '+(x.isAdministrator?'✓':'✗')+'   IIS: '+(x.prerequisites.iis?'✓':'✗')+'   MySQL: '+(x.prerequisites.mysqlServiceDetected?'✓':'تشخیص داده نشد'),x.isAdministrator?'ok':'warn')).catch(e=>st('خطا در بررسی سیستم: '+e,'warn'));
+</script></body></html>
