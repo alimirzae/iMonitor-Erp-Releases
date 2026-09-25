@@ -8,6 +8,7 @@ public sealed class OrchestratorService
     private readonly string _installRoot;
     private readonly string _configRoot;
     private readonly string _registryRoot;
+    private readonly string _stateRoot;
     private readonly IHttpClientFactory _clients;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private const string ReleaseRepoApi = "https://api.github.com/repos/alimirzae/iMonitor-Erp-Releases/releases?per_page=100";
@@ -17,7 +18,8 @@ public sealed class OrchestratorService
         _installRoot = installRoot;
         _configRoot = configRoot;
         _clients = clients;
-        _registryRoot = Path.Combine(_installRoot, "instances");
+        _stateRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "iMonitor", "ERPDeploymentManager");
+        _registryRoot = Path.Combine(_stateRoot, "instances");
         Directory.CreateDirectory(_registryRoot);
     }
 
@@ -30,15 +32,15 @@ public sealed class OrchestratorService
             DiscoverLegacyInstances(manifests);
             var latest = await GetLatestReleasesAsync(cancellationToken);
             var result = new List<InstallationStatus>();
-            foreach (var m in manifests.Values.OrderBy(x => x.Channel).ThenBy(x => x.DisplayName))
+            foreach (var m in manifests.Values.OrderBy(x => x.Product).ThenBy(x => x.Channel).ThenBy(x => x.DisplayName))
             {
                 var installed = ReadInstalledRelease(m);
                 var health = await CheckHealthAsync(m.Port, cancellationToken);
                 var iis = GetIisState(m.IisSite, m.AppPool);
                 var db = CheckDatabase(m.ConfigPath);
-                var latestTag = latest.TryGetValue(m.Channel, out var tag) ? tag : null;
+                var latestTag = latest.TryGetValue($"{m.Product}:{m.Channel}", out var tag) ? tag : null;
                 result.Add(new InstallationStatus(
-                    m.Id, m.DisplayName, m.Channel, m.Port, m.InstallFolderName, m.InstallPath,
+                    m.Id, m.DisplayName, m.Product, m.Channel, m.InstallRoot, m.Port, m.InstallFolderName, m.InstallPath,
                     m.ConfigPath, m.DatabaseName, installed, latestTag,
                     !string.IsNullOrWhiteSpace(latestTag) && !string.Equals(installed, latestTag, StringComparison.OrdinalIgnoreCase),
                     m.AutoUpdate, Directory.Exists(m.InstallPath), File.Exists(m.ConfigPath),
@@ -70,23 +72,30 @@ public sealed class OrchestratorService
         catch { return Array.Empty<MySqlServiceStatus>(); }
     }
 
-    public InstallationManifest RegisterInstance(string channel, int port, string folderName, string database, bool autoUpdate, string configPath)
+    public InstallationManifest RegisterInstance(string product, string channel, string installRoot, int port, string folderName, string database, bool autoUpdate, string configPath)
     {
         channel = NormalizeChannel(channel) ?? throw new InvalidOperationException("Invalid channel.");
-        var id = channel.ToLowerInvariant();
+        var normalizedProduct = NormalizeProduct(product);
+        var id = $"{normalizedProduct.ToLowerInvariant()}-{channel.ToLowerInvariant()}";
         var now = DateTime.UtcNow;
         var existing = LoadManifest(id);
+        var isPosiran = normalizedProduct == "Posiran";
+        var site = isPosiran
+            ? (channel == "Test" ? "PosiranERP-Test" : "PosiranERP-Production")
+            : (channel == "Test" ? "iMonitorERP-Test" : "iMonitorERP-Production");
         var manifest = new InstallationManifest(
             id,
-            channel == "Test" ? "Posiran ERP Test" : "Posiran ERP Production",
+            $"{normalizedProduct} ERP {channel}",
+            normalizedProduct,
             channel,
+            Path.GetFullPath(installRoot),
             port,
             folderName,
-            Path.Combine(_installRoot, folderName, "current"),
+            Path.Combine(Path.GetFullPath(installRoot), folderName, "current"),
             configPath,
             database,
-            channel == "Test" ? "PosiranERP-Test" : "PosiranERP-Production",
-            channel == "Test" ? "PosiranERP-Test" : "PosiranERP-Production",
+            site,
+            site,
             autoUpdate,
             existing?.CreatedAtUtc ?? now,
             now);
@@ -105,7 +114,7 @@ public sealed class OrchestratorService
 
         var stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
         var backupId = $"{stamp}-{Guid.NewGuid():N}"[..24];
-        var dir = Path.Combine(_installRoot, m.InstallFolderName, "backups", backupId);
+        var dir = Path.Combine(m.InstallRoot, m.InstallFolderName, "backups", backupId);
         Directory.CreateDirectory(dir);
         var databases = new List<DatabaseTarget> { new(cfg.Server, cfg.Port, cfg.User, cfg.Password, m.DatabaseName, "application") };
         databases.AddRange(DiscoverBookDatabases(mysqlExe, cfg, m.DatabaseName));
@@ -145,7 +154,7 @@ public sealed class OrchestratorService
     {
         var m = RequireManifest(id);
         ValidateBackupId(backupId);
-        var dir = Path.Combine(_installRoot, m.InstallFolderName, "backups", backupId);
+        var dir = Path.Combine(m.InstallRoot, m.InstallFolderName, "backups", backupId);
         var metaPath = Path.Combine(dir, "backup.json");
         if (!File.Exists(metaPath)) throw new FileNotFoundException("Managed backup metadata was not found.");
         var meta = JsonSerializer.Deserialize<BackupMetadata>(File.ReadAllText(metaPath), JsonOptions) ?? throw new InvalidOperationException("Backup metadata is invalid.");
@@ -198,7 +207,7 @@ public sealed class OrchestratorService
     {
         var m = LoadManifest(id);
         if (m is null) return Array.Empty<BackupSummary>();
-        var root = Path.Combine(_installRoot, m.InstallFolderName, "backups");
+        var root = Path.Combine(m.InstallRoot, m.InstallFolderName, "backups");
         if (!Directory.Exists(root)) return Array.Empty<BackupSummary>();
         var result = new List<BackupSummary>();
         foreach (var dir in Directory.EnumerateDirectories(root).OrderByDescending(x => x).Take(20))
@@ -276,9 +285,11 @@ public sealed class OrchestratorService
             {
                 var tag = e.GetProperty("tag_name").GetString();
                 if (string.IsNullOrWhiteSpace(tag)) continue;
-                if (tag.StartsWith("posiran-erp-test-v", StringComparison.OrdinalIgnoreCase) && !result.ContainsKey("Test")) result["Test"] = tag;
-                if (tag.StartsWith("posiran-erp-production-v", StringComparison.OrdinalIgnoreCase) && !result.ContainsKey("Production")) result["Production"] = tag;
-                if (result.Count == 2) break;
+                if (tag.StartsWith("posiran-erp-test-v", StringComparison.OrdinalIgnoreCase) && !result.ContainsKey("Posiran:Test")) result["Posiran:Test"] = tag;
+                if (tag.StartsWith("posiran-erp-production-v", StringComparison.OrdinalIgnoreCase) && !result.ContainsKey("Posiran:Production")) result["Posiran:Production"] = tag;
+                if (tag.StartsWith("imonitor-ecomerp-test-v", StringComparison.OrdinalIgnoreCase) && !result.ContainsKey("iMonitor:Test")) result["iMonitor:Test"] = tag;
+                if (tag.StartsWith("imonitor-ecomerp-master-v", StringComparison.OrdinalIgnoreCase) && !result.ContainsKey("iMonitor:Production")) result["iMonitor:Production"] = tag;
+                if (result.Count == 4) break;
             }
         }
         catch { }
@@ -287,7 +298,7 @@ public sealed class OrchestratorService
 
     private string? ReadInstalledRelease(InstallationManifest m)
     {
-        var state = Path.Combine(_installRoot, m.InstallFolderName, "installed-release.txt");
+        var state = Path.Combine(m.InstallRoot, m.InstallFolderName, "installed-release.txt");
         try { return File.Exists(state) ? File.ReadAllText(state).Trim() : null; } catch { return null; }
     }
 
@@ -512,6 +523,13 @@ public sealed class OrchestratorService
         return text.Length > 1200 ? text[..1200] : text.Trim();
     }
 
+    private static string NormalizeProduct(string? product)
+    {
+        if (string.Equals(product, "posiran", StringComparison.OrdinalIgnoreCase)) return "Posiran";
+        if (string.Equals(product, "imonitor", StringComparison.OrdinalIgnoreCase)) return "iMonitor";
+        throw new InvalidOperationException("Product must be Posiran or iMonitor.");
+    }
+
     private static string? NormalizeChannel(string? channel)
     {
         if (string.Equals(channel, "test", StringComparison.OrdinalIgnoreCase)) return "Test";
@@ -542,8 +560,8 @@ public sealed class OrchestratorService
     }
 }
 
-public sealed record InstallationManifest(string Id, string DisplayName, string Channel, int Port, string InstallFolderName, string InstallPath, string ConfigPath, string DatabaseName, string IisSite, string AppPool, bool AutoUpdate, DateTime CreatedAtUtc, DateTime UpdatedAtUtc);
-public sealed record InstallationStatus(string Id, string DisplayName, string Channel, int Port, string InstallFolderName, string InstallPath, string ConfigPath, string DatabaseName, string? InstalledVersion, string? LatestVersion, bool UpdateAvailable, bool AutoUpdate, bool FolderExists, bool ConfigExists, string IisSiteState, string IisPoolState, bool HealthOk, string HealthMessage, bool DatabaseReachable, string DatabaseMessage, IReadOnlyList<BackupSummary> Backups);
+public sealed record InstallationManifest(string Id, string DisplayName, string Product, string Channel, string InstallRoot, int Port, string InstallFolderName, string InstallPath, string ConfigPath, string DatabaseName, string IisSite, string AppPool, bool AutoUpdate, DateTime CreatedAtUtc, DateTime UpdatedAtUtc);
+public sealed record InstallationStatus(string Id, string DisplayName, string Product, string Channel, string InstallRoot, int Port, string InstallFolderName, string InstallPath, string ConfigPath, string DatabaseName, string? InstalledVersion, string? LatestVersion, bool UpdateAvailable, bool AutoUpdate, bool FolderExists, bool ConfigExists, string IisSiteState, string IisPoolState, bool HealthOk, string HealthMessage, bool DatabaseReachable, string DatabaseMessage, IReadOnlyList<BackupSummary> Backups);
 public sealed record MySqlServiceStatus(string Name, string DisplayName, string State, string StartMode, string PathName);
 public sealed record BackupFile(string Kind, string Database, string FileName, string Sha256, long SizeBytes);
 public sealed record BackupMetadata(string BackupId, string InstanceId, DateTime CreatedAtUtc, string Reason, IReadOnlyList<BackupFile> Files);
