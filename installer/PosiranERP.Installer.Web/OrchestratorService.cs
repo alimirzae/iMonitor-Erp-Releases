@@ -62,8 +62,16 @@ public sealed class OrchestratorService
         var http = _clients.CreateClient();
         http.DefaultRequestHeaders.UserAgent.ParseAdd("ERPDeploymentManager/1.0");
         http.Timeout = TimeSpan.FromSeconds(20);
-        using var response = await http.GetAsync(ReleaseRepoApi + "&cb=" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken);
-        response.EnsureSuccessStatusCode();
+        HttpResponseMessage? response = null;
+        try { response = await http.GetAsync(ReleaseRepoApi + "&cb=" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken); }
+        catch { }
+        if (response is null || !response.IsSuccessStatusCode)
+        {
+            response?.Dispose();
+            var latest = await GetStaticLatestAsync(normalizedProduct, normalizedChannel, cancellationToken);
+            return latest is null ? Array.Empty<ReleaseInfo>() : new[] { new ReleaseInfo(latest, DateTime.UtcNow, Array.Empty<string>(), !IsFailedRelease(normalizedProduct, normalizedChannel, latest)) };
+        }
+        using (response)
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
         var result = new List<ReleaseInfo>();
         foreach (var e in doc.RootElement.EnumerateArray())
@@ -453,29 +461,48 @@ public sealed class OrchestratorService
         }
     }
 
+    private async Task<string?> GetStaticLatestAsync(string product, string channel, CancellationToken cancellationToken)
+    {
+        var p = product.Equals("Posiran", StringComparison.OrdinalIgnoreCase) ? "posiran" : "imonitor";
+        var ch = p == "imonitor" ? (channel.Equals("Test", StringComparison.OrdinalIgnoreCase) ? "test" : "master")
+                                : (channel.Equals("Test", StringComparison.OrdinalIgnoreCase) ? "test" : "production");
+        var url = $"https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/channels/{p}/{ch}/latest.json?cb={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+        try
+        {
+            var http = _clients.CreateClient(); http.Timeout = TimeSpan.FromSeconds(15);
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("ERPDeploymentManager/1.1");
+            using var r = await http.GetAsync(url, cancellationToken);
+            if (!r.IsSuccessStatusCode) return null;
+            using var doc = JsonDocument.Parse(await r.Content.ReadAsStringAsync(cancellationToken));
+            return doc.RootElement.TryGetProperty("tag", out var t) ? t.GetString() : null;
+        }
+        catch { return null; }
+    }
+
     private async Task<Dictionary<string, string>> GetLatestReleasesAsync(CancellationToken cancellationToken)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in new[] { ("Posiran","Test"), ("Posiran","Production"), ("iMonitor","Test"), ("iMonitor","Production") })
+        {
+            var tag = await GetStaticLatestAsync(item.Item1, item.Item2, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(tag)) result[$"{item.Item1}:{item.Item2}"] = tag;
+        }
+        if (result.Count == 4) return result;
         try
         {
-            var http = _clients.CreateClient();
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("PosiranERP-Orchestrator/1.0");
-            http.Timeout = TimeSpan.FromSeconds(15);
+            var http = _clients.CreateClient(); http.DefaultRequestHeaders.UserAgent.ParseAdd("ERPDeploymentManager/1.1"); http.Timeout = TimeSpan.FromSeconds(15);
             using var response = await http.GetAsync(ReleaseRepoApi + "&cb=" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode) return result;
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
-            foreach (var e in doc.RootElement.EnumerateArray())
+            foreach (var x in doc.RootElement.EnumerateArray())
             {
-                var tag = e.GetProperty("tag_name").GetString();
-                if (string.IsNullOrWhiteSpace(tag)) continue;
-                if (tag.StartsWith("posiran-erp-test-v", StringComparison.OrdinalIgnoreCase) && !result.ContainsKey("Posiran:Test")) result["Posiran:Test"] = tag;
-                if (tag.StartsWith("posiran-erp-production-v", StringComparison.OrdinalIgnoreCase) && !result.ContainsKey("Posiran:Production")) result["Posiran:Production"] = tag;
-                if (tag.StartsWith("imonitor-ecomerp-test-v", StringComparison.OrdinalIgnoreCase) && !result.ContainsKey("iMonitor:Test")) result["iMonitor:Test"] = tag;
-                if (tag.StartsWith("imonitor-ecomerp-master-v", StringComparison.OrdinalIgnoreCase) && !result.ContainsKey("iMonitor:Production")) result["iMonitor:Production"] = tag;
-                if (result.Count == 4) break;
+                var tag=x.GetProperty("tag_name").GetString(); if(string.IsNullOrWhiteSpace(tag)) continue;
+                if(tag.StartsWith("posiran-erp-test-v",StringComparison.OrdinalIgnoreCase)&&!result.ContainsKey("Posiran:Test"))result["Posiran:Test"]=tag;
+                if(tag.StartsWith("posiran-erp-production-v",StringComparison.OrdinalIgnoreCase)&&!result.ContainsKey("Posiran:Production"))result["Posiran:Production"]=tag;
+                if(tag.StartsWith("imonitor-ecomerp-test-v",StringComparison.OrdinalIgnoreCase)&&!result.ContainsKey("iMonitor:Test"))result["iMonitor:Test"]=tag;
+                if(tag.StartsWith("imonitor-ecomerp-master-v",StringComparison.OrdinalIgnoreCase)&&!result.ContainsKey("iMonitor:Production"))result["iMonitor:Production"]=tag;
             }
-        }
-        catch { }
+        } catch { }
         return result;
     }
 
