@@ -428,7 +428,7 @@ public sealed class OrchestratorService
     {
         foreach (var channel in new[] { "Test", "Production" })
         {
-            var id = channel.ToLowerInvariant();
+            var id = "posiran-" + channel.ToLowerInvariant();
             if (manifests.ContainsKey(id)) continue;
             var folder = channel == "Test" ? "test" : "production";
             var root = Path.Combine(_installRoot, folder, "current");
