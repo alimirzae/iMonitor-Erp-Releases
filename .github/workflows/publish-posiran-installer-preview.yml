@@ -1,4 +1,4 @@
-name: Publish Posiran Installer Preview
+name: Publish Unified ERP Deployment Manager
 
 on:
   workflow_dispatch:
@@ -6,13 +6,13 @@ on:
     branches: [ main ]
     paths:
       - 'installer/PosiranERP.Installer.Web/**'
-      - '.github/workflows/publish-posiran-installer-preview.yml'
+      - '.github/workflows/publish-erp-deployment-manager.yml'
 
 permissions:
   contents: write
 
 concurrency:
-  group: posiran-installer-preview
+  group: erp-deployment-manager
   cancel-in-progress: true
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
       - name: Publish self-contained setup host
         shell: powershell
         run: |
-          $out=Join-Path $env:RUNNER_TEMP 'posiran-installer'
+          $out=Join-Path $env:RUNNER_TEMP 'erp-deployment-manager'
           dotnet publish installer\PosiranERP.Installer.Web\PosiranERP.Installer.Web.csproj `
             -c Release -r win-x64 --self-contained true -o $out
           if($LASTEXITCODE -ne 0){throw 'Installer publish failed'}
@@ -44,23 +44,23 @@ jobs:
       - name: Package preview
         shell: powershell
         run: |
-          $out=Join-Path $env:RUNNER_TEMP 'posiran-installer'
-          $zip=Join-Path $env:RUNNER_TEMP 'PosiranERP-Setup-win-x64.zip'
+          $out=Join-Path $env:RUNNER_TEMP 'erp-deployment-manager'
+          $zip=Join-Path $env:RUNNER_TEMP 'ERP-Deployment-Manager-win-x64.zip'
           Compress-Archive -Path "$out\*" -DestinationPath $zip -CompressionLevel Optimal -Force
           $hash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  PosiranERP-Setup-win-x64.zip" | Set-Content "$zip.sha256" -Encoding ASCII
+          "$hash  ERP-Deployment-Manager-win-x64.zip" | Set-Content "$zip.sha256" -Encoding ASCII
           "SETUP_ZIP=$zip" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           "SETUP_SHA=$zip.sha256" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Publish preview release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: posiran-installer-preview
-          name: Posiran ERP Setup Preview
+          tag_name: erp-deployment-manager
+          name: ERP Deployment Manager
           body: |
-            Self-contained Windows x64 setup host for Posiran ERP.
-            Run Start-PosiranERP-Setup.cmd or PosiranERP.Setup.exe as Administrator.
-            Setup wizard listens only on http://127.0.0.1:8099/.
+            Persistent localhost-only Windows x64 ERP Deployment Manager for Posiran and iMonitor ERP.
+            Bootstrap installs ERP Deployment Manager as an automatic Windows Service.
+            Manager listens only on http://127.0.0.1:8099/.
             Preview channel.
           target_commitish: main
           prerelease: true
