@@ -52,6 +52,177 @@ public sealed class OrchestratorService
         finally { _gate.Release(); }
     }
 
+    public async Task<IReadOnlyList<ReleaseInfo>> ListReleasesAsync(string product, string channel, CancellationToken cancellationToken = default)
+    {
+        var normalizedProduct = NormalizeProduct(product);
+        var normalizedChannel = NormalizeChannel(channel) ?? throw new InvalidOperationException("Invalid channel.");
+        var prefix = normalizedProduct == "Posiran"
+            ? (normalizedChannel == "Test" ? "posiran-erp-test-v" : "posiran-erp-production-v")
+            : (normalizedChannel == "Test" ? "imonitor-ecomerp-test-v" : "imonitor-ecomerp-master-v");
+        var http = _clients.CreateClient();
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("ERPDeploymentManager/1.0");
+        http.Timeout = TimeSpan.FromSeconds(20);
+        using var response = await http.GetAsync(ReleaseRepoApi + "&cb=" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), cancellationToken);
+        response.EnsureSuccessStatusCode();
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        var result = new List<ReleaseInfo>();
+        foreach (var e in doc.RootElement.EnumerateArray())
+        {
+            var tag = e.GetProperty("tag_name").GetString();
+            if (string.IsNullOrWhiteSpace(tag) || !tag.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            var published = e.TryGetProperty("published_at", out var p) && p.ValueKind == JsonValueKind.String
+                ? p.GetDateTimeOffset().UtcDateTime
+                : DateTime.MinValue;
+            var assets = e.TryGetProperty("assets", out var a) && a.ValueKind == JsonValueKind.Array
+                ? a.EnumerateArray().Select(x => x.GetProperty("name").GetString() ?? "").Where(x => x.Length > 0).ToArray()
+                : Array.Empty<string>();
+            result.Add(new ReleaseInfo(tag, published, assets, !IsFailedRelease(normalizedProduct, normalizedChannel, tag)));
+        }
+        return result.OrderByDescending(x => x.PublishedAtUtc).ToArray();
+    }
+
+    public IReadOnlyList<VersionHealthRecord> GetVersionHistory(string id)
+    {
+        ValidateInstanceId(id);
+        var path = HistoryPath(id);
+        if (!File.Exists(path)) return Array.Empty<VersionHealthRecord>();
+        try { return JsonSerializer.Deserialize<List<VersionHealthRecord>>(File.ReadAllText(path), JsonOptions) ?? Array.Empty<VersionHealthRecord>(); }
+        catch { return Array.Empty<VersionHealthRecord>(); }
+    }
+
+    public async Task<VersionOperationResult> InstallVersionAsync(string id, string tag, CancellationToken cancellationToken = default)
+    {
+        var m = RequireManifest(id);
+        ValidateReleaseTagForManifest(m, tag);
+        var backup = Directory.Exists(m.InstallPath) && File.Exists(m.ConfigPath)
+            ? await BackupAsync(id, $"pre-version:{tag}", cancellationToken)
+            : null;
+        try
+        {
+            var assetName = m.Product == "Posiran" ? "PosiranERP-win-x64.zip" : "iMonitor-EcomERP-win-x64.zip";
+            var releaseUrl = $"https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/{tag}/{assetName}";
+            var shaUrl = releaseUrl + ".sha256";
+            var packageDir = Path.Combine(m.InstallRoot, "packages", tag);
+            Directory.CreateDirectory(packageDir);
+            var zip = Path.Combine(packageDir, assetName);
+            var shaFile = zip + ".sha256";
+            var http = _clients.CreateClient();
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("ERPDeploymentManager/1.0");
+            http.Timeout = TimeSpan.FromMinutes(10);
+            await DownloadAsync(http, shaUrl, shaFile, cancellationToken);
+            var expected = File.ReadAllText(shaFile).Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
+            if (!File.Exists(zip) || Hash(zip) != expected) await DownloadAsync(http, releaseUrl, zip, cancellationToken);
+            var actual = Hash(zip);
+            if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Package checksum mismatch.");
+
+            var stage = Path.Combine(m.InstallRoot, m.InstallFolderName, "stage", tag);
+            if (Directory.Exists(stage)) Directory.Delete(stage, true);
+            Directory.CreateDirectory(stage);
+            System.IO.Compression.ZipFile.ExtractToDirectory(zip, stage, true);
+
+            StopInstance(m);
+            var current = m.InstallPath;
+            var rollbackDir = Path.Combine(m.InstallRoot, m.InstallFolderName, "rollback-current");
+            if (Directory.Exists(rollbackDir)) Directory.Delete(rollbackDir, true);
+            if (Directory.Exists(current)) Directory.Move(current, rollbackDir);
+            try
+            {
+                Directory.Move(stage, current);
+                StartInstance(m);
+                var health = await WaitForHealthAsync(m.Port, cancellationToken);
+                if (!health.Ok) throw new InvalidOperationException("Health check failed after version activation: " + health.Message);
+                File.WriteAllText(Path.Combine(m.InstallRoot, m.InstallFolderName, "installed-release.txt"), tag);
+                AppendHistory(m.Id, new VersionHealthRecord(tag, DateTime.UtcNow, "Healthy", health.Message, backup?.BackupId, actual));
+                if (Directory.Exists(rollbackDir)) Directory.Delete(rollbackDir, true);
+                return new VersionOperationResult(tag, true, "Healthy", health.Message, backup?.BackupId);
+            }
+            catch
+            {
+                try { StopInstance(m); } catch { }
+                try { if (Directory.Exists(current)) Directory.Delete(current, true); } catch { }
+                if (Directory.Exists(rollbackDir)) Directory.Move(rollbackDir, current);
+                try { StartInstance(m); } catch { }
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendHistory(m.Id, new VersionHealthRecord(tag, DateTime.UtcNow, "Failed", ex.Message, backup?.BackupId, null));
+            throw;
+        }
+    }
+
+    public async Task<VersionOperationResult> RollbackToVersionAsync(string id, string tag, CancellationToken cancellationToken = default)
+    {
+        var m = RequireManifest(id);
+        var record = GetVersionHistory(id)
+            .Where(x => string.Equals(x.Tag, tag, StringComparison.OrdinalIgnoreCase) && x.Status == "Healthy")
+            .OrderByDescending(x => x.CheckedAtUtc).FirstOrDefault();
+        if (record is null) throw new InvalidOperationException("Requested version is not recorded as Healthy.");
+        var result = await InstallVersionAsync(id, tag, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(record.BackupId))
+            await RestoreAsync(id, record.BackupId, cancellationToken);
+        return result with { Message = "Rollback completed to previously healthy version." };
+    }
+
+    public async Task RunAutoUpdateCycleAsync(CancellationToken cancellationToken)
+    {
+        foreach (var m in LoadManifests().Where(x => x.AutoUpdate))
+        {
+            try
+            {
+                var releases = await ListReleasesAsync(m.Product, m.Channel, cancellationToken);
+                var latest = releases.FirstOrDefault(x => x.Eligible);
+                if (latest is null) continue;
+                var installed = ReadInstalledRelease(m);
+                if (string.Equals(installed, latest.Tag, StringComparison.OrdinalIgnoreCase)) continue;
+                await InstallVersionAsync(m.Id, latest.Tag, cancellationToken);
+            }
+            catch { }
+        }
+    }
+
+    private string HistoryPath(string id)
+    {
+        var dir = Path.Combine(_stateRoot, "history");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, id + ".json");
+    }
+
+    private void AppendHistory(string id, VersionHealthRecord record)
+    {
+        var list = GetVersionHistory(id).ToList();
+        list.Insert(0, record);
+        if (list.Count > 100) list = list.Take(100).ToList();
+        File.WriteAllText(HistoryPath(id), JsonSerializer.Serialize(list, JsonOptions));
+    }
+
+    private bool IsFailedRelease(string product, string channel, string tag)
+        => LoadManifests().Where(x => x.Product == product && x.Channel == channel)
+            .SelectMany(x => GetVersionHistory(x.Id))
+            .Any(x => string.Equals(x.Tag, tag, StringComparison.OrdinalIgnoreCase) && x.Status == "Failed");
+
+    private static void ValidateReleaseTagForManifest(InstallationManifest m, string tag)
+    {
+        var prefix = m.Product == "Posiran"
+            ? (m.Channel == "Test" ? "posiran-erp-test-v" : "posiran-erp-production-v")
+            : (m.Channel == "Test" ? "imonitor-ecomerp-test-v" : "imonitor-ecomerp-master-v");
+        if (!tag.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Release tag does not belong to this product/channel.");
+    }
+
+    private static async Task DownloadAsync(HttpClient http, string url, string destination, CancellationToken ct)
+    {
+        using var r = await http.GetAsync(url, ct);
+        r.EnsureSuccessStatusCode();
+        await using var src = await r.Content.ReadAsStreamAsync(ct);
+        await using var dst = File.Create(destination);
+        await src.CopyToAsync(dst, ct);
+    }
+
+    private static string Hash(string path)
+        => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+
     public IReadOnlyList<MySqlServiceStatus> ListMySqlServices()
     {
         if (!OperatingSystem.IsWindows()) return Array.Empty<MySqlServiceStatus>();
@@ -574,3 +745,8 @@ public sealed record DatabaseTarget(string Server, int Port, string User, string
 public sealed record DbCheckResult(bool Reachable, string Message);
 public sealed record HealthResult(bool Ok, string Message);
 public sealed record ProcessResult(int ExitCode, string StdOut, string StdErr);
+
+
+public sealed record ReleaseInfo(string Tag, DateTime PublishedAtUtc, IReadOnlyList<string> Assets, bool Eligible);
+public sealed record VersionHealthRecord(string Tag, DateTime CheckedAtUtc, string Status, string Message, string? BackupId, string? PackageSha256);
+public sealed record VersionOperationResult(string Tag, bool Success, string Status, string Message, string? BackupId);
