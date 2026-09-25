@@ -42,7 +42,7 @@ function Get-ChannelInfo([string]$Name){
     Site=if($isTest){'PosiranERP-Test'}else{'PosiranERP-Production'};Pool=if($isTest){'PosiranERP-Test'}else{'PosiranERP-Production'};
     Root=Join-Path $channelRoot 'current';State=Join-Path $channelRoot 'installed-release.txt';
     Config=Join-Path (Join-Path $ConfigRoot $cfg) 'appsettings.json';Prefix=if($isTest){'posiran-erp-test-v'}else{'posiran-erp-production-v'};
-    Task=if($isTest){'PosiranERP-Update-Test'}else{'PosiranERP-Update-Production'};Minutes=if($isTest){1}else{5}
+    Task=if($isTest){'PosiranERP-Update-Test'}else{'PosiranERP-Update-Production'};Minutes=if($isTest){10}else{0}
   }
 }
 
@@ -123,7 +123,7 @@ function Normalize-ChannelConfig($info){
   $brandName=$utf8.GetString([Convert]::FromBase64String('UG9zaXJhbiBFUlAgfCDZvtmI2LIg2KfbjNix2KfZhg=='))
   $brandTagline=$utf8.GetString([Convert]::FromBase64String('2LHYp9mH2qnYp9ixINuM2qnZvtin2LHahtmHINmB2LHZiNi02Iwg2K3Ys9in2KjYr9in2LHbjCDZiCDZhdiv24zYsduM2Ko='))
   $brand=[pscustomobject][ordered]@{Key='posiran';Name=$brandName;Tagline=$brandTagline;LogoPath='/img/logo.webp?v=posiran-official-20260912';FaviconPath='/img/app-icon.webp?v=posiran-official-20260912';ThemePath='/brands/posiran/theme.css?v=posiran-20260911';PrimaryColor='#123FA3';SecondaryColor='#F5B335'}
-  $update=[pscustomobject][ordered]@{Repository='alimirzae/iMonitor-Erp-Releases';Channel=$info.Key;TestTagPrefix='posiran-erp-test-v';ProductionTagPrefix='posiran-erp-production-v';TestTaskName='PosiranERP-Update-Test';ProductionTaskName='PosiranERP-Update-Production';TestIntervalMinutes=1}
+  $update=[pscustomobject][ordered]@{Repository='alimirzae/iMonitor-Erp-Releases';Channel=$info.Key;TestTagPrefix='posiran-erp-test-v';ProductionTagPrefix='posiran-erp-production-v';TestTaskName='PosiranERP-Update-Test';ProductionTaskName='PosiranERP-Update-Production';ManualUpdateOnly=($info.Name -ne 'Test');AutoUpdate=($info.Name -eq 'Test');TestIntervalMinutes=10}
   if($j.PSObject.Properties['Branding']){$j.Branding=$brand}else{$j|Add-Member -NotePropertyName Branding -NotePropertyValue $brand}
   if($j.PSObject.Properties['Update']){$j.Update=$update}else{$j|Add-Member -NotePropertyName Update -NotePropertyValue $update}
   $j.Database.AutoMigrate=$true;$j.Database.MigrateOnStartup=$true;$j.Database.UseBackgroundMigration=$false;$j.Database.DropDatabaseOnStartup=$false
@@ -134,11 +134,6 @@ function Normalize-ChannelConfig($info){
 
 function Register-Updater($info){
   if($SkipTaskRegistration){return}
-  if($DisableAutoUpdate){
-    Unregister-ScheduledTask -TaskName $info.Task -Confirm:$false -ErrorAction SilentlyContinue
-    Write-Host "[OK] Auto updater disabled for $($info.Name)." -ForegroundColor Yellow
-    return
-  }
   $localUpdater=Join-Path $info.Root 'Update-PosiranERP.ps1'
   if(!(Test-Path $localUpdater)){
     Write-Warning "Local updater missing; repairing it before task registration: $localUpdater"
@@ -149,11 +144,16 @@ function Register-Updater($info){
   $args="-NoProfile -ExecutionPolicy Bypass -File `"$localUpdater`""
   $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $args
   Unregister-ScheduledTask -TaskName $info.Task -Confirm:$false -ErrorAction SilentlyContinue
-  $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes $info.Minutes) -RepetitionDuration (New-TimeSpan -Days 3650)
   $principal=New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
   $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 20)
-  Register-ScheduledTask -TaskName $info.Task -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force|Out-Null
-  Write-Host "[OK] Auto updater $($info.Task) every $($info.Minutes) minute(s)." -ForegroundColor Green
+  if($info.Name -eq 'Test' -and -not $DisableAutoUpdate){
+    $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration (New-TimeSpan -Days 3650)
+    Register-ScheduledTask -TaskName $info.Task -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force|Out-Null
+    Write-Host "[OK] Test auto updater $($info.Task) every 10 minutes." -ForegroundColor Green
+  }else{
+    Register-ScheduledTask -TaskName $info.Task -Action $action -Principal $principal -Settings $settings -Force|Out-Null
+    Write-Host "[OK] Production updater $($info.Task) is manual-only and can be triggered from /system/update." -ForegroundColor Green
+  }
 }
 
 function Write-LocalUpdater($info,[string]$Destination){
@@ -164,6 +164,18 @@ function Write-LocalUpdater($info,[string]$Destination){
 [CmdletBinding()]
 param([switch]`$Force)
 `$ErrorActionPreference='Stop'
+`$root=$(Q $info.Root)
+`$rollback=`$root+'.rollback'
+`$port=$($info.Port)
+function Test-Health { try{`$r=Invoke-WebRequest "http://127.0.0.1:`$port/health" -UseBasicParsing -TimeoutSec 8;return `$r.StatusCode -eq 200}catch{return `$false} }
+if((Test-Path `$rollback) -and -not (Test-Health)){
+  try{Import-Module WebAdministration -ErrorAction SilentlyContinue}catch{}
+  if(Test-Path `$root){Remove-Item `$root -Recurse -Force -ErrorAction SilentlyContinue}
+  Move-Item `$rollback `$root -Force
+  try{Start-WebAppPool $(Q $info.Pool) -ErrorAction SilentlyContinue;Start-Website $(Q $info.Site) -ErrorAction SilentlyContinue}catch{}
+  Start-Sleep 5
+  if(-not (Test-Health)){throw 'Automatic rollback was attempted but the previous Posiran version is still unhealthy.'}
+}
 & $(Q $channelInstaller) -Channel $(Q $info.Name) -Mode UpdateOnly -InstallRoot $(Q $InstallRoot) -ConfigRoot $(Q $ConfigRoot) -TestFolderName $(Q $TestFolderName) -ProductionFolderName $(Q $ProductionFolderName) -TestPort $TestPort -ProductionPort $ProductionPort -SkipTaskRegistration -Force:`$Force
 "@
   Set-Content (Join-Path $Destination 'Update-PosiranERP.ps1') $content -Encoding UTF8
