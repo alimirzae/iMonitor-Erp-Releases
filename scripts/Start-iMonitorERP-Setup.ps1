@@ -1,54 +1,39 @@
 [CmdletBinding()]
-param(
-  [ValidateSet('Both','Test','Production')][string]$Channel='Both',
-  [switch]$Force,
-  [Parameter(ValueFromRemainingArguments=$true)][string[]]$InstallerArguments
-)
+param()
 $ErrorActionPreference='Stop'
 [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
-$version='2.1.5'
-$file="Install-iMonitorERP-v$version.ps1"
-$work=Join-Path $env:TEMP 'iMonitorERP-Setup'
+$repo='alimirzae/iMonitor-Erp-Releases'
+$tag='imonitor-installer-preview'
+$name='iMonitorERP-Setup-win-x64.zip'
+$shaName="$name.sha256"
+$work=Join-Path $env:TEMP 'iMonitorERP-WebSetup'
 New-Item -ItemType Directory -Force -Path $work|Out-Null
-$target=Join-Path $work $file
-$urls=@(
-  "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/imonitor-erp-installer-v$version/$file",
-  "https://testerp.imonitor.ir/downloads/installers/$file"
-)
+$zip=Join-Path $work $name
+$shaFile=Join-Path $work $shaName
 
-function Test-ValidDownload([string]$Path){
-  return (Test-Path $Path) -and (Get-Item $Path).Length -gt 10000
-}
-
-$errors=@()
-$downloaded=$false
-foreach($url in $urls){
-  Remove-Item $target -Force -ErrorAction SilentlyContinue
+function Download([string]$url,[string]$dest){
+  Remove-Item $dest -Force -ErrorAction SilentlyContinue
   try{
-    Write-Host "Downloading iMonitor ERP installer from $url (BITS)" -ForegroundColor Cyan
     Import-Module BitsTransfer -ErrorAction Stop
-    Start-BitsTransfer -Source $url -Destination $target -ErrorAction Stop
-    if(Test-ValidDownload $target){$downloaded=$true;break}
-    $errors += "$url (BITS) : downloaded file was smaller than expected (possibly an error page)."
-  }catch{
-    $errors += "$url (BITS) : $($_.Exception.Message)"
-  }
-  Remove-Item $target -Force -ErrorAction SilentlyContinue
-  try{
-    Write-Host "Downloading iMonitor ERP installer from $url (Invoke-WebRequest)" -ForegroundColor Yellow
-    Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $target -Headers @{'Cache-Control'='no-cache'}
-    if(Test-ValidDownload $target){$downloaded=$true;break}
-    $errors += "$url (Invoke-WebRequest) : downloaded file was smaller than expected (possibly an error page)."
-  }catch{
-    $errors += "$url (Invoke-WebRequest) : $($_.Exception.Message)"
-  }
-  Remove-Item $target -Force -ErrorAction SilentlyContinue
+    Start-BitsTransfer -Source $url -Destination $dest -ErrorAction Stop
+    return
+  }catch{}
+  Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $dest -Headers @{'Cache-Control'='no-cache'}
 }
-if(!$downloaded){
-  throw ("Installer download failed. DNS/Internet access to github.com is required; raw.githubusercontent.com is not used." + [Environment]::NewLine + ($errors -join [Environment]::NewLine))
-}
-$args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$target,'-Channel',$Channel)
-if($Force){$args+='-Force'}
-if($InstallerArguments){$args += $InstallerArguments}
-& powershell.exe @args
-if($LASTEXITCODE -ne 0){throw "iMonitor ERP installer returned exit code $LASTEXITCODE"}
+
+$base="https://github.com/$repo/releases/download/$tag"
+Write-Host 'Downloading latest iMonitor ERP Setup...' -ForegroundColor Cyan
+Download "$base/$shaName" $shaFile
+$expected=((Get-Content $shaFile -Raw).Trim().Split(' ')[0]).ToLowerInvariant()
+$valid=(Test-Path $zip) -and ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant() -eq $expected)
+if(!$valid){Download "$base/$name" $zip}
+$actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+if($actual -ne $expected){throw "Setup checksum mismatch. expected=$expected actual=$actual"}
+
+$extract=Join-Path $work 'current'
+if(Test-Path $extract){Remove-Item $extract -Recurse -Force}
+Expand-Archive $zip -DestinationPath $extract -Force
+$exe=Join-Path $extract 'iMonitorERP.Setup.exe'
+if(!(Test-Path $exe)){throw 'iMonitorERP.Setup.exe missing from setup package.'}
+Start-Process -FilePath $exe -Verb RunAs
+Write-Host 'iMonitor ERP Setup started on http://127.0.0.1:8099/' -ForegroundColor Green
