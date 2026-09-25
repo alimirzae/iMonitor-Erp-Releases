@@ -4,8 +4,10 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseWindowsService(options => options.ServiceName = "ERP Deployment Manager");
 builder.WebHost.UseUrls(builder.Configuration["Installer:Url"] ?? "http://127.0.0.1:8099");
 builder.Services.AddHttpClient();
+builder.Services.AddHostedService<AutoUpdateWorker>();
 
 var defaultInstallRoot = builder.Configuration["Installer:InstallRoot"] ?? @"C:\PosiranERP";
 var defaultConfigRoot = builder.Configuration["Installer:ConfigRoot"] ?? @"C:\Deploy\PosiranERP";
@@ -42,6 +44,20 @@ app.MapGet("/api/status", (OrchestratorService orchestrator) =>
 
 app.MapGet("/api/installations", async (OrchestratorService orchestrator, CancellationToken ct) =>
     Results.Ok(await orchestrator.ListInstallationsAsync(ct)));
+app.MapGet("/api/releases/{product}/{channel}", async (string product, string channel, OrchestratorService orchestrator, CancellationToken ct) =>
+    Results.Ok(await orchestrator.ListReleasesAsync(product, channel, ct)));
+app.MapGet("/api/history/{id}", (string id, OrchestratorService orchestrator) =>
+    Results.Ok(orchestrator.GetVersionHistory(id)));
+app.MapPost("/api/installations/{id}/install-version/{tag}", async (string id, string tag, OrchestratorService orchestrator, CancellationToken ct) =>
+{
+    try { return Results.Ok(await orchestrator.InstallVersionAsync(id, tag, ct)); }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
+app.MapPost("/api/installations/{id}/rollback/{tag}", async (string id, string tag, OrchestratorService orchestrator, CancellationToken ct) =>
+{
+    try { return Results.Ok(await orchestrator.RollbackToVersionAsync(id, tag, ct)); }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
 
 app.MapGet("/api/mysql/services", (OrchestratorService orchestrator) => Results.Ok(orchestrator.ListMySqlServices()));
 
@@ -119,7 +135,7 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
     var connectionString = $"Server={request.DatabaseServer};Port={request.DatabasePort};Database={database};User={request.DatabaseUser};Password={request.DatabasePassword};Charset=utf8mb4;";
     var config = BuildAppSettings(isTest, request, connectionString, isIMonitor);
     File.WriteAllText(configPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
-    if (!isIMonitor) orchestrator.RegisterInstance(channel, appPort, installFolderName, database, request.AutoUpdate, configPath);
+    orchestrator.RegisterInstance(request.Product ?? (isIMonitor ? "iMonitor" : "Posiran"), channel, installRoot, appPort, installFolderName, database, request.AutoUpdate, configPath);
 
     return Results.Ok(new
     {
