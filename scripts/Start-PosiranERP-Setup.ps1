@@ -14,7 +14,6 @@ $root = Join-Path $env:ProgramData 'PosiranERP\Setup'
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 $zip = Join-Path $root 'PosiranERP-Setup-win-x64.zip'
 $sha = "$zip.sha256"
-$assetState = Join-Path $root 'setup-asset-id.txt'
 $repo='alimirzae/iMonitor-Erp-Releases'
 $tag='posiran-installer-preview'
 
@@ -46,60 +45,52 @@ function Invoke-BitsDownload([string]$Url,[string]$Out){
   Start-BitsTransfer -Source $Url -Destination $Out -TransferType Download -DisplayName 'Posiran ERP Setup' -Description 'Downloading Posiran ERP Setup' -ErrorAction Stop
 }
 
-function Get-ReleaseAsset([string]$Name){
-  $cacheBust=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-  $uri="https://api.github.com/repos/${repo}/releases/tags/${tag}?cb=${cacheBust}"
-  $headers=@{'User-Agent'='PosiranERP-Setup-Bootstrap/1.0';'Accept'='application/vnd.github+json';'Cache-Control'='no-cache'}
-  $release=Invoke-RestMethod -Uri $uri -Headers $headers -Method Get -TimeoutSec 60
-  $asset=$release.assets|Where-Object{$_.name -eq $Name}|Select-Object -First 1
-  if(!$asset){throw "Release asset not found: $Name"}
-  return $asset
+function Get-DirectAssetUrl([string]$Name){
+  return "https://github.com/$repo/releases/download/$tag/$Name"
 }
 
-function Get-Asset([object]$Asset,[string]$Out,[int]$TimeoutSeconds=300){
+function Get-DirectAsset([string]$Name,[string]$Out,[int]$TimeoutSeconds=300){
+  $url=Get-DirectAssetUrl $Name
   $errors=New-Object System.Collections.Generic.List[string]
   try{
-    Write-Host "Downloading $($Asset.name) through GitHub API / HttpClient..." -ForegroundColor Cyan
-    Invoke-HttpDownload ([string]$Asset.url) $Out 'application/octet-stream' $TimeoutSeconds
+    Write-Host "Downloading $Name from direct GitHub release URL..." -ForegroundColor Cyan
+    Invoke-HttpDownload $url $Out 'application/octet-stream' $TimeoutSeconds
     if((Test-Path $Out) -and (Get-Item $Out).Length -gt 0){return}
-  }catch{$errors.Add("HttpClient API: $($_.Exception.Message)")}
+  }catch{$errors.Add("HttpClient direct: $($_.Exception.Message)")}
   try{
     Write-Host 'Trying Windows BITS fallback...' -ForegroundColor Yellow
-    Invoke-BitsDownload ([string]$Asset.browser_download_url) $Out
+    Invoke-BitsDownload $url $Out
     if((Test-Path $Out) -and (Get-Item $Out).Length -gt 0){return}
-  }catch{$errors.Add("BITS: $($_.Exception.Message)")}
+  }catch{$errors.Add("BITS direct: $($_.Exception.Message)")}
   try{
     Write-Host 'Trying Invoke-WebRequest fallback...' -ForegroundColor Yellow
-    Invoke-WebRequest -UseBasicParsing -Uri ([string]$Asset.browser_download_url) -OutFile $Out -TimeoutSec $TimeoutSeconds -Headers @{'User-Agent'='PosiranERP-Setup-Bootstrap/1.0';'Cache-Control'='no-cache'}
+    Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $Out -TimeoutSec $TimeoutSeconds -Headers @{'User-Agent'='PosiranERP-Setup-Bootstrap/1.1';'Cache-Control'='no-cache'}
     if((Test-Path $Out) -and (Get-Item $Out).Length -gt 0){return}
-  }catch{$errors.Add("Invoke-WebRequest: $($_.Exception.Message)")}
-  throw "All native download methods failed for $($Asset.name)`n$($errors -join "`n")"
+  }catch{$errors.Add("Invoke-WebRequest direct: $($_.Exception.Message)")}
+  throw ("All native download methods failed for {0}: {1}" -f $Name,($errors -join '; '))
 }
 
 Write-Host 'Downloading latest Posiran ERP Setup...' -ForegroundColor Cyan
-$zipAsset=Get-ReleaseAsset 'PosiranERP-Setup-win-x64.zip'
-$shaAsset=Get-ReleaseAsset 'PosiranERP-Setup-win-x64.zip.sha256'
-Get-Asset $shaAsset $sha 60
+Get-DirectAsset 'PosiranERP-Setup-win-x64.zip.sha256' $sha 60
 $expected=((Get-Content $sha -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
 if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
 
 $useCached=$false
-$cachedAssetId = if(Test-Path $assetState){(Get-Content $assetState -Raw).Trim()}else{''}
-$currentAssetId = [string]$zipAsset.id
-Write-Host "Current Setup asset: id=$currentAssetId updated=$($zipAsset.updated_at)" -ForegroundColor DarkCyan
-if((Test-Path $zip) -and ($cachedAssetId -eq $currentAssetId)){
+if(Test-Path $zip){
   try{
     $cachedHash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-    if($cachedHash -eq $expected){$useCached=$true;Write-Host 'Using verified current Setup shell (same GitHub asset and SHA256). ERP Test/Production packages are checked separately inside Setup.' -ForegroundColor Green}
+    if($cachedHash -eq $expected){
+      $useCached=$true
+      Write-Host 'Using verified cached Setup shell. ERP Test/Production packages are checked separately inside Setup.' -ForegroundColor Green
+    }
   }catch{}
 }
 if(-not $useCached){
-  Write-Host 'Setup asset changed or local asset identity is unknown; downloading the current Setup package.' -ForegroundColor Cyan
-  Get-Asset $zipAsset $zip 600
+  Write-Host 'Cached Setup is missing or outdated; downloading the current Setup package.' -ForegroundColor Cyan
+  Get-DirectAsset 'PosiranERP-Setup-win-x64.zip' $zip 600
 }
 $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 if($expected -ne $actual){ throw "SHA256 mismatch. expected=$expected actual=$actual" }
-[System.IO.File]::WriteAllText($assetState,$currentAssetId,[System.Text.UTF8Encoding]::new($false))
 
 $extract = Join-Path $root 'current'
 
