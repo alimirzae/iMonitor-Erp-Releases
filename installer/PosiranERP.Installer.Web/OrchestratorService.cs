@@ -616,10 +616,28 @@ public sealed class OrchestratorService
             var sql = $"SELECT ConnectionString FROM `{EscapeIdentifier(appDatabase)}`.`books` WHERE IsDeleted=0 AND IsActive=1";
             var r = RunProcess(mysqlExe, new[] { $"--defaults-extra-file={defaults.Path}", "--batch", "--skip-column-names", "-e", sql }, 15000);
             if (r.ExitCode != 0) return result;
+
+            // The books table can contain stale/default rows such as book_0. Never let a
+            // non-existent tenant database abort the whole application upgrade backup.
+            var dbList = RunProcess(mysqlExe, new[] { $"--defaults-extra-file={defaults.Path}", "--batch", "--skip-column-names", "-e", "SHOW DATABASES" }, 15000);
+            var existingDatabases = dbList.ExitCode == 0
+                ? dbList.StdOut.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(x => x.Trim())
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             foreach (var line in r.StdOut.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var parsed = ParseConnectionString(line.Trim(), cfg);
-                if (!string.IsNullOrWhiteSpace(parsed.Database)) result.Add(new DatabaseTarget(parsed.Server, parsed.Port, parsed.User, parsed.Password, parsed.Database, "book"));
+                if (string.IsNullOrWhiteSpace(parsed.Database) ||
+                    string.Equals(parsed.Database, "book_0", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // If SHOW DATABASES succeeded, only back up book databases that really exist.
+                if (existingDatabases.Count > 0 && !existingDatabases.Contains(parsed.Database))
+                    continue;
+
+                result.Add(new DatabaseTarget(parsed.Server, parsed.Port, parsed.User, parsed.Password, parsed.Database, "book"));
             }
         }
         catch { }
