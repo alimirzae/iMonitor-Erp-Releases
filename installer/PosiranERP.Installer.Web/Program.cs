@@ -251,7 +251,7 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     RuntimeVerificationResult verification;
     try
     {
-        verification = await orchestrator.VerifyInstallationRuntimeAsync(instanceId, requestCt);
+        verification = await orchestrator.VerifyInstallationRuntimeAsync(instanceId, CancellationToken.None);
     }
     catch (Exception ex)
     {
