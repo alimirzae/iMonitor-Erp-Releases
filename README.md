@@ -316,3 +316,11 @@ The same deployment contract applies to iMonitor ERP and Posiran ERP:
 - Current application files are never deleted before the rollback source is captured. IIS/ANCM file locks are released first and filesystem activation/rollback operations are retried.
 - `/health` plus DB reachability are authoritative. IIS state is diagnostic when WebAdministration cannot be queried.
 - Public installers and the localhost Deployment Manager are the canonical privileged deployment path; ERP web pages trigger the registered updater task rather than replacing binaries in-process.
+
+
+## Update policy (2026-09-27)
+- iMonitor Test and Posiran Test: automatic update every 10 minutes, health check on every pass, last-known-good rollback retained and automatically restored when the current deployment is unhealthy.
+- iMonitor Production and Posiran Production: manual administrator-triggered upgrade only; no recurring production update task.
+- HTTP application health + database reachability are authoritative. IIS state is diagnostic when discovery returns Unknown/Unsupported.
+- Rollback restores application files and the matching installed-release state.
+- Historical releases are blacklisted only after an actual post-activation health failure; transport, file-lock, IIS-discovery and other infrastructure failures do not poison release history.
