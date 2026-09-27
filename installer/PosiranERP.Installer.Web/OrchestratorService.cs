@@ -430,15 +430,15 @@ public sealed class OrchestratorService
     {
         var m = RequireManifest(id);
         var health = await WaitForHealthAsync(m.Port, cancellationToken);
-        var iis = GetIisStatus(m);
-        var db = CheckDatabase(m);
+        var iis = GetIisState(m.IisSite, m.AppPool);
+        var db = CheckDatabase(m.ConfigPath);
 
         var iisOk = string.Equals(iis.SiteState, "Started", StringComparison.OrdinalIgnoreCase)
                     && string.Equals(iis.PoolState, "Started", StringComparison.OrdinalIgnoreCase);
-        var ok = health.Ok && iisOk && db.Ok;
+        var ok = health.Ok && iisOk && db.Reachable;
         var message = $"Port {m.Port}: {health.Message}; IIS site={iis.SiteState}, pool={iis.PoolState}; DB={db.Message}";
         return new RuntimeVerificationResult(ok, m.Id, m.Product, m.Channel, m.Port, health.Ok, health.Message,
-            iis.SiteState, iis.PoolState, db.Ok, db.Message, message);
+            iis.SiteState, iis.PoolState, db.Reachable, db.Message, message);
     }
 
     public IReadOnlyList<BackupSummary> GetBackupSummaries(string id)
