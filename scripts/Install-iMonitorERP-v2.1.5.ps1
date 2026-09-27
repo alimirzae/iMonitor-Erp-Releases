@@ -416,10 +416,14 @@ function Install-Channel($info){
     $backup=$info.Root+'.rollback';$rollbackState=$info.State+'.rollback'
     if(Test-Path $backup){Invoke-RetryFileOp {Remove-Item $backup -Recurse -Force -ErrorAction Stop} "Remove old rollback"}
     if(Test-Path $info.State){Copy-Item $info.State $rollbackState -Force}
-    if(Test-Path $info.Root){Invoke-RetryFileOp {Move-Item $info.Root $backup -Force -ErrorAction Stop} "Move current version to rollback"}
+    if(Test-Path $info.Root){
+      [void][IO.Directory]::CreateDirectory($backup)
+      Invoke-RetryFileOp {Copy-Item (Join-Path $info.Root '*') $backup -Recurse -Force -ErrorAction Stop} "Copy current version to rollback"
+      Invoke-RetryFileOp {Get-ChildItem $info.Root -Force|Remove-Item -Recurse -Force -ErrorAction Stop} "Clear current version"
+    }else{[void][IO.Directory]::CreateDirectory($info.Root)}
     $targetParent=Split-Path $info.Root -Parent
     if(![string]::IsNullOrWhiteSpace($targetParent)){[void][IO.Directory]::CreateDirectory($targetParent)}
-    Invoke-RetryFileOp {Move-Item $stage $info.Root -Force -ErrorAction Stop} "Activate staged version"
+    Invoke-RetryFileOp {Copy-Item (Join-Path $stage '*') $info.Root -Recurse -Force -ErrorAction Stop} "Activate staged version"
     try{
       if(!(Test-Path "IIS:\AppPools\$($info.Pool)")){New-WebAppPool -Name $info.Pool|Out-Null}
       foreach($setting in @(@('managedRuntimeVersion',''),@('startMode','AlwaysRunning'),@('processModel.loadUserProfile',$true))){try{Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name $setting[0] -Value $setting[1] -ErrorAction Stop}catch{Write-Warning "Optional AppPool setting $($setting[0]) skipped: $($_.Exception.Message)"}}
@@ -486,7 +490,7 @@ function Install-Channel($info){
       try{
         Stop-ChannelHost $info
         if(Test-Path $info.Root){Invoke-RetryFileOp {Remove-Item $info.Root -Recurse -Force -ErrorAction Stop} "Remove failed deployment"}
-        Invoke-RetryFileOp {Move-Item $backup $info.Root -Force -ErrorAction Stop} "Restore rollback version"
+        Invoke-RetryFileOp {Copy-Item (Join-Path $backup '*') $info.Root -Recurse -Force -ErrorAction Stop} "Restore rollback version"
         if(Test-Path $rollbackState){Copy-Item $rollbackState $info.State -Force}
         Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue
         Start-Sleep 5
