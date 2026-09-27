@@ -64,7 +64,8 @@ if(Test-Path $register){
 $css=Get-Content (Join-Path $SourceRoot 'Ecomm\wwwroot\posiran-brand.css') -Raw
 $appCheck=Get-Content $app -Raw
 $layoutCheck=Get-Content $layout -Raw
-if($css -notmatch 'پوز\s*ایران ERP' -or $css -notmatch 'posiran-logo\.svg'){throw 'Posiran brand contract validation failed.'}
+# Header, login and favicon come from Branding (appsettings); the overlay must not hide or repaint them.
+if($css -match '\.header-logo\{display:none' -or $css -match 'header-app-brand::before'){throw 'Posiran overlay must not hide the configured header logo.'}
 if($appCheck -notmatch 'posiran-brand\.css'){throw 'Posiran theme stylesheet is not loaded by App.razor.'}
 if($layoutCheck -match 'aria-label="iMonitor ERP"' -or $layoutCheck -match 'alt="iMonitor ERP"' -or $layoutCheck -match 'src="/img/logo\.webp"'){throw 'Main layout still exposes iMonitor branding.'}
 if(Test-Path $login){$loginCheck=Get-Content $login -Raw;if($loginCheck -notmatch '/Auth/Login'){throw 'Posiran build must use the shared /Auth/Login endpoint from Ecomm.'}}
