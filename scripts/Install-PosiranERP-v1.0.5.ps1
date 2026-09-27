@@ -289,8 +289,12 @@ function Install-Channel($info){
     Stop-ChannelHost $info
     $backup=$info.Root+'.rollback'
     if(Test-Path $backup){for($i=1;$i -le 10;$i++){try{Remove-Item $backup -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}}
-    if(Test-Path $info.Root){for($i=1;$i -le 10;$i++){try{Move-Item $info.Root $backup -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}}
-    for($i=1;$i -le 10;$i++){try{Move-Item $stage $info.Root -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}
+    if(Test-Path $info.Root){
+      [void][IO.Directory]::CreateDirectory($backup)
+      for($i=1;$i -le 10;$i++){try{Copy-Item (Join-Path $info.Root '*') $backup -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}
+      for($i=1;$i -le 10;$i++){try{Get-ChildItem $info.Root -Force|Remove-Item -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}
+    }else{[void][IO.Directory]::CreateDirectory($info.Root)}
+    for($i=1;$i -le 10;$i++){try{Copy-Item (Join-Path $stage '*') $info.Root -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}
     # Ensure IIS worker can read/execute the deployed application after Move-Item/rollback operations.
     & icacls.exe $info.Root /grant:r "IIS_IUSRS:(OI)(CI)RX" /T /C | Out-Null
     if($LASTEXITCODE -ne 0){throw "Failed to grant IIS_IUSRS read/execute permission on $($info.Root)."}
@@ -308,8 +312,8 @@ function Install-Channel($info){
     $failure=$_
     if($backup -and (Test-Path $backup)){
       Stop-ChannelHost $info
-      if(Test-Path $info.Root){Remove-Item $info.Root -Recurse -Force}
-      Move-Item $backup $info.Root -Force
+      if(Test-Path $info.Root){Get-ChildItem $info.Root -Force|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue}else{[void][IO.Directory]::CreateDirectory($info.Root)}
+      Copy-Item (Join-Path $backup '*') $info.Root -Recurse -Force
       Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue
       Start-Website $info.Site -ErrorAction SilentlyContinue
       Write-Warning "Deployment rolled back for $($info.Name)."
