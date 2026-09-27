@@ -331,6 +331,9 @@ if((Test-Path `$rollback) -and -not (Test-Health)){
   Set-Content (Join-Path $Destination 'Update-iMonitorERP.ps1') $content -Encoding UTF8
 }
 
+function Invoke-RetryFileOp([scriptblock]$Action,[string]$Description,[int]$Attempts=12){
+  for($i=1;$i -le $Attempts;$i++){try{& $Action;return}catch{if($i -eq $Attempts){throw "$Description failed after $Attempts attempts: $($_.Exception.Message)"};Start-Sleep -Milliseconds ([Math]::Min(5000,500*$i))}}
+}
 function Stop-ChannelHost($info){
   $offline=Join-Path $info.Root 'app_offline.htm'
   if(Test-Path $info.Root){Set-Content $offline 'iMonitor ERP is being updated.' -Encoding ASCII -ErrorAction SilentlyContinue}
@@ -345,7 +348,13 @@ function Stop-ChannelHost($info){
     $workerIds=& $appcmd list wp "/apppool.name:$($info.Pool)" /text:WP.NAME 2>$null
     foreach($workerId in $workerIds){if($workerId -match '^\d+$'){Stop-Process -Id ([int]$workerId) -Force -ErrorAction SilentlyContinue}}
   }
-  Start-Sleep -Seconds 2
+  Get-Process w3wp,dotnet -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+      $cmd=$_.Path
+      if($_.ProcessName -eq 'w3wp' -or ($cmd -and $cmd.StartsWith($info.Root,[StringComparison]::OrdinalIgnoreCase))){ Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    } catch {}
+  }
+  for($i=0;$i -lt 20;$i++){Start-Sleep -Milliseconds 500;try{$probe=Join-Path $info.Root '.update-lock-probe';Set-Content $probe 'ok' -ErrorAction Stop;Remove-Item $probe -Force -ErrorAction Stop;break}catch{if($i -eq 19){throw "Application files are still locked after stopping IIS: $($_.Exception.Message)"}}}
 }
 
 function Find-CachedPackage([string]$Tag,[string]$ExpectedHash){
@@ -368,7 +377,7 @@ function Find-CachedPackage([string]$Tag,[string]$ExpectedHash){
 function Install-Channel($info){
   $backup=$null
   Write-Host "=== iMonitor ERP $($info.Name) ===" -ForegroundColor Cyan
-  Write-Host "Folder=$($info.Folder) Port=$($info.Port) Database=$($info.Database) UpdateMode=ManualOnly"
+  Write-Host "Folder=$($info.Folder) Port=$($info.Port) Database=$($info.Database) UpdateMode=$(if($info.Name -eq 'Test'){'AutoEvery10Minutes'}else{'ManualOnly'})"
   if(!(Test-Path $info.Config) -and $Mode -eq 'UpdateOnly'){Write-Warning "Config missing for $($info.Name); update skipped.";return}
   Normalize-ChannelConfig $info
   if(!$SkipMySqlProvisioning -and ![string]::IsNullOrWhiteSpace($MySqlPassword)){Ensure-MySqlDatabase $info}else{Write-Host '[DB] Existing MySQL is validated by application startup and /health.' -ForegroundColor DarkGray}
@@ -397,11 +406,11 @@ function Install-Channel($info){
     Write-LocalUpdater $info $stage
     Import-Module WebAdministration
     Stop-ChannelHost $info
-    $backup=$info.Root+'.rollback';if(Test-Path $backup){Remove-Item $backup -Recurse -Force}
-    if(Test-Path $info.Root){Move-Item $info.Root $backup -Force}
+    $backup=$info.Root+'.rollback';if(Test-Path $backup){Invoke-RetryFileOp {Remove-Item $backup -Recurse -Force -ErrorAction Stop} "Remove old rollback"}
+    if(Test-Path $info.Root){Invoke-RetryFileOp {Move-Item $info.Root $backup -Force -ErrorAction Stop} "Move current version to rollback"}
     $targetParent=Split-Path $info.Root -Parent
     if(![string]::IsNullOrWhiteSpace($targetParent)){[void][IO.Directory]::CreateDirectory($targetParent)}
-    Move-Item $stage $info.Root -Force
+    Invoke-RetryFileOp {Move-Item $stage $info.Root -Force -ErrorAction Stop} "Activate staged version"
     try{
       if(!(Test-Path "IIS:\AppPools\$($info.Pool)")){New-WebAppPool -Name $info.Pool|Out-Null}
       foreach($setting in @(@('managedRuntimeVersion',''),@('startMode','AlwaysRunning'),@('processModel.loadUserProfile',$true))){try{Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name $setting[0] -Value $setting[1] -ErrorAction Stop}catch{Write-Warning "Optional AppPool setting $($setting[0]) skipped: $($_.Exception.Message)"}}
