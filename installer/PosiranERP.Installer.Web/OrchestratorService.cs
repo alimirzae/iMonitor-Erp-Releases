@@ -426,6 +426,21 @@ public sealed class OrchestratorService
 
     public InstallationManifest RequireManifest(string id) => LoadManifest(id) ?? throw new KeyNotFoundException("Installation was not found in the local registry.");
 
+    public async Task<RuntimeVerificationResult> VerifyInstallationRuntimeAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var m = RequireManifest(id);
+        var health = await WaitForHealthAsync(m.Port, cancellationToken);
+        var iis = GetIisStatus(m);
+        var db = CheckDatabase(m);
+
+        var iisOk = string.Equals(iis.SiteState, "Started", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(iis.PoolState, "Started", StringComparison.OrdinalIgnoreCase);
+        var ok = health.Ok && iisOk && db.Ok;
+        var message = $"Port {m.Port}: {health.Message}; IIS site={iis.SiteState}, pool={iis.PoolState}; DB={db.Message}";
+        return new RuntimeVerificationResult(ok, m.Id, m.Product, m.Channel, m.Port, health.Ok, health.Message,
+            iis.SiteState, iis.PoolState, db.Ok, db.Message, message);
+    }
+
     public IReadOnlyList<BackupSummary> GetBackupSummaries(string id)
     {
         var m = LoadManifest(id);
@@ -845,6 +860,7 @@ public sealed record DbConfig(string Server, int Port, string User, string Passw
 public sealed record DatabaseTarget(string Server, int Port, string User, string Password, string Database, string Kind);
 public sealed record DbCheckResult(bool Reachable, string Message);
 public sealed record HealthResult(bool Ok, string Message);
+public sealed record RuntimeVerificationResult(bool Ok, string InstallationId, string Product, string Channel, int Port, bool HealthOk, string HealthMessage, string IisSiteState, string IisPoolState, bool DatabaseReachable, string DatabaseMessage, string Message);
 public sealed record ProcessResult(int ExitCode, string StdOut, string StdErr);
 
 
