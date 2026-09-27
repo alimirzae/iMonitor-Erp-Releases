@@ -224,7 +224,8 @@ public sealed class OrchestratorService
     private bool IsFailedRelease(string product, string channel, string tag)
         => LoadManifests().Where(x => x.Product == product && x.Channel == channel)
             .SelectMany(x => GetVersionHistory(x.Id))
-            .Any(x => string.Equals(x.Tag, tag, StringComparison.OrdinalIgnoreCase) && x.Status == "Failed");
+            .Any(x => string.Equals(x.Tag, tag, StringComparison.OrdinalIgnoreCase) && x.Status == "Failed"
+                      && x.Message.StartsWith("Health check failed after version activation:", StringComparison.OrdinalIgnoreCase));
 
     private static void ValidateReleaseTagForManifest(InstallationManifest m, string tag)
     {
