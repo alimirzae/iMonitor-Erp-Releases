@@ -433,8 +433,12 @@ public sealed class OrchestratorService
         var iis = GetIisState(m.IisSite, m.AppPool);
         var db = CheckDatabase(m.ConfigPath);
 
-        var iisOk = string.Equals(iis.SiteState, "Started", StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(iis.PoolState, "Started", StringComparison.OrdinalIgnoreCase);
+        // HTTP health + DB are authoritative. IIS discovery is diagnostic only because
+        // WebAdministration can be unavailable to the Setup process even while the site is healthy.
+        var iisKnown = !string.Equals(iis.SiteState, "Unknown", StringComparison.OrdinalIgnoreCase)
+                       && !string.Equals(iis.SiteState, "Unsupported", StringComparison.OrdinalIgnoreCase);
+        var iisOk = !iisKnown || (string.Equals(iis.SiteState, "Started", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(iis.PoolState, "Started", StringComparison.OrdinalIgnoreCase));
         var ok = health.Ok && iisOk && db.Reachable;
         var message = $"Port {m.Port}: {health.Message}; IIS site={iis.SiteState}, pool={iis.PoolState}; DB={db.Message}";
         return new RuntimeVerificationResult(ok, m.Id, m.Product, m.Channel, m.Port, health.Ok, health.Message,
@@ -600,7 +604,8 @@ public sealed class OrchestratorService
         if (!OperatingSystem.IsWindows()) return ("Unsupported", "Unsupported");
         try
         {
-            var script = $"Import-Module WebAdministration; $s=(Get-Website -Name '{Ps(site)}' -ErrorAction SilentlyContinue).State; $p=(Get-WebAppPoolState -Name '{Ps(pool)}' -ErrorAction SilentlyContinue).Value; Write-Output (($s ?? 'Missing').ToString()+'|'+($p ?? 'Missing').ToString())";
+            // Windows PowerShell 5.1 does not support the ?? operator.
+            var script = $"Import-Module WebAdministration -ErrorAction Stop; $sw=Get-Website -Name '{Ps(site)}' -ErrorAction SilentlyContinue; $s=if($sw){{$sw.State}}else{{'Missing'}}; $pw=Get-WebAppPoolState -Name '{Ps(pool)}' -ErrorAction SilentlyContinue; $p=if($pw){{$pw.Value}}else{{'Missing'}}; Write-Output ($s.ToString()+'|'+$p.ToString())";
             var r = RunProcess("powershell.exe", new[] { "-NoProfile", "-Command", script }, 10000);
             var parts = r.StdOut.Trim().Split('|');
             return parts.Length >= 2 ? (parts[0], parts[1]) : ("Unknown", "Unknown");
