@@ -636,7 +636,6 @@ public sealed class OrchestratorService
             using var defaults = TemporaryMySqlDefaults(new DatabaseTarget(cfg.Server, cfg.Port, cfg.User, cfg.Password, appDatabase, "application"));
             var sql = $"SELECT ConnectionString FROM `{EscapeIdentifier(appDatabase)}`.`books` WHERE IsDeleted=0 AND IsActive=1";
             var r = RunProcess(mysqlExe, new[] { $"--defaults-extra-file={defaults.Path}", "--batch", "--skip-column-names", "-e", sql }, 15000);
-            if (r.ExitCode != 0) return result;
 
             // The books table can contain stale/default rows such as book_0. Never let a
             // non-existent tenant database abort the whole application upgrade backup.
@@ -647,7 +646,7 @@ public sealed class OrchestratorService
                     .ToHashSet(StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var line in r.StdOut.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+            foreach (var line in (r.ExitCode == 0 ? r.StdOut : string.Empty).Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
                 var parsed = ParseConnectionString(line.Trim(), cfg);
                 if (string.IsNullOrWhiteSpace(parsed.Database) ||
@@ -659,6 +658,18 @@ public sealed class OrchestratorService
                     continue;
 
                 result.Add(new DatabaseTarget(parsed.Server, parsed.Port, parsed.User, parsed.Password, parsed.Database, "book"));
+            }
+
+            // Current ERP builds do not store a per-book connection string: the database is named
+            // book_{BranchId}_{BookId} (older: book_{BookId}) on the application's server. Without this
+            // every "full" backup silently contained only the application database.
+            var ids = RunProcess(mysqlExe, new[] { $"--defaults-extra-file={defaults.Path}", "--batch", "--skip-column-names", "-e",
+                $"SELECT BookId FROM `{EscapeIdentifier(appDatabase)}`.`books` WHERE IsDeleted=0 AND IsActive=1" }, 15000);
+            if (ids.ExitCode == 0)
+            {
+                foreach (var id in ids.StdOut.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => Regex.IsMatch(x, @"^\d+$") && x != "0"))
+                foreach (var name in existingDatabases.Where(d => Regex.IsMatch(d, $@"^book_(\d+_)?{id}$", RegexOptions.IgnoreCase)))
+                    result.Add(new DatabaseTarget(cfg.Server, cfg.Port, cfg.User, cfg.Password, name, "book"));
             }
         }
         catch { }
