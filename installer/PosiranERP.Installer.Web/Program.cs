@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Principal;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -175,9 +176,19 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
     var configPath = Path.Combine(configDirectory, "appsettings.json");
     Directory.CreateDirectory(configDirectory);
 
+    // An empty password field means "keep the saved one": re-running install/update from the
+    // form must never wipe a working MySQL password (every site then fails with "using password: NO").
+    var existingConfig = LoadExistingAppSettings(configPath);
+    if (string.IsNullOrEmpty(request.DatabasePassword))
+        request = request with { DatabasePassword = ReadSavedMySqlPassword(existingConfig) ?? string.Empty };
+
     var connectionString = $"Server={request.DatabaseServer};Port={request.DatabasePort};Database={database};User={request.DatabaseUser};Password={request.DatabasePassword};Charset=utf8mb4;";
-    var config = BuildAppSettings(isTest, request, connectionString, isIMonitor);
-    File.WriteAllText(configPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
+    var config = MergeWithExistingAppSettings(
+        JsonSerializer.SerializeToNode(BuildAppSettings(isTest, request, connectionString, isIMonitor))!.AsObject(),
+        existingConfig);
+    if (File.Exists(configPath))
+        File.Copy(configPath, $"{configPath}.bak-{DateTime.Now:yyyyMMdd-HHmmss}", overwrite: true);
+    File.WriteAllText(configPath, config.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     var effectiveAutoUpdate = isTest; // Test is always automatic; Production is always explicit/manual.
     orchestrator.RegisterInstance(request.Product ?? (isIMonitor ? "iMonitor" : "Posiran"), channel, installRoot, appPort, installFolderName, database, effectiveAutoUpdate, configPath);
 
@@ -322,6 +333,43 @@ static InstallerProcessResult RunPowerShell(IEnumerable<string> args, int timeou
         return new InstallerProcessResult(124, output, $"PowerShell timed out after {TimeSpan.FromMilliseconds(timeoutMs)}. {error}");
     }
     return new InstallerProcessResult(process.ExitCode, output, string.IsNullOrWhiteSpace(error) ? output : error);
+}
+
+static JsonObject? LoadExistingAppSettings(string configPath)
+{
+    if (!File.Exists(configPath)) return null;
+    try
+    {
+        return JsonNode.Parse(File.ReadAllText(configPath), documentOptions: new JsonDocumentOptions
+        {
+            CommentHandling = JsonCommentHandling.Skip,
+            AllowTrailingCommas = true
+        }) as JsonObject;
+    }
+    catch (JsonException) { return null; }
+}
+
+static string? ReadSavedMySqlPassword(JsonObject? existing)
+{
+    var mySql = existing?["Database"]?["MySql"];
+    var password = mySql?["Password"]?.GetValue<string>();
+    if (!string.IsNullOrEmpty(password)) return password;
+    var connectionString = mySql?["ConnectionString"]?.GetValue<string>();
+    var match = connectionString is null ? null : Regex.Match(connectionString, @"(?:^|;)\s*(?:Password|Pwd)\s*=\s*([^;]*)", RegexOptions.IgnoreCase);
+    return match is { Success: true } ? match.Groups[1].Value : null;
+}
+
+// Database and Environment are owned by the installer (provider, migration policy, channel);
+// every other section keeps what the operator already configured (sync master, SMS/AI keys, branch identity...).
+static JsonObject MergeWithExistingAppSettings(JsonObject generated, JsonObject? existing)
+{
+    if (existing is null) return generated;
+    foreach (var (key, value) in existing)
+    {
+        if (key is "Database" or "Environment" || value is null) continue;
+        generated[key] = value.DeepClone();
+    }
+    return generated;
 }
 
 static object BuildAppSettings(bool isTest, SetupRequest request, string connectionString, bool isIMonitor)
