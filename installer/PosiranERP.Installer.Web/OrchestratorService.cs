@@ -143,6 +143,11 @@ public sealed class OrchestratorService
             if (Directory.Exists(stage)) Directory.Delete(stage, true);
             Directory.CreateDirectory(stage);
             System.IO.Compression.ZipFile.ExtractToDirectory(zip, stage, true);
+            // The package ships a developer appsettings.json (Development, ecomm_dev). Like the PowerShell
+            // installer, always run the instance with its saved configuration; without it the new version
+            // silently served the wrong database or could not connect at all.
+            if (!File.Exists(m.ConfigPath)) throw new FileNotFoundException("Saved instance configuration was not found; refusing to activate the package defaults.", m.ConfigPath);
+            File.Copy(m.ConfigPath, Path.Combine(stage, "appsettings.json"), overwrite: true);
 
             StopInstance(m);
             var current = m.InstallPath;
