@@ -147,11 +147,11 @@ public sealed class OrchestratorService
             StopInstance(m);
             var current = m.InstallPath;
             var rollbackDir = Path.Combine(m.InstallRoot, m.InstallFolderName, "rollback-current");
-            if (Directory.Exists(rollbackDir)) Directory.Delete(rollbackDir, true);
-            if (Directory.Exists(current)) Directory.Move(current, rollbackDir);
+            DeleteDirectoryWithRetry(rollbackDir);
+            MoveDirectoryWithRetry(current, rollbackDir);
             try
             {
-                Directory.Move(stage, current);
+                MoveDirectoryWithRetry(stage, current);
                 StartInstance(m);
                 var health = await WaitForHealthAsync(m.Port, cancellationToken);
                 if (!health.Ok) throw new InvalidOperationException("Health check failed after version activation: " + health.Message);
@@ -746,6 +746,21 @@ public sealed class OrchestratorService
         var script = $"Import-Module WebAdministration; if(Test-Path 'IIS:\\Sites\\{Ps(m.IisSite)}'){{{verb}-Website -Name '{Ps(m.IisSite)}' -ErrorAction SilentlyContinue}}; if(Test-Path 'IIS:\\AppPools\\{Ps(m.AppPool)}'){{{verb}-WebAppPool -Name '{Ps(m.AppPool)}' -ErrorAction SilentlyContinue}}";
         var r = RunProcess("powershell.exe", new[] { "-NoProfile", "-Command", script }, 15000);
         if (r.ExitCode != 0) throw new InvalidOperationException($"IIS {verb.ToLowerInvariant()} failed: {SanitizeProcessError(r.StdErr)}");
+    }
+
+    private static void DeleteDirectoryWithRetry(string path)
+    {
+        if(!Directory.Exists(path)) return;
+        Exception? last=null;
+        for(var i=0;i<12;i++){try{Directory.Delete(path,true);return;}catch(Exception ex){last=ex;Thread.Sleep(Math.Min(5000,500*(i+1)));}}
+        throw new IOException($"Could not remove locked deployment directory: {path}",last);
+    }
+    private static void MoveDirectoryWithRetry(string source,string destination)
+    {
+        if(!Directory.Exists(source)) return;
+        Exception? last=null;
+        for(var i=0;i<12;i++){try{Directory.Move(source,destination);return;}catch(Exception ex){last=ex;Thread.Sleep(Math.Min(5000,500*(i+1)));}}
+        throw new IOException($"Could not activate deployment directory: {source}",last);
     }
 
     private static bool ScheduledTaskExists(string taskName)
