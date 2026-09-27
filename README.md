@@ -305,3 +305,14 @@ Direct label print POST http://127.0.0.1:17891/api/labels/print
 - دانلود باید fallback مناسب، checksum و cache معتبر داشته باشد.
 - Health check و rollback بخش اجباری deployment هستند.
 
+
+
+## Unified ERP update policy (2026-09-27)
+
+The same deployment contract applies to iMonitor ERP and Posiran ERP:
+- Test channels register a SYSTEM Scheduled Task and check/update every 10 minutes.
+- Production channels are manual-only and have no recurring update trigger; an administrator explicitly starts an update from the ERP update page or Deployment Manager.
+- Every Test updater invocation is also a recovery pass. Staged activation is health-checked and an unhealthy new version is rolled back to the immediately previous application directory.
+- Current application files are never deleted before the rollback source is captured. IIS/ANCM file locks are released first and filesystem activation/rollback operations are retried.
+- `/health` plus DB reachability are authoritative. IIS state is diagnostic when WebAdministration cannot be queried.
+- Public installers and the localhost Deployment Manager are the canonical privileged deployment path; ERP web pages trigger the registered updater task rather than replacing binaries in-process.
