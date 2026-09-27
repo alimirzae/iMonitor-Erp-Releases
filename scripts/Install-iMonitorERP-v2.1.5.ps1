@@ -181,7 +181,7 @@ function Initialize-ChannelConfig($info){
   $current=Join-Path $info.Root 'appsettings.json'
   $sibling=if($info.Name -eq 'Test'){Join-Path (Join-Path $ConfigRoot 'Production') 'appsettings.json'}else{Join-Path (Join-Path $ConfigRoot 'Test') 'appsettings.json'}
   $source=@($current,$legacy,$sibling)|Where-Object{Test-Path $_}|Select-Object -First 1
-  if($source){Copy-Item $source $info.Config -Force;Write-Host "[OK] Initial config copied from $source" -ForegroundColor Green;return}
+  if($source){Copy-Item $source $info.Config -Force;Write-Host "[OK] Initial config copied from $source" -ForegroundColor Green}
   if([string]::IsNullOrWhiteSpace($MySqlPassword)){throw "No existing configuration was found for $($info.Name). This is expected on a brand-new server: the README 'Standard Setup' quick command does not include MySQL credentials. Rerun with credentials, e.g.:`n  -Channel $($info.Name) -MySqlServer $MySqlServer -MySqlUser $MySqlUser -MySqlPassword '<password>' -MySqlAdminUser $MySqlAdminUser -MySqlAdminPassword '<password>'"}
   [pscustomobject]@{AllowedHosts='*';Database=[pscustomobject]@{Type='MySql';MySql=[pscustomobject]@{}};ConnectionStrings=[pscustomobject]@{}} |
     ConvertTo-Json -Depth 20 | Set-Content $info.Config -Encoding UTF8
@@ -215,6 +215,10 @@ function Normalize-ChannelConfig($info){
   Initialize-ChannelConfig $info
   $j=Get-Content $info.Config -Raw|ConvertFrom-Json
   $db=Ensure-Object $j 'Database';$mysql=Ensure-Object $db 'MySql';$connections=Ensure-Object $j 'ConnectionStrings'
+  # ERP is MySQL-only. Remove legacy SQL Server keys so a stale config can never switch the runtime back.
+  if($connections.PSObject.Properties['SqlServer']){$connections.PSObject.Properties.Remove('SqlServer')}
+  if($connections.PSObject.Properties['SqlServer_Alt']){$connections.PSObject.Properties.Remove('SqlServer_Alt')}
+  if($db.PSObject.Properties['SqlServer']){$db.PSObject.Properties.Remove('SqlServer')}
   $existing=if($mysql.PSObject.Properties['ConnectionString']){[string]$mysql.ConnectionString}else{''}
   if([string]::IsNullOrWhiteSpace($existing) -and $connections.PSObject.Properties['MySql']){$existing=[string]$connections.MySql}
   if([string]::IsNullOrWhiteSpace($existing)){$existing=Get-ExistingConnectionString $info}
@@ -464,6 +468,7 @@ function Install-Channel($info){
       try{
         $events=Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
           Where-Object{$_.ProviderName -match 'IIS AspNetCore Module V2|IIS AspNetCore Module|Application Error|.NET Runtime'} |
+          Where-Object{$_.Message -match [regex]::Escape($info.Root) -or $_.Message -match [regex]::Escape($info.Site)} |
           Select-Object -First 3
         if($events){$eventHint=($events|ForEach-Object{"[$($_.TimeCreated)] $($_.ProviderName): $($_.Message -replace '[\r\n]+',' ')"}) -join ' | '}
       }catch{}
