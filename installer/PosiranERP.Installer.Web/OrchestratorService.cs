@@ -43,7 +43,7 @@ public sealed class OrchestratorService
                     m.Id, m.DisplayName, m.Product, m.Channel, m.InstallRoot, m.Port, m.InstallFolderName, m.InstallPath,
                     m.ConfigPath, m.DatabaseName, installed, latestTag,
                     !string.IsNullOrWhiteSpace(latestTag) && !string.Equals(installed, latestTag, StringComparison.OrdinalIgnoreCase),
-                    m.AutoUpdate, Directory.Exists(m.InstallPath), File.Exists(m.ConfigPath),
+                    string.Equals(m.Channel, "Test", StringComparison.OrdinalIgnoreCase) && m.AutoUpdate, Directory.Exists(m.InstallPath), File.Exists(m.ConfigPath),
                     iis.SiteState, iis.PoolState, health.Ok, health.Message,
                     db.Reachable, db.Message, GetBackupSummaries(m.Id)));
             }
