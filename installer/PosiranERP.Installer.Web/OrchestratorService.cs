@@ -191,7 +191,7 @@ public sealed class OrchestratorService
 
     public async Task RunAutoUpdateCycleAsync(CancellationToken cancellationToken)
     {
-        foreach (var m in LoadManifests().Where(x => x.AutoUpdate))
+        foreach (var m in LoadManifests().Where(x => x.Channel == "Test" && x.AutoUpdate))
         {
             try
             {
@@ -319,7 +319,7 @@ public sealed class OrchestratorService
             database,
             site,
             site,
-            autoUpdate,
+            channel == "Test",
             existing?.CreatedAtUtc ?? now,
             now);
         SaveManifest(manifest);
@@ -514,7 +514,7 @@ public sealed class OrchestratorService
                 channel == "Test" ? "posiran_test" : "posiran",
                 channel == "Test" ? "PosiranERP-Test" : "PosiranERP-Production",
                 channel == "Test" ? "PosiranERP-Test" : "PosiranERP-Production",
-                ScheduledTaskExists(channel == "Test" ? "PosiranERP-Update-Test" : "PosiranERP-Update-Production"),
+                channel == "Test" && ScheduledTaskExists("PosiranERP-Update-Test"),
                 DateTime.UtcNow,
                 DateTime.UtcNow);
         }
