@@ -470,7 +470,16 @@ function Install-Channel($info){
     Set-Content $info.State $rel.Tag -Encoding ASCII;Write-Host "[OK] $($rel.Tag) -> http://127.0.0.1:$($info.Port)/ ; DB=$($info.Database) ; Folder=$($info.Folder)" -ForegroundColor Green
   }catch{
     $failure=$_
-    if($backup -and (Test-Path $backup)){Stop-ChannelHost $info;if(Test-Path $info.Root){Remove-Item $info.Root -Recurse -Force};Move-Item $backup $info.Root -Force;Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue;Write-Warning "Deployment rolled back for $($info.Name)."}
+    if($backup -and (Test-Path $backup)){
+      try{
+        Stop-ChannelHost $info
+        if(Test-Path $info.Root){Invoke-RetryFileOp {Remove-Item $info.Root -Recurse -Force -ErrorAction Stop} "Remove failed deployment"}
+        Invoke-RetryFileOp {Move-Item $backup $info.Root -Force -ErrorAction Stop} "Restore rollback version"
+        Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue
+        Start-Sleep 5
+        Write-Warning "Deployment rolled back for $($info.Name) to the previous version."
+      }catch{Write-Warning "Rollback itself failed for $($info.Name): $($_.Exception.Message). The rollback folder was preserved at $backup for the next self-healing pass."}
+    }
     throw $failure
   }finally{Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue}
 }
