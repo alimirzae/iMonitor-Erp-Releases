@@ -280,7 +280,7 @@ function Configure-UpdateTask($info){
   if(!(Test-Path $updater)){throw "Updater script not found: $updater"}
   $action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$updater`""
   if($info.Name -eq 'Test'){
-    $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration ([TimeSpan]::MaxValue)
+    $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 10) -RepetitionDuration (New-TimeSpan -Days 3650)
   }else{
     # Production is intentionally manual-only: the task has no recurring trigger and is started explicitly by /system/update.
     $trigger=$null
