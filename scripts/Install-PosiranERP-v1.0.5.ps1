@@ -206,12 +206,17 @@ function Stop-ChannelHost($info){
     $workerIds=& $appcmd list wp "/apppool.name:$($info.Pool)" /text:WP.NAME 2>$null
     foreach($workerId in $workerIds){if($workerId -match '^\d+$'){Stop-Process -Id ([int]$workerId) -Force -ErrorAction SilentlyContinue}}
   }
-  for($i=1;$i -le 15;$i++){
-    $locked=$false
-    try{Get-ChildItem $info.Root -Force -ErrorAction SilentlyContinue|Remove-Item -Recurse -Force -ErrorAction Stop}
-    catch{$locked=$true;if($i -eq 15){throw "Could not clear $($info.Root) after stopping IIS. Locked file: $($_.Exception.Message)"}}
-    if(!$locked){return}
-    Start-Sleep -Seconds 2
+  # Never delete current here: it is the rollback source. Probe until IIS releases file handles.
+  for($i=1;$i -le 20;$i++){
+    try{
+      $probe=Join-Path $info.Root '.update-lock-probe'
+      Set-Content $probe 'ok' -ErrorAction Stop
+      Remove-Item $probe -Force -ErrorAction Stop
+      return
+    }catch{
+      if($i -eq 20){throw "Application files are still locked after stopping IIS: $($_.Exception.Message)"}
+      Start-Sleep -Milliseconds 750
+    }
   }
 }
 
@@ -235,7 +240,7 @@ function Find-CachedPackage([string]$Tag,[string]$ExpectedHash){
 function Install-Channel($info){
   $backup=$null
   Write-Host "=== Posiran ERP $($info.Name) ===" -ForegroundColor Cyan
-  Write-Host "Folder=$($info.Folder) Port=$($info.Port) Database=$($info.Database) AutoUpdate=$(-not $DisableAutoUpdate)"
+  Write-Host "Folder=$($info.Folder) Port=$($info.Port) Database=$($info.Database) UpdateMode=$(if($info.Name -eq 'Test' -and -not $DisableAutoUpdate){'AutoEvery10Minutes'}else{'ManualOnly'})"
   if(!(Test-Path $info.Config)){if($Mode -eq 'UpdateOnly'){Write-Warning "Config missing for $($info.Name); update skipped.";return};throw "Dedicated Posiran ERP configuration not found: $($info.Config)"}
   Normalize-ChannelConfig $info
   $rel=Get-LatestRelease $info;$installed=if(Test-Path $info.State){(Get-Content $info.State -Raw).Trim()}else{''}
@@ -282,9 +287,10 @@ function Install-Channel($info){
     Write-LocalUpdater $info $stage
     Import-Module WebAdministration
     Stop-ChannelHost $info
-    $backup=$info.Root+'.rollback';if(Test-Path $backup){Remove-Item $backup -Recurse -Force}
-    if(Test-Path $info.Root){Move-Item $info.Root $backup -Force}
-    Move-Item $stage $info.Root -Force
+    $backup=$info.Root+'.rollback'
+    if(Test-Path $backup){for($i=1;$i -le 10;$i++){try{Remove-Item $backup -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}}
+    if(Test-Path $info.Root){for($i=1;$i -le 10;$i++){try{Move-Item $info.Root $backup -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}}
+    for($i=1;$i -le 10;$i++){try{Move-Item $stage $info.Root -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}
     # Ensure IIS worker can read/execute the deployed application after Move-Item/rollback operations.
     & icacls.exe $info.Root /grant:r "IIS_IUSRS:(OI)(CI)RX" /T /C | Out-Null
     if($LASTEXITCODE -ne 0){throw "Failed to grant IIS_IUSRS read/execute permission on $($info.Root)."}
