@@ -306,6 +306,8 @@ param([switch]`$Force)
 `$ErrorActionPreference='Stop'
 `$root=$(Q $info.Root)
 `$rollback=`$root+'.rollback'
+`$state=$(Q $info.State)
+`$rollbackState=`$state+'.rollback'
 `$port=$($info.Port)
 `$hostHeader=$(Q $info.HostHeader)
 function Test-Health {
@@ -322,6 +324,7 @@ if((Test-Path `$rollback) -and -not (Test-Health)){
   try{Import-Module WebAdministration -ErrorAction SilentlyContinue}catch{}
   if(Test-Path `$root){Remove-Item `$root -Recurse -Force -ErrorAction SilentlyContinue}
   Move-Item `$rollback `$root -Force
+  if(Test-Path `$rollbackState){Copy-Item `$rollbackState `$state -Force}
   try{Start-WebAppPool $(Q $info.Pool) -ErrorAction SilentlyContinue;Start-Website $(Q $info.Site) -ErrorAction SilentlyContinue}catch{}
   Start-Sleep 5
   if(-not (Test-Health)){throw 'Automatic rollback was attempted but the previous version is still unhealthy.'}
@@ -406,7 +409,9 @@ function Install-Channel($info){
     Write-LocalUpdater $info $stage
     Import-Module WebAdministration
     Stop-ChannelHost $info
-    $backup=$info.Root+'.rollback';if(Test-Path $backup){Invoke-RetryFileOp {Remove-Item $backup -Recurse -Force -ErrorAction Stop} "Remove old rollback"}
+    $backup=$info.Root+'.rollback';$rollbackState=$info.State+'.rollback'
+    if(Test-Path $backup){Invoke-RetryFileOp {Remove-Item $backup -Recurse -Force -ErrorAction Stop} "Remove old rollback"}
+    if(Test-Path $info.State){Copy-Item $info.State $rollbackState -Force}
     if(Test-Path $info.Root){Invoke-RetryFileOp {Move-Item $info.Root $backup -Force -ErrorAction Stop} "Move current version to rollback"}
     $targetParent=Split-Path $info.Root -Parent
     if(![string]::IsNullOrWhiteSpace($targetParent)){[void][IO.Directory]::CreateDirectory($targetParent)}
@@ -477,6 +482,7 @@ function Install-Channel($info){
         Stop-ChannelHost $info
         if(Test-Path $info.Root){Invoke-RetryFileOp {Remove-Item $info.Root -Recurse -Force -ErrorAction Stop} "Remove failed deployment"}
         Invoke-RetryFileOp {Move-Item $backup $info.Root -Force -ErrorAction Stop} "Restore rollback version"
+        if(Test-Path $rollbackState){Copy-Item $rollbackState $info.State -Force}
         Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue
         Start-Sleep 5
         Write-Warning "Deployment rolled back for $($info.Name) to the previous version."
