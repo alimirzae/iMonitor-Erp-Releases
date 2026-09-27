@@ -292,6 +292,7 @@ function Install-Channel($info){
     if(Test-Path $info.Root){
       [void][IO.Directory]::CreateDirectory($backup)
       for($i=1;$i -le 10;$i++){try{Copy-Item (Join-Path $info.Root '*') $backup -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}
+      Remove-Item (Join-Path $backup 'app_offline.htm') -Force -ErrorAction SilentlyContinue # taken after Stop-ChannelHost wrote it; a restore must not bring the 503 back
       for($i=1;$i -le 10;$i++){try{Get-ChildItem $info.Root -Force|Remove-Item -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}
     }else{[void][IO.Directory]::CreateDirectory($info.Root)}
     for($i=1;$i -le 10;$i++){try{Copy-Item (Join-Path $stage '*') $info.Root -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}
@@ -314,6 +315,7 @@ function Install-Channel($info){
       Stop-ChannelHost $info
       if(Test-Path $info.Root){Get-ChildItem $info.Root -Force|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue}else{[void][IO.Directory]::CreateDirectory($info.Root)}
       Copy-Item (Join-Path $backup '*') $info.Root -Recurse -Force
+      Remove-Item (Join-Path $info.Root 'app_offline.htm') -Force -ErrorAction SilentlyContinue
       Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue
       Start-Website $info.Site -ErrorAction SilentlyContinue
       Write-Warning "Deployment rolled back for $($info.Name)."

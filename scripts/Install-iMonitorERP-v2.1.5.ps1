@@ -424,6 +424,7 @@ function Install-Channel($info){
     if(Test-Path $info.Root){
       [void][IO.Directory]::CreateDirectory($backup)
       Invoke-RetryFileOp {Copy-Item (Join-Path $info.Root '*') $backup -Recurse -Force -ErrorAction Stop} "Copy current version to rollback"
+      Remove-Item (Join-Path $backup 'app_offline.htm') -Force -ErrorAction SilentlyContinue # taken after Stop-ChannelHost wrote it; a restore must not bring the 503 back
       Invoke-RetryFileOp {Get-ChildItem $info.Root -Force|Remove-Item -Recurse -Force -ErrorAction Stop} "Clear current version"
     }else{[void][IO.Directory]::CreateDirectory($info.Root)}
     $targetParent=Split-Path $info.Root -Parent
@@ -500,6 +501,7 @@ function Install-Channel($info){
         Stop-ChannelHost $info
         if(Test-Path $info.Root){Invoke-RetryFileOp {Remove-Item $info.Root -Recurse -Force -ErrorAction Stop} "Remove failed deployment"}
         Invoke-RetryFileOp {Copy-Item (Join-Path $backup '*') $info.Root -Recurse -Force -ErrorAction Stop} "Restore rollback version"
+        Remove-Item (Join-Path $info.Root 'app_offline.htm') -Force -ErrorAction SilentlyContinue
         if(Test-Path $rollbackState){Copy-Item $rollbackState $info.State -Force}
         Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue
         Start-Sleep 5
