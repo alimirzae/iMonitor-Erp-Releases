@@ -178,7 +178,8 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
     var connectionString = $"Server={request.DatabaseServer};Port={request.DatabasePort};Database={database};User={request.DatabaseUser};Password={request.DatabasePassword};Charset=utf8mb4;";
     var config = BuildAppSettings(isTest, request, connectionString, isIMonitor);
     File.WriteAllText(configPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
-    orchestrator.RegisterInstance(request.Product ?? (isIMonitor ? "iMonitor" : "Posiran"), channel, installRoot, appPort, installFolderName, database, request.AutoUpdate, configPath);
+    var effectiveAutoUpdate = isTest; // Test is always automatic; Production is always explicit/manual.
+    orchestrator.RegisterInstance(request.Product ?? (isIMonitor ? "iMonitor" : "Posiran"), channel, installRoot, appPort, installFolderName, database, effectiveAutoUpdate, configPath);
 
     return Results.Ok(new
     {
@@ -186,7 +187,7 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
         database,
         appPort,
         installFolderName,
-        autoUpdate = request.AutoUpdate,
+        autoUpdate = isTest,
         configPath,
         installPath = Path.Combine(installRoot, installFolderName, "current"),
         message = "Configuration saved and instance registered. Password is intentionally not returned by the API."
@@ -236,7 +237,7 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
         isTest ? "-TestPort" : "-ProductionPort",appPort.ToString(),
         isTest ? "-TestFolderName" : "-ProductionFolderName",installFolderName
     };
-    if (!isIMonitor && !request.AutoUpdate) args.Add("-DisableAutoUpdate");
+    if (!isIMonitor && !isTest) args.Add("-DisableAutoUpdate");
     if (request.Force) args.Add("-Force");
     logs.Add(op.Id,"info","مرحله 3: اجرای PowerShell. timeout کل: 30 دقیقه؛ خروجی پس از پایان/timeout در کنسول ثبت می‌شود.");
     var r = RunPowerShell(args, 30 * 60 * 1000);
@@ -284,7 +285,10 @@ app.MapGet("/api/runtime-health", async (OrchestratorService orchestrator, Cance
     return Results.Ok(new
     {
         checkedAtUtc = DateTime.UtcNow,
-        allHealthy = installations.Count > 0 && installations.All(x => x.HealthOk && string.Equals(x.IisSiteState, "Started", StringComparison.OrdinalIgnoreCase) && string.Equals(x.IisPoolState, "Started", StringComparison.OrdinalIgnoreCase) && x.DatabaseReachable),
+        allHealthy = installations.Count > 0 && installations.All(x => x.HealthOk && x.DatabaseReachable
+            && (string.Equals(x.IisSiteState, "Unknown", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(x.IisSiteState, "Unsupported", StringComparison.OrdinalIgnoreCase)
+                || (string.Equals(x.IisSiteState, "Started", StringComparison.OrdinalIgnoreCase) && string.Equals(x.IisPoolState, "Started", StringComparison.OrdinalIgnoreCase)))),
         installations
     });
 });
