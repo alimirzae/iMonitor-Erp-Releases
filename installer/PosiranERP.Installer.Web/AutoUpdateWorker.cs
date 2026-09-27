@@ -26,7 +26,7 @@ public sealed class AutoUpdateWorker : BackgroundService
                 _logger.LogError(ex, "Auto-update cycle failed.");
             }
 
-            try { await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken); }
+            try { await Task.Delay(TimeSpan.FromMinutes(10), stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { }
         }
     }
