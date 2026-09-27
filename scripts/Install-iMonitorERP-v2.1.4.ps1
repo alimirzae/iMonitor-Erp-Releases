@@ -331,7 +331,7 @@ function Find-CachedPackage([string]$Tag,[string]$ExpectedHash){
 function Install-Channel($info){
   $backup=$null
   Write-Host "=== iMonitor ERP $($info.Name) ===" -ForegroundColor Cyan
-  Write-Host "Folder=$($info.Folder) Port=$($info.Port) Database=$($info.Database) UpdateMode=ManualOnly"
+  Write-Host "Folder=$($info.Folder) Port=$($info.Port) Database=$($info.Database) UpdateMode=$(if($info.Name -eq 'Test'){'AutoEvery10Minutes'}else{'ManualOnly'})"
   if(!(Test-Path $info.Config) -and $Mode -eq 'UpdateOnly'){Write-Warning "Config missing for $($info.Name); update skipped.";return}
   Normalize-ChannelConfig $info
   if(!$SkipMySqlProvisioning -and ![string]::IsNullOrWhiteSpace($MySqlPassword)){Ensure-MySqlDatabase $info}else{Write-Host '[DB] Existing MySQL is validated by application startup and /health.' -ForegroundColor DarkGray}
