@@ -749,7 +749,9 @@ public sealed class OrchestratorService
     private static void InvokeIisControl(InstallationManifest m, bool start)
     {
         var verb = start ? "Start" : "Stop";
-        var extra = start ? "" : $"; Start-Sleep -Seconds 2; Get-Process w3wp,dotnet -ErrorAction SilentlyContinue|ForEach-Object{{try{{$p=$_.Path;if($_.ProcessName -eq 'w3wp' -or ($p -and $p.StartsWith('{Ps(m.InstallPath)}',[StringComparison]::OrdinalIgnoreCase))){{Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue}}}}catch{{}}}}; Start-Sleep -Seconds 2";
+        // Stop only this instance's workers: its own pool's w3wp (via appcmd) and hosts running from its folder.
+        // Killing every w3wp crashed the other ERP sites until IIS rapid-fail protection disabled their pools (503).
+        var extra = start ? "" : $"; Start-Sleep -Seconds 2; $appcmd=Join-Path $env:windir 'System32\\inetsrv\\appcmd.exe'; if(Test-Path $appcmd){{& $appcmd list wp '/apppool.name:{Ps(m.AppPool)}' /text:WP.NAME 2>$null|ForEach-Object{{if($_ -match '^\\d+$'){{Stop-Process -Id ([int]$_) -Force -ErrorAction SilentlyContinue}}}}}}; Get-Process dotnet -ErrorAction SilentlyContinue|ForEach-Object{{try{{$p=$_.Path;if($p -and $p.StartsWith('{Ps(m.InstallPath)}',[StringComparison]::OrdinalIgnoreCase)){{Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue}}}}catch{{}}}}; Start-Sleep -Seconds 2";
         var script = $"Import-Module WebAdministration; if(Test-Path 'IIS:\\Sites\\{Ps(m.IisSite)}'){{{verb}-Website -Name '{Ps(m.IisSite)}' -ErrorAction SilentlyContinue}}; if(Test-Path 'IIS:\\AppPools\\{Ps(m.AppPool)}'){{{verb}-WebAppPool -Name '{Ps(m.AppPool)}' -ErrorAction SilentlyContinue}}{extra}";
         var r = RunProcess("powershell.exe", new[] { "-NoProfile", "-Command", script }, 20000);
         if (r.ExitCode != 0) throw new InvalidOperationException($"IIS {verb.ToLowerInvariant()} failed: {SanitizeProcessError(r.StdErr)}");

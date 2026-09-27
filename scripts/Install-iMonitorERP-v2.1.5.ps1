@@ -358,7 +358,9 @@ function Stop-ChannelHost($info){
   Get-Process w3wp,dotnet -ErrorAction SilentlyContinue | ForEach-Object {
     try {
       $cmd=$_.Path
-      if($_.ProcessName -eq 'w3wp' -or ($cmd -and $cmd.StartsWith($info.Root,[StringComparison]::OrdinalIgnoreCase))){ Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+      # Only this channel's out-of-process host. This pool's w3wp workers were stopped above via appcmd;
+      # killing every w3wp crashed the other ERP sites until IIS rapid-fail disabled their pools (503).
+      if($cmd -and $cmd.StartsWith($info.Root,[StringComparison]::OrdinalIgnoreCase)){ Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
     } catch {}
   }
   # A missing current directory is not a lock condition (common after an interrupted/legacy deployment).
@@ -427,13 +429,17 @@ function Install-Channel($info){
     $targetParent=Split-Path $info.Root -Parent
     if(![string]::IsNullOrWhiteSpace($targetParent)){[void][IO.Directory]::CreateDirectory($targetParent)}
     Invoke-RetryFileOp {Copy-Item (Join-Path $stage '*') $info.Root -Recurse -Force -ErrorAction Stop} "Activate staged version"
+    # IIS config edits fail transiently (0x800710D8) while another install touches applicationHost.config.
+    for($iisAttempt=1;$iisAttempt -le 4;$iisAttempt++){
     try{
       if(!(Test-Path "IIS:\AppPools\$($info.Pool)")){New-WebAppPool -Name $info.Pool|Out-Null}
       foreach($setting in @(@('managedRuntimeVersion',''),@('startMode','AlwaysRunning'),@('processModel.loadUserProfile',$true))){try{Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name $setting[0] -Value $setting[1] -ErrorAction Stop}catch{Write-Warning "Optional AppPool setting $($setting[0]) skipped: $($_.Exception.Message)"}}
       $bindingPort=if([string]::IsNullOrWhiteSpace($info.HostHeader)){$info.Port}else{80}
       if(!(Test-Path "IIS:\Sites\$($info.Site)")){New-Website -Name $info.Site -PhysicalPath $info.Root -Port $bindingPort -HostHeader $info.HostHeader -ApplicationPool $info.Pool|Out-Null}else{Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name physicalPath -Value $info.Root;Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name applicationPool -Value $info.Pool;Get-WebBinding -Name $info.Site -Protocol http|Remove-WebBinding -ErrorAction SilentlyContinue;New-WebBinding -Name $info.Site -Protocol http -IPAddress '*' -Port $bindingPort -HostHeader $info.HostHeader|Out-Null}
       Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue
-    }catch{throw "IIS activation failed: $($_.Exception.Message)"}
+      break
+    }catch{if($iisAttempt -eq 4){throw "IIS activation failed: $($_.Exception.Message)"};Write-Warning "IIS activation attempt $iisAttempt failed: $($_.Exception.Message)";Start-Sleep -Seconds (3*$iisAttempt)}
+    }
     $headers=@{};if($info.HostHeader){$headers.Host=$info.HostHeader}
     $healthUrls=New-Object System.Collections.Generic.List[string]
     [void]$healthUrls.Add("http://127.0.0.1:$bindingPort/health")
