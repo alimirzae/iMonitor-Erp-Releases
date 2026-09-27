@@ -15,6 +15,7 @@ var defaultConfigRoot = builder.Configuration["Installer:ConfigRoot"] ?? @"C:\De
 builder.Services.AddSingleton<OrchestratorService>(sp => new OrchestratorService(defaultInstallRoot, defaultConfigRoot, sp.GetRequiredService<IHttpClientFactory>()));
 
 var app = builder.Build();
+var orchestrator = app.Services.GetRequiredService<OrchestratorService>();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
