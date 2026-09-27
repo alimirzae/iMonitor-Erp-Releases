@@ -239,6 +239,80 @@ function Install-Channel($info){
   if(!(Test-Path $info.Config)){if($Mode -eq 'UpdateOnly'){Write-Warning "Config missing for $($info.Name); update skipped.";return};throw "Dedicated Posiran ERP configuration not found: $($info.Config)"}
   Normalize-ChannelConfig $info
   $rel=Get-LatestRelease $info;$installed=if(Test-Path $info.State){(Get-Content $info.State -Raw).Trim()}else{''}
+  # Never auto-downgrade a channel if its manifest accidentally points to an older semantic version.
+  function Get-TagVersion([string]$tag){
+    $m=[regex]::Match($tag,'v(?<v>\d+(?:\.\d+)+)
+  if(!$Force -and $installed -eq $rel.Tag){
+    Write-Host "Already current: $($rel.Tag)"
+    # Repair support/update files even when application binaries are already current.
+    Write-LocalUpdater $info $info.Root
+    Register-Updater $info
+    return
+  }
+  $work=Join-Path $env:TEMP ('posiran-'+$info.Key+'-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Force -Path $work,(Split-Path $info.State -Parent),$info.Root|Out-Null
+  $zip=Join-Path $work $asset;$shaFile=$zip+'.sha256'
+  try{
+    Invoke-AssetDownload $rel.ShaApiUrl $rel.ShaBrowserUrl $shaFile 60
+    $expected=((Get-Content $shaFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
+    if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
+    $cached=Find-CachedPackage $rel.Tag $expected
+    if($cached){Copy-Item $cached $zip -Force}else{Invoke-AssetDownload $rel.ZipApiUrl $rel.ZipBrowserUrl $zip 900}
+    $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();if($expected -ne $actual){throw "SHA256 mismatch. expected=$expected actual=$actual"}
+
+    $cacheDir=Join-Path $packageCache $rel.Tag;New-Item -ItemType Directory -Force -Path $cacheDir|Out-Null
+    Copy-Item $zip (Join-Path $cacheDir $asset) -Force;Copy-Item $shaFile (Join-Path $cacheDir ($asset+'.sha256')) -Force
+
+    $stage=Join-Path $work 'stage';Expand-Archive $zip -DestinationPath $stage -Force
+    if(!(Test-Path (Join-Path $stage 'Ecomm.dll')) -or !(Test-Path (Join-Path $stage 'web.config'))){throw 'Release package is incomplete (Ecomm.dll/web.config missing).'}
+    Copy-Item $info.Config (Join-Path $stage 'appsettings.json') -Force
+    Set-Content (Join-Path $stage 'release-tag.txt') $rel.Tag -Encoding ASCII
+    $packagedInstaller=Join-Path $stage 'Install-PosiranERP.ps1'
+    if(!(Test-Path $packagedInstaller)){Copy-Item $stableInstaller $packagedInstaller -Force}
+    Write-LocalUpdater $info $stage
+    Import-Module WebAdministration
+    Stop-ChannelHost $info
+    $backup=$info.Root+'.rollback';if(Test-Path $backup){Remove-Item $backup -Recurse -Force}
+    if(Test-Path $info.Root){Move-Item $info.Root $backup -Force}
+    Move-Item $stage $info.Root -Force
+    # Ensure IIS worker can read/execute the deployed application after Move-Item/rollback operations.
+    & icacls.exe $info.Root /grant:r "IIS_IUSRS:(OI)(CI)RX" /T /C | Out-Null
+    if($LASTEXITCODE -ne 0){throw "Failed to grant IIS_IUSRS read/execute permission on $($info.Root)."}
+    & icacls.exe $info.Root /grant:r "IIS AppPool\$($info.Pool):(OI)(CI)RX" /T /C | Out-Null
+    if($LASTEXITCODE -ne 0){Write-Warning "Could not grant explicit AppPool ACL; IIS_IUSRS permission is present."}
+    if(!(Test-Path "IIS:\AppPools\$($info.Pool)")){New-WebAppPool -Name $info.Pool|Out-Null};Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name managedRuntimeVersion -Value '';Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name startMode -Value 'AlwaysRunning'
+    if(!(Test-Path "IIS:\Sites\$($info.Site)")){New-Website -Name $info.Site -PhysicalPath $info.Root -Port $info.Port -ApplicationPool $info.Pool|Out-Null}else{Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name physicalPath -Value $info.Root;Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name applicationPool -Value $info.Pool;Get-WebBinding -Name $info.Site -Protocol http|Remove-WebBinding -ErrorAction SilentlyContinue;New-WebBinding -Name $info.Site -Protocol http -IPAddress '*' -Port $info.Port|Out-Null}
+    Start-WebAppPool $info.Pool;Start-Website $info.Site
+    $ok=$false;for($i=1;$i -le 45;$i++){Start-Sleep 2;try{$r=Invoke-WebRequest "http://127.0.0.1:$($info.Port)/health" -UseBasicParsing -TimeoutSec 8;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
+    if(!$ok){throw "Health check failed on port $($info.Port)."}
+    if(Test-Path $backup){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
+    Copy-Item (Join-Path $info.Root 'Install-PosiranERP.ps1') $stableInstaller -Force
+    Set-Content $info.State $rel.Tag -Encoding ASCII;Write-Host "[OK] $($rel.Tag) -> http://127.0.0.1:$($info.Port)/ ; DB=$($info.Database) ; Folder=$($info.Folder)" -ForegroundColor Green;Register-Updater $info
+  }catch{
+    $failure=$_
+    if($backup -and (Test-Path $backup)){
+      Stop-ChannelHost $info
+      if(Test-Path $info.Root){Remove-Item $info.Root -Recurse -Force}
+      Move-Item $backup $info.Root -Force
+      Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue
+      Start-Website $info.Site -ErrorAction SilentlyContinue
+      Write-Warning "Deployment rolled back for $($info.Name)."
+    }
+    throw $failure
+  }finally{Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue}
+}
+$selected=@();if($Channel -in @('Both','Test')){$selected+=Get-ChannelInfo 'Test'};if($Channel -in @('Both','Production')){$selected+=Get-ChannelInfo 'Production'};foreach($i in $selected){Install-Channel $i}
+)
+    if($m.Success){try{return [version]$m.Groups['v'].Value}catch{}}
+    return $null
+  }
+  $installedVersion=Get-TagVersion $installed
+  $latestVersion=Get-TagVersion $rel.Tag
+  if(!$Force -and $installedVersion -and $latestVersion -and $latestVersion -lt $installedVersion){
+    Write-Warning "Manifest release $($rel.Tag) is older than installed $installed; automatic downgrade blocked."
+    Write-LocalUpdater $info $info.Root
+    Register-Updater $info
+    return
+  }
   if(!$Force -and $installed -eq $rel.Tag){
     Write-Host "Already current: $($rel.Tag)"
     # Repair support/update files even when application binaries are already current.
