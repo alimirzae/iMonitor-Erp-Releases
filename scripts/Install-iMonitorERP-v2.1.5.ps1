@@ -361,6 +361,9 @@ function Stop-ChannelHost($info){
       if($_.ProcessName -eq 'w3wp' -or ($cmd -and $cmd.StartsWith($info.Root,[StringComparison]::OrdinalIgnoreCase))){ Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
     } catch {}
   }
+  # A missing current directory is not a lock condition (common after an interrupted/legacy deployment).
+  # Install-Channel will recreate it before activating the staged release.
+  if(!(Test-Path $info.Root)){ return }
   for($i=0;$i -lt 20;$i++){Start-Sleep -Milliseconds 500;try{$probe=Join-Path $info.Root '.update-lock-probe';Set-Content $probe 'ok' -ErrorAction Stop;Remove-Item $probe -Force -ErrorAction Stop;break}catch{if($i -eq 19){throw "Application files are still locked after stopping IIS: $($_.Exception.Message)"}}}
 }
 
@@ -450,7 +453,7 @@ function Install-Channel($info){
           # Some IIS sites force HTTP to HTTPS. Loopback HTTPS commonly presents the
           # public certificate for the host name, not 127.0.0.1, so PowerShell 5.1
           # reports a trust/name mismatch even though the application is healthy.
-          if($_.Exception.Message -match 'trust relationship|SSL/TLS secure channel'){
+          if($_.Exception.Message -match 'trust relationship|SSL/TLS secure channel|underlying connection was closed|unexpected error occurred on a send|connection was forcibly closed'){
             try{
               $oldCallback=[System.Net.ServicePointManager]::ServerCertificateValidationCallback
               [System.Net.ServicePointManager]::ServerCertificateValidationCallback={ $true }
