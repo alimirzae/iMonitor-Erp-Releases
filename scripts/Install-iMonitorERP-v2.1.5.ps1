@@ -464,7 +464,9 @@ function Install-Channel($info){
       }catch{}
       throw "Health check failed for $($info.Name) after deployment. Site=$siteState Pool=$poolState Port=$bindingPort Host='$($info.HostHeader)' LastError='$lastHealthError' EventLog='$eventHint'. Check $($info.Root)\logs and IIS logs."
     }
-    if(Test-Path $backup){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
+    # Keep one last-known-good rollback for Test. The scheduled updater checks health on every invocation
+    # and can restore it if the newly activated application later becomes unhealthy.
+    if($info.Name -ne 'Test' -and (Test-Path $backup)){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
     Copy-Item (Join-Path $info.Root 'Install-iMonitorERP.ps1') $stableInstaller -Force
     Configure-UpdateTask $info
     Set-Content $info.State $rel.Tag -Encoding ASCII;Write-Host "[OK] $($rel.Tag) -> http://127.0.0.1:$($info.Port)/ ; DB=$($info.Database) ; Folder=$($info.Folder)" -ForegroundColor Green
