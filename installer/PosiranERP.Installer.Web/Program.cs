@@ -96,32 +96,57 @@ app.MapPost("/api/installations/{id}/control/{action}", async (string id, string
     catch (Exception ex) { return Results.Problem(ex.Message); }
 });
 
-app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorService orchestrator, IHttpClientFactory clients, CancellationToken ct) =>
+app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorService orchestrator, IHttpClientFactory clients, OperationLogStore logs, CancellationToken ct) =>
 {
+    var op = logs.Start($"Upgrade {id}");
     try
     {
         var manifest = orchestrator.RequireManifest(id);
+        logs.Add(op.Id, "info", $"Pre-upgrade backup for {manifest.DisplayName}");
         var backup = await orchestrator.BackupAsync(id, "pre-upgrade", ct);
-        var scriptDirectory = Path.Combine(defaultInstallRoot, "installer");
+        var scriptDirectory = Path.Combine(manifest.InstallRoot, "installer");
         Directory.CreateDirectory(scriptDirectory);
-        var scriptPath = Path.Combine(scriptDirectory, "Install-PosiranERP-v1.0.5.ps1");
+        var isIMonitor = string.Equals(manifest.Product, "iMonitor", StringComparison.OrdinalIgnoreCase);
+        var scriptPath = Path.Combine(scriptDirectory, isIMonitor ? "Install-iMonitorERP-v2.1.5.ps1" : "Install-PosiranERP-v1.0.5.ps1");
         var http = clients.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(60);
-        await DownloadInstallerScriptAsync(http, scriptPath, false, ct);
+        await DownloadInstallerScriptAsync(http, scriptPath, isIMonitor, ct);
+        var configRoot = Path.Combine(manifest.InstallRoot, "config");
         var args = new List<string>
         {
             "-NoProfile","-ExecutionPolicy","Bypass","-File",scriptPath,
-            "-Channel",manifest.Channel,"-Mode","InstallOrUpdate","-InstallRoot",defaultInstallRoot,"-ConfigRoot",defaultConfigRoot,
+            "-Channel",manifest.Channel,"-Mode","InstallOrUpdate","-InstallRoot",manifest.InstallRoot,"-ConfigRoot",configRoot,
             manifest.Channel == "Test" ? "-TestPort" : "-ProductionPort",manifest.Port.ToString(),
             manifest.Channel == "Test" ? "-TestFolderName" : "-ProductionFolderName",manifest.InstallFolderName,
             "-Force"
         };
-        if (!manifest.AutoUpdate) args.Add("-DisableAutoUpdate");
-        var r = RunPowerShell(args);
-        if (r.ExitCode != 0) return Results.Problem($"Upgrade failed. Pre-upgrade backup: {backup.BackupId}. {r.Error}");
-        return Results.Ok(new { upgraded = true, preUpgradeBackup = backup.BackupId, output = r.Output });
+        if (!isIMonitor && !manifest.AutoUpdate) args.Add("-DisableAutoUpdate");
+        logs.Add(op.Id, "info", $"Running upgrade on port {manifest.Port}.");
+        var run = RunPowerShell(args, 30 * 60 * 1000);
+        if (!string.IsNullOrWhiteSpace(run.Output)) logs.Add(op.Id, "stdout", run.Output);
+        if (!string.IsNullOrWhiteSpace(run.Error) && run.Error != run.Output) logs.Add(op.Id, "stderr", run.Error);
+        if (run.ExitCode != 0)
+        {
+            logs.Complete(op.Id, false, $"PowerShell exit code {run.ExitCode}. Pre-upgrade backup: {backup.BackupId}. {run.Error}");
+            return Results.Problem(title: "Upgrade failed", detail: $"Operation {op.Id}: {run.Error}", statusCode: 500);
+        }
+
+        logs.Add(op.Id, "info", $"PowerShell completed. Verifying HTTP health, IIS and database on port {manifest.Port}.");
+        var verification = await orchestrator.VerifyInstallationRuntimeAsync(id, ct);
+        if (!verification.Ok)
+        {
+            logs.Complete(op.Id, false, "Upgrade finished but runtime verification failed: " + verification.Message);
+            return Results.Problem(title: "Upgrade runtime verification failed", detail: $"Operation {op.Id}: {verification.Message}", statusCode: 500);
+        }
+
+        logs.Complete(op.Id, true, "Upgrade and runtime verification succeeded: " + verification.Message);
+        return Results.Ok(new { upgraded = true, preUpgradeBackup = backup.BackupId, operationId = op.Id, runtime = verification, output = run.Output });
     }
-    catch (Exception ex) { return Results.Problem(ex.Message); }
+    catch (Exception ex)
+    {
+        logs.Complete(op.Id, false, ex.Message);
+        return Results.Problem(title: "Upgrade failed", detail: $"Operation {op.Id}: {ex.Message}", statusCode: 500);
+    }
 });
 
 app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchestrator) =>
@@ -217,7 +242,27 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     if(!string.IsNullOrWhiteSpace(r.Output)) logs.Add(op.Id,"stdout",r.Output);
     if(!string.IsNullOrWhiteSpace(r.Error) && r.Error != r.Output) logs.Add(op.Id,"stderr",r.Error);
     if (r.ExitCode != 0) { logs.Complete(op.Id,false,$"PowerShell exit code {r.ExitCode}: {r.Error}"); return Results.Problem(title: "Installation failed", detail: $"Operation {op.Id}: {r.Error}", statusCode: 500); }
-    logs.Complete(op.Id,true,"نصب با موفقیت پایان یافت.");
+
+    var productName = isIMonitor ? "iMonitor" : "Posiran";
+    var instanceId = $"{productName.ToLowerInvariant()}-{channel.ToLowerInvariant()}";
+    logs.Add(op.Id,"info",$"مرحله 4: کنترل واقعی سرویس روی پورت {appPort}، وضعیت IIS و اتصال دیتابیس.");
+    RuntimeVerificationResult verification;
+    try
+    {
+        verification = await orchestrator.VerifyInstallationRuntimeAsync(instanceId, requestCt);
+    }
+    catch (Exception ex)
+    {
+        logs.Complete(op.Id,false,"نصب پایان یافت اما کنترل runtime اجرا نشد: "+ex.Message);
+        return Results.Problem(title: "Runtime verification failed", detail: $"Operation {op.Id}: {ex.Message}", statusCode: 500);
+    }
+    if (!verification.Ok)
+    {
+        logs.Complete(op.Id,false,"PowerShell موفق بود اما ERP واقعا بالا نیامد: "+verification.Message);
+        return Results.Problem(title: "ERP did not become healthy", detail: $"Operation {op.Id}: {verification.Message}", statusCode: 500);
+    }
+
+    logs.Complete(op.Id,true,"نصب و Health Check واقعی با موفقیت پایان یافت: "+verification.Message);
 
     return Results.Ok(new
     {
@@ -227,10 +272,21 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
         installPath = Path.Combine(installRoot, installFolderName, "current"),
         autoUpdate = request.AutoUpdate,
         operationId = op.Id,
+        runtime = verification,
         output = r.Output
     });
 });
 
+app.MapGet("/api/runtime-health", async (OrchestratorService orchestrator, CancellationToken ct) =>
+{
+    var installations = await orchestrator.ListInstallationsAsync(ct);
+    return Results.Ok(new
+    {
+        checkedAtUtc = DateTime.UtcNow,
+        allHealthy = installations.Count > 0 && installations.All(x => x.HealthOk && string.Equals(x.IisSiteState, "Started", StringComparison.OrdinalIgnoreCase) && string.Equals(x.IisPoolState, "Started", StringComparison.OrdinalIgnoreCase) && x.DatabaseReachable),
+        installations
+    });
+});
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "PosiranERP.Installer.Web" }));
 app.MapFallbackToFile("index.html");
 app.Run();
