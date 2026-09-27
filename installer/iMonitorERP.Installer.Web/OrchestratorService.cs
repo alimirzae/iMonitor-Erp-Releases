@@ -320,7 +320,7 @@ public sealed class OrchestratorService
         if (!OperatingSystem.IsWindows()) return ("Unsupported", "Unsupported");
         try
         {
-            var script = $"Import-Module WebAdministration; $s=(Get-Website -Name '{Ps(site)}' -ErrorAction SilentlyContinue).State; $p=(Get-WebAppPoolState -Name '{Ps(pool)}' -ErrorAction SilentlyContinue).Value; Write-Output (($s ?? 'Missing').ToString()+'|'+($p ?? 'Missing').ToString())";
+            var script = $"Import-Module WebAdministration -ErrorAction Stop; $sw=Get-Website -Name '{Ps(site)}' -ErrorAction SilentlyContinue; $s=if($sw){{$sw.State}}else{{'Missing'}}; $pw=Get-WebAppPoolState -Name '{Ps(pool)}' -ErrorAction SilentlyContinue; $p=if($pw){{$pw.Value}}else{{'Missing'}}; Write-Output ($s.ToString()+'|'+$p.ToString())";
             var r = RunProcess("powershell.exe", new[] { "-NoProfile", "-Command", script }, 10000);
             var parts = r.StdOut.Trim().Split('|');
             return parts.Length >= 2 ? (parts[0], parts[1]) : ("Unknown", "Unknown");
