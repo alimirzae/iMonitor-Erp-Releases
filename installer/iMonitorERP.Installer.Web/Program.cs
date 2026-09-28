@@ -71,7 +71,7 @@ app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorSer
         var backup = await orchestrator.BackupAsync(id, "pre-upgrade", ct);
         var scriptDirectory = Path.Combine(defaultInstallRoot, "installer");
         Directory.CreateDirectory(scriptDirectory);
-        var scriptPath = Path.Combine(scriptDirectory, "Install-iMonitorERP-v1.0.5.ps1");
+        var scriptPath = Path.Combine(scriptDirectory, "Install-iMonitorERP-v2.1.6.ps1");
         var http = clients.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(60);
         await DownloadInstallerScriptAsync(http, scriptPath, ct);
@@ -148,7 +148,7 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
 
     var scriptDirectory = Path.Combine(defaultInstallRoot, "installer");
     Directory.CreateDirectory(scriptDirectory);
-    var scriptPath = Path.Combine(scriptDirectory, "Install-iMonitorERP-v1.0.5.ps1");
+    var scriptPath = Path.Combine(scriptDirectory, "Install-iMonitorERP-v2.1.6.ps1");
 
     if (!File.Exists(scriptPath) || request.RefreshInstaller)
     {
@@ -188,13 +188,13 @@ static async Task DownloadInstallerScriptAsync(HttpClient http, string destinati
 {
     http.DefaultRequestHeaders.UserAgent.ParseAdd("iMonitorERP-Setup/1.0");
     http.DefaultRequestHeaders.CacheControl = new() { NoCache = true, NoStore = true };
-    var scriptUrl = "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/ecomm-erp-installer-v1.0.5/Install-iMonitorERP-v1.0.5.ps1";
+    var scriptUrl = "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/imonitor-erp-installer-v2.1.6/Install-iMonitorERP-v2.1.6.ps1";
     var bytes = await http.GetByteArrayAsync(scriptUrl, cancellationToken);
     var text = System.Text.Encoding.UTF8.GetString(bytes);
     if (!text.Contains("function Stop-ChannelHost", StringComparison.Ordinal) || !text.Contains("Get-WebAppPoolState", StringComparison.Ordinal))
         throw new InvalidOperationException("Downloaded Posiran installer asset failed the version contract.");
     await File.WriteAllBytesAsync(destination, bytes, cancellationToken);
-    Console.WriteLine("Installer script downloaded from iMonitor ERP installer release v1.0.5.");
+    Console.WriteLine("Installer script downloaded from iMonitor ERP installer release v2.1.6.");
 }
 
 static InstallerProcessResult RunPowerShell(IEnumerable<string> args)
