@@ -380,7 +380,7 @@ function Find-CachedPackage([string]$Tag,[string]$ExpectedHash){
 function Install-Channel($info){
   $backup=$null
   Write-Host "=== iMonitor iBOS $($info.Name) ===" -ForegroundColor Cyan
-  Write-Host "[PROGRESS 2] شروع نصب و بررسی تنظیمات"
+  Write-Host "[PROGRESS 2] Initialize installation and validate configuration"
   Write-Host "Folder=$($info.Folder) Port=$($info.Port) Database=$($info.Database) UpdateMode=$(if($info.Name -eq 'Test'){'AutoEvery10Minutes'}else{'ManualOnly'})"
   if(!(Test-Path $info.Config) -and $Mode -eq 'UpdateOnly'){Write-Warning "Config missing for $($info.Name); update skipped.";return}
   Normalize-ChannelConfig $info
@@ -391,20 +391,20 @@ function Install-Channel($info){
   $work=Join-Path $workRoot ('imonitor-'+$info.Key+'-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Force -Path $work,(Split-Path $info.State -Parent)|Out-Null
   $zip=Join-Path $work $asset;$shaFile=$zip+'.sha256'
   try{
-    Write-Host "[PROGRESS 10] دریافت checksum نسخه"
+    Write-Host "[PROGRESS 10] Download release checksum"
     Invoke-AssetDownload $rel.ShaApiUrl $rel.ShaBrowserUrl $shaFile 60
     $expected=((Get-Content $shaFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
     if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
     $cached=Find-CachedPackage $rel.Tag $expected
-    if($cached){Write-Host "[PROGRESS 35] استفاده از package cache";Copy-Item $cached $zip -Force}else{Write-Host "[PROGRESS 15] دانلود بسته انتشار";Invoke-AssetDownload $rel.ZipApiUrl $rel.ZipBrowserUrl $zip 900;Write-Host "[PROGRESS 38] دانلود بسته کامل شد"}
+    if($cached){Write-Host "[PROGRESS 35] Use verified package cache";Copy-Item $cached $zip -Force}else{Write-Host "[PROGRESS 15] Download release package";Invoke-AssetDownload $rel.ZipApiUrl $rel.ZipBrowserUrl $zip 900;Write-Host "[PROGRESS 38] Package download completed"}
     $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();if($expected -ne $actual){throw "SHA256 mismatch. expected=$expected actual=$actual"}
 
     $cacheDir=Join-Path $packageCache $rel.Tag;New-Item -ItemType Directory -Force -Path $cacheDir|Out-Null
     Copy-Item $zip (Join-Path $cacheDir $asset) -Force;Copy-Item $shaFile (Join-Path $cacheDir ($asset+'.sha256')) -Force
 
-    Write-Host "[PROGRESS 45] شروع Extract/Unzip"
+    Write-Host "[PROGRESS 45] Extract package"
     $stage=Join-Path $work 'stage';Expand-Archive $zip -DestinationPath $stage -Force
-    Write-Host "[PROGRESS 55] Extract/Unzip تکمیل شد"
+    Write-Host "[PROGRESS 55] Package extraction completed"
     if(!(Test-Path (Join-Path $stage 'Ecomm.dll')) -or !(Test-Path (Join-Path $stage 'web.config'))){throw 'Release package is incomplete (Ecomm.dll/web.config missing).'}
     Copy-Item $info.Config (Join-Path $stage 'appsettings.json') -Force
     Set-Content (Join-Path $stage 'release-tag.txt') $rel.Tag -Encoding ASCII
@@ -412,9 +412,9 @@ function Install-Channel($info){
     if(!(Test-Path $packagedInstaller)){Copy-Item $stableInstaller $packagedInstaller -Force}
     Write-LocalUpdater $info $stage
     Import-Module WebAdministration
-    Write-Host "[PROGRESS 60] توقف IIS و AppPool"
+    Write-Host "[PROGRESS 60] Stop IIS site and application pool"
     Stop-ChannelHost $info
-    Write-Host "[PROGRESS 66] IIS متوقف و فایل‌ها آزاد شدند"
+    Write-Host "[PROGRESS 66] IIS stopped and application files unlocked"
     $backup=$info.Root+'.rollback';$rollbackState=$info.State+'.rollback'
     if(Test-Path $backup){Invoke-RetryFileOp {Remove-Item $backup -Recurse -Force -ErrorAction Stop} "Remove old rollback"}
     if(Test-Path $info.State){Copy-Item $info.State $rollbackState -Force}
@@ -426,9 +426,9 @@ function Install-Channel($info){
     }else{[void][IO.Directory]::CreateDirectory($info.Root)}
     $targetParent=Split-Path $info.Root -Parent
     if(![string]::IsNullOrWhiteSpace($targetParent)){[void][IO.Directory]::CreateDirectory($targetParent)}
-    Write-Host "[PROGRESS 74] کپی و فعال‌سازی نسخه جدید"
+    Write-Host "[PROGRESS 74] Copy and activate staged version"
     Invoke-RetryFileOp {Copy-Item (Join-Path $stage '*') $info.Root -Recurse -Force -ErrorAction Stop} "Activate staged version"
-    Write-Host "[PROGRESS 82] کپی نسخه جدید تکمیل شد"
+    Write-Host "[PROGRESS 82] New version files activated"
     # IIS config edits fail transiently (0x800710D8) while another install touches applicationHost.config.
     for($iisAttempt=1;$iisAttempt -le 4;$iisAttempt++){
     try{
@@ -436,7 +436,7 @@ function Install-Channel($info){
       foreach($setting in @(@('managedRuntimeVersion',''),@('startMode','AlwaysRunning'),@('processModel.loadUserProfile',$true))){try{Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name $setting[0] -Value $setting[1] -ErrorAction Stop}catch{Write-Warning "Optional AppPool setting $($setting[0]) skipped: $($_.Exception.Message)"}}
       $bindingPort=if([string]::IsNullOrWhiteSpace($info.HostHeader)){$info.Port}else{80}
       if(!(Test-Path "IIS:\Sites\$($info.Site)")){New-Website -Name $info.Site -PhysicalPath $info.Root -Port $bindingPort -HostHeader $info.HostHeader -ApplicationPool $info.Pool|Out-Null}else{Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name physicalPath -Value $info.Root;Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name applicationPool -Value $info.Pool;Get-WebBinding -Name $info.Site -Protocol http|Remove-WebBinding -ErrorAction SilentlyContinue;New-WebBinding -Name $info.Site -Protocol http -IPAddress '*' -Port $bindingPort -HostHeader $info.HostHeader|Out-Null}
-      Write-Host "[PROGRESS 86] شروع IIS و AppPool"
+      Write-Host "[PROGRESS 86] Start IIS site and application pool"
       Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue
       break
     }catch{if($iisAttempt -eq 4){throw "IIS activation failed: $($_.Exception.Message)"};Write-Warning "IIS activation attempt $iisAttempt failed: $($_.Exception.Message)";Start-Sleep -Seconds (3*$iisAttempt)}
@@ -446,7 +446,7 @@ function Install-Channel($info){
     [void]$healthUrls.Add("http://127.0.0.1:$bindingPort/health")
     if($bindingPort -ne $info.Port){[void]$healthUrls.Add("http://127.0.0.1:$($info.Port)/health")}
     if($info.HostHeader){[void]$healthUrls.Add("http://$($info.HostHeader)/health")}
-    Write-Host "[PROGRESS 90] Health Check سرویس"
+    Write-Host "[PROGRESS 90] Verify runtime health"
     $lastHealthError=''
     $ok=$false
     for($i=1;$i -le 60 -and !$ok;$i++){
@@ -481,7 +481,7 @@ function Install-Channel($info){
     # Keep one last-known-good rollback for Test. The scheduled updater checks health on every invocation
     # and can restore it if the newly activated application later becomes unhealthy.
     if($info.Name -ne 'Test' -and (Test-Path $backup)){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
-    Write-Host "[PROGRESS 100] نصب و Health Check موفق"
+    Write-Host "[PROGRESS 100] Installation and health verification succeeded"
     Copy-Item (Join-Path $info.Root 'Install-iMonitorERP.ps1') $stableInstaller -Force
     Configure-UpdateTask $info
     Set-Content $info.State $rel.Tag -Encoding ASCII;Write-Host "[OK] $($rel.Tag) -> http://127.0.0.1:$($info.Port)/ ; DB=$($info.Database) ; Folder=$($info.Folder)" -ForegroundColor Green
