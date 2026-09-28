@@ -70,7 +70,7 @@ function Get-DirectAsset([string]$Name,[string]$Out,[int]$TimeoutSeconds=300){
   throw ("All native download methods failed for {0}: {1}" -f $Name,($errors -join '; '))
 }
 
-Write-Host 'Downloading latest ERP Deployment Manager...' -ForegroundColor Cyan
+Write-Host 'Downloading latest iBOS Deployment Manager...' -ForegroundColor Cyan
 Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip.sha256' $sha 60
 $expected=((Get-Content $sha -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
 if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
@@ -105,11 +105,11 @@ New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
 try {
   Expand-Archive $zip -DestinationPath $stagingDir -Force
   $stagedExe=Join-Path $stagingDir 'PosiranERP.Setup.exe'
-  if(!(Test-Path $stagedExe)){throw 'ERP Deployment Manager executable was not found after extraction.'}
+  if(!(Test-Path $stagedExe)){throw 'iBOS Deployment Manager executable was not found after extraction.'}
 
   $existing=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
   if($existing){
-    Write-Host 'Stopping ERP Deployment Manager for self-update...' -ForegroundColor Cyan
+    Write-Host 'Stopping iBOS Deployment Manager for self-update...' -ForegroundColor Cyan
     Stop-Service -Name $serviceName -Force -ErrorAction Stop
     $existing.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
   }
@@ -134,12 +134,12 @@ try {
 
   if(-not $existing){
     $bin='"'+$exe+'"'
-    sc.exe create $serviceName binPath= $bin start= auto DisplayName= "ERP Deployment Manager" | Out-Null
+    sc.exe create $serviceName binPath= $bin start= auto DisplayName= "iBOS Deployment Manager" | Out-Null
   } else {
     $bin='"'+$exe+'"'
     sc.exe config $serviceName binPath= $bin start= auto | Out-Null
   }
-  sc.exe description $serviceName "Localhost-only ERP install, update, health and rollback manager on 127.0.0.1:8099" | Out-Null
+  sc.exe description $serviceName "Localhost-only iBOS install, update, version health and deployment manager on 127.0.0.1:8099" | Out-Null
   sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
   Start-Service -Name $serviceName
 
@@ -159,9 +159,9 @@ try {
       $exe=Join-Path $serviceDir 'PosiranERP.Setup.exe'
       $bin='"'+$exe+'"';sc.exe config $serviceName binPath= $bin start= auto | Out-Null
       Start-Service -Name $serviceName
-      throw 'New ERP Deployment Manager was unhealthy and the previous manager was restored.'
+      throw 'New iBOS Deployment Manager was unhealthy and the previous manager was restored.'
     }
-    throw 'ERP Deployment Manager did not become healthy and no previous manager was available.'
+    throw 'iBOS Deployment Manager did not become healthy and no previous manager was available.'
   }
   if(Test-Path $previousDir){Remove-Item $previousDir -Recurse -Force -ErrorAction SilentlyContinue}
 }
@@ -170,4 +170,4 @@ finally {
 }
 
 Start-Process 'http://127.0.0.1:8099/'
-Write-Host 'ERP Deployment Manager Windows Service is running on http://127.0.0.1:8099/' -ForegroundColor Green
+Write-Host 'iBOS Deployment Manager Windows Service is running on http://127.0.0.1:8099/' -ForegroundColor Green
