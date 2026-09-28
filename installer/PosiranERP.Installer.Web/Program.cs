@@ -109,7 +109,7 @@ app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorSer
         var scriptDirectory = Path.Combine(manifest.InstallRoot, "installer");
         Directory.CreateDirectory(scriptDirectory);
         var isIMonitor = string.Equals(manifest.Product, "iMonitor", StringComparison.OrdinalIgnoreCase);
-        var scriptPath = Path.Combine(scriptDirectory, isIMonitor ? "Install-iMonitorERP-v2.1.5.ps1" : "Install-PosiranERP-v1.0.5.ps1");
+        var scriptPath = Path.Combine(scriptDirectory, isIMonitor ? "Install-iMonitorERP-v2.1.6.ps1" : "Install-PosiranERP-v1.0.5.ps1");
         var http = clients.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(60);
         await DownloadInstallerScriptAsync(http, scriptPath, isIMonitor, ct);
@@ -229,7 +229,7 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
 
     var scriptDirectory = Path.Combine(installRoot, "installer");
     Directory.CreateDirectory(scriptDirectory);
-    var scriptPath = Path.Combine(scriptDirectory, isIMonitor ? "Install-iMonitorERP-v2.1.5.ps1" : "Install-PosiranERP-v1.0.5.ps1");
+    var scriptPath = Path.Combine(scriptDirectory, isIMonitor ? "Install-iMonitorERP-v2.1.6.ps1" : "Install-PosiranERP-v1.0.5.ps1");
 
     if (!File.Exists(scriptPath) || request.RefreshInstaller)
     {
@@ -311,7 +311,7 @@ static async Task DownloadInstallerScriptAsync(HttpClient http, string destinati
 {
     http.DefaultRequestHeaders.UserAgent.ParseAdd("PosiranERP-Setup/1.0");
     http.DefaultRequestHeaders.CacheControl = new() { NoCache = true, NoStore = true };
-    var scriptUrl = isIMonitor ? "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/imonitor-erp-installer-v2.1.5/Install-iMonitorERP-v2.1.5.ps1" : "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/posiran-erp-installer-v1.0.5/Install-PosiranERP-v1.0.5.ps1";
+    var scriptUrl = isIMonitor ? "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/imonitor-erp-installer-v2.1.6/Install-iMonitorERP-v2.1.6.ps1" : "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/posiran-erp-installer-v1.0.5/Install-PosiranERP-v1.0.5.ps1";
     var bytes = await http.GetByteArrayAsync(scriptUrl, cancellationToken);
     var text = System.Text.Encoding.UTF8.GetString(bytes);
     if (!text.Contains("function Stop-ChannelHost", StringComparison.Ordinal) || !text.Contains("Get-WebAppPoolState", StringComparison.Ordinal))
