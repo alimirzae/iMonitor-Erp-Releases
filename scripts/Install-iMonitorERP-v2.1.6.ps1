@@ -322,17 +322,8 @@ function Test-Health {
     return `$r.StatusCode -eq 200
   }catch{return `$false}
 }
-# Every invocation is also a self-healing pass. If the previous update left the current version unhealthy
-# and a rollback directory still exists, restore it before attempting another release.
-if((Test-Path `$rollback) -and -not (Test-Health)){
-  try{Import-Module WebAdministration -ErrorAction SilentlyContinue}catch{}
-  if(Test-Path `$root){Remove-Item `$root -Recurse -Force -ErrorAction SilentlyContinue}
-  Move-Item `$rollback `$root -Force
-  if(Test-Path `$rollbackState){Copy-Item `$rollbackState `$state -Force}
-  try{Start-WebAppPool $(Q $info.Pool) -ErrorAction SilentlyContinue;Start-Website $(Q $info.Site) -ErrorAction SilentlyContinue}catch{}
-  Start-Sleep 5
-  if(-not (Test-Health)){throw 'Automatic rollback was attempted but the previous version is still unhealthy.'}
-}
+# Automatic rollback is intentionally disabled. A failed version remains available for diagnostics.
+# The previous files stay in the rollback directory and an administrator explicitly chooses a known-good release.
 & $(Q $channelInstaller) -Channel $(Q $info.Name) -Mode UpdateOnly -InstallRoot $(Q $InstallRoot) -ConfigRoot $(Q $ConfigRoot) -TestFolderName $(Q $TestFolderName) -ProductionFolderName $(Q $ProductionFolderName) -TestPort $TestPort -ProductionPort $ProductionPort -TestHostHeader $(Q $TestHostHeader) -ProductionHostHeader $(Q $ProductionHostHeader) -TestPhysicalPath $(Q $TestPhysicalPath) -ProductionPhysicalPath $(Q $ProductionPhysicalPath) -SkipMySqlProvisioning -SkipTaskRegistration -Force:`$Force
 "@
   Set-Content (Join-Path $Destination 'Update-iMonitorERP.ps1') $content -Encoding UTF8
@@ -388,7 +379,8 @@ function Find-CachedPackage([string]$Tag,[string]$ExpectedHash){
 
 function Install-Channel($info){
   $backup=$null
-  Write-Host "=== iMonitor ERP $($info.Name) ===" -ForegroundColor Cyan
+  Write-Host "=== iMonitor iBOS $($info.Name) ===" -ForegroundColor Cyan
+  Write-Host "[PROGRESS 2] شروع نصب و بررسی تنظیمات"
   Write-Host "Folder=$($info.Folder) Port=$($info.Port) Database=$($info.Database) UpdateMode=$(if($info.Name -eq 'Test'){'AutoEvery10Minutes'}else{'ManualOnly'})"
   if(!(Test-Path $info.Config) -and $Mode -eq 'UpdateOnly'){Write-Warning "Config missing for $($info.Name); update skipped.";return}
   Normalize-ChannelConfig $info
@@ -399,17 +391,20 @@ function Install-Channel($info){
   $work=Join-Path $workRoot ('imonitor-'+$info.Key+'-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Force -Path $work,(Split-Path $info.State -Parent)|Out-Null
   $zip=Join-Path $work $asset;$shaFile=$zip+'.sha256'
   try{
+    Write-Host "[PROGRESS 10] دریافت checksum نسخه"
     Invoke-AssetDownload $rel.ShaApiUrl $rel.ShaBrowserUrl $shaFile 60
     $expected=((Get-Content $shaFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
     if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
     $cached=Find-CachedPackage $rel.Tag $expected
-    if($cached){Copy-Item $cached $zip -Force}else{Invoke-AssetDownload $rel.ZipApiUrl $rel.ZipBrowserUrl $zip 900}
+    if($cached){Write-Host "[PROGRESS 35] استفاده از package cache";Copy-Item $cached $zip -Force}else{Write-Host "[PROGRESS 15] دانلود بسته انتشار";Invoke-AssetDownload $rel.ZipApiUrl $rel.ZipBrowserUrl $zip 900;Write-Host "[PROGRESS 38] دانلود بسته کامل شد"}
     $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();if($expected -ne $actual){throw "SHA256 mismatch. expected=$expected actual=$actual"}
 
     $cacheDir=Join-Path $packageCache $rel.Tag;New-Item -ItemType Directory -Force -Path $cacheDir|Out-Null
     Copy-Item $zip (Join-Path $cacheDir $asset) -Force;Copy-Item $shaFile (Join-Path $cacheDir ($asset+'.sha256')) -Force
 
+    Write-Host "[PROGRESS 45] شروع Extract/Unzip"
     $stage=Join-Path $work 'stage';Expand-Archive $zip -DestinationPath $stage -Force
+    Write-Host "[PROGRESS 55] Extract/Unzip تکمیل شد"
     if(!(Test-Path (Join-Path $stage 'Ecomm.dll')) -or !(Test-Path (Join-Path $stage 'web.config'))){throw 'Release package is incomplete (Ecomm.dll/web.config missing).'}
     Copy-Item $info.Config (Join-Path $stage 'appsettings.json') -Force
     Set-Content (Join-Path $stage 'release-tag.txt') $rel.Tag -Encoding ASCII
@@ -417,7 +412,9 @@ function Install-Channel($info){
     if(!(Test-Path $packagedInstaller)){Copy-Item $stableInstaller $packagedInstaller -Force}
     Write-LocalUpdater $info $stage
     Import-Module WebAdministration
+    Write-Host "[PROGRESS 60] توقف IIS و AppPool"
     Stop-ChannelHost $info
+    Write-Host "[PROGRESS 66] IIS متوقف و فایل‌ها آزاد شدند"
     $backup=$info.Root+'.rollback';$rollbackState=$info.State+'.rollback'
     if(Test-Path $backup){Invoke-RetryFileOp {Remove-Item $backup -Recurse -Force -ErrorAction Stop} "Remove old rollback"}
     if(Test-Path $info.State){Copy-Item $info.State $rollbackState -Force}
@@ -429,7 +426,9 @@ function Install-Channel($info){
     }else{[void][IO.Directory]::CreateDirectory($info.Root)}
     $targetParent=Split-Path $info.Root -Parent
     if(![string]::IsNullOrWhiteSpace($targetParent)){[void][IO.Directory]::CreateDirectory($targetParent)}
+    Write-Host "[PROGRESS 74] کپی و فعال‌سازی نسخه جدید"
     Invoke-RetryFileOp {Copy-Item (Join-Path $stage '*') $info.Root -Recurse -Force -ErrorAction Stop} "Activate staged version"
+    Write-Host "[PROGRESS 82] کپی نسخه جدید تکمیل شد"
     # IIS config edits fail transiently (0x800710D8) while another install touches applicationHost.config.
     for($iisAttempt=1;$iisAttempt -le 4;$iisAttempt++){
     try{
@@ -437,6 +436,7 @@ function Install-Channel($info){
       foreach($setting in @(@('managedRuntimeVersion',''),@('startMode','AlwaysRunning'),@('processModel.loadUserProfile',$true))){try{Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name $setting[0] -Value $setting[1] -ErrorAction Stop}catch{Write-Warning "Optional AppPool setting $($setting[0]) skipped: $($_.Exception.Message)"}}
       $bindingPort=if([string]::IsNullOrWhiteSpace($info.HostHeader)){$info.Port}else{80}
       if(!(Test-Path "IIS:\Sites\$($info.Site)")){New-Website -Name $info.Site -PhysicalPath $info.Root -Port $bindingPort -HostHeader $info.HostHeader -ApplicationPool $info.Pool|Out-Null}else{Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name physicalPath -Value $info.Root;Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name applicationPool -Value $info.Pool;Get-WebBinding -Name $info.Site -Protocol http|Remove-WebBinding -ErrorAction SilentlyContinue;New-WebBinding -Name $info.Site -Protocol http -IPAddress '*' -Port $bindingPort -HostHeader $info.HostHeader|Out-Null}
+      Write-Host "[PROGRESS 86] شروع IIS و AppPool"
       Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue
       break
     }catch{if($iisAttempt -eq 4){throw "IIS activation failed: $($_.Exception.Message)"};Write-Warning "IIS activation attempt $iisAttempt failed: $($_.Exception.Message)";Start-Sleep -Seconds (3*$iisAttempt)}
@@ -446,6 +446,7 @@ function Install-Channel($info){
     [void]$healthUrls.Add("http://127.0.0.1:$bindingPort/health")
     if($bindingPort -ne $info.Port){[void]$healthUrls.Add("http://127.0.0.1:$($info.Port)/health")}
     if($info.HostHeader){[void]$healthUrls.Add("http://$($info.HostHeader)/health")}
+    Write-Host "[PROGRESS 90] Health Check سرویس"
     $lastHealthError=''
     $ok=$false
     for($i=1;$i -le 60 -and !$ok;$i++){
@@ -480,22 +481,16 @@ function Install-Channel($info){
     # Keep one last-known-good rollback for Test. The scheduled updater checks health on every invocation
     # and can restore it if the newly activated application later becomes unhealthy.
     if($info.Name -ne 'Test' -and (Test-Path $backup)){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
+    Write-Host "[PROGRESS 100] نصب و Health Check موفق"
     Copy-Item (Join-Path $info.Root 'Install-iMonitorERP.ps1') $stableInstaller -Force
     Configure-UpdateTask $info
     Set-Content $info.State $rel.Tag -Encoding ASCII;Write-Host "[OK] $($rel.Tag) -> http://127.0.0.1:$($info.Port)/ ; DB=$($info.Database) ; Folder=$($info.Folder)" -ForegroundColor Green
   }catch{
     $failure=$_
     if($backup -and (Test-Path $backup)){
-      try{
-        Stop-ChannelHost $info
-        if(Test-Path $info.Root){Invoke-RetryFileOp {Remove-Item $info.Root -Recurse -Force -ErrorAction Stop} "Remove failed deployment"}
-        Invoke-RetryFileOp {Copy-Item (Join-Path $backup '*') $info.Root -Recurse -Force -ErrorAction Stop} "Restore rollback version"
-        Remove-Item (Join-Path $info.Root 'app_offline.htm') -Force -ErrorAction SilentlyContinue
-        if(Test-Path $rollbackState){Copy-Item $rollbackState $info.State -Force}
-        Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue
-        Start-Sleep 5
-        Write-Warning "Deployment rolled back for $($info.Name) to the previous version."
-      }catch{Write-Warning "Rollback itself failed for $($info.Name): $($_.Exception.Message). The rollback folder was preserved at $backup for the next self-healing pass."}
+      Write-Warning "Deployment failed for $($info.Name). Automatic rollback is disabled. Previous files are preserved at $backup for an explicit administrator rollback."
+    }else{
+      Write-Warning "Deployment failed for $($info.Name). Automatic rollback is disabled."
     }
     throw $failure
   }finally{Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue}
