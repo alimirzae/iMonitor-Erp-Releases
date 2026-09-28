@@ -63,7 +63,7 @@ jobs:
           if(!$text.Contains("Update-iMonitorERP.ps1")){throw 'Local iMonitor updater is not generated in the active installation root.'}
           if(!$text.Contains("release-tag.txt")){throw 'iMonitor installer does not persist the installed release tag.'}
           if(!$text.Contains("Install-iMonitorERP.ps1")){throw 'iMonitor installer is not carried into the active installation root.'}
-          if($text -match 'https://127\.0\.0\.1' -or $text -match "\$httpsUrl=\$healthUrl"){throw 'HTTPS loopback fallback must not return to the iMonitor installer.'}
+          if($text.Contains('https://127.0.0.1') -or $text.Contains('$httpsUrl=$healthUrl')){throw 'HTTPS loopback fallback must not return to the iMonitor installer.'}
 
           $posiran='scripts/Install-PosiranERP-v1.0.5.ps1'
           $posiranText=Get-Content $posiran -Raw
