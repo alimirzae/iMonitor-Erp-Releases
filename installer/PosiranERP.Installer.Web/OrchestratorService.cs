@@ -98,13 +98,15 @@ public sealed class OrchestratorService
         catch { return Array.Empty<VersionHealthRecord>(); }
     }
 
-    public async Task<VersionOperationResult> InstallVersionAsync(string id, string tag, CancellationToken cancellationToken = default)
+    public async Task<VersionOperationResult> InstallVersionAsync(string id, string tag, CancellationToken cancellationToken = default, Action<string,int,string?>? progress = null)
     {
         var m = RequireManifest(id);
         ValidateReleaseTagForManifest(m, tag);
+        progress?.Invoke("آماده‌سازی", 3, $"آماده‌سازی نصب {tag}");
         var backup = Directory.Exists(m.InstallPath) && File.Exists(m.ConfigPath)
             ? await BackupAsync(id, $"pre-version:{tag}", cancellationToken)
             : null;
+        progress?.Invoke("پشتیبان", 8, backup is null ? "نصب اولیه؛ پشتیبان لازم نیست" : $"پشتیبان {backup.BackupId} ساخته شد");
         try
         {
             var assetName = m.Product == "Posiran" ? "PosiranERP-win-x64.zip" : "iMonitor-EcomERP-win-x64.zip";
@@ -131,32 +133,56 @@ public sealed class OrchestratorService
             }
             if (expected is null)
             {
-                await DownloadWithFallbackAsync(http, shaUrl, shaFile, cancellationToken);
+                progress?.Invoke("دانلود checksum", 10, "دریافت SHA256");
+                await DownloadWithFallbackAsync(http, shaUrl, shaFile, cancellationToken, null);
                 expected = File.ReadAllText(shaFile).Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[0].ToLowerInvariant();
             }
             if (!File.Exists(zip) || !string.Equals(Hash(zip), expected, StringComparison.OrdinalIgnoreCase))
-                await DownloadWithFallbackAsync(http, releaseUrl, zip, cancellationToken);
+            {
+                progress?.Invoke("دانلود بسته", 15, assetName);
+                await DownloadWithFallbackAsync(http, releaseUrl, zip, cancellationToken, (pct, done, total) =>
+                {
+                    var overall = 15 + (int)Math.Round(pct * 0.25);
+                    var text = total.HasValue ? $"{pct}% — {done:N0}/{total.Value:N0} bytes" : $"{done:N0} bytes";
+                    progress?.Invoke("دانلود بسته", overall, text);
+                });
+            }
+            else
+            {
+                progress?.Invoke("دانلود بسته", 40, "بسته معتبر از cache استفاده شد");
+            }
+            progress?.Invoke("اعتبارسنجی بسته", 42, "کنترل SHA256");
             var actual = Hash(zip);
             if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Package checksum mismatch.");
 
+            progress?.Invoke("استخراج فایل‌ها", 48, "شروع Extract/Unzip");
             var stage = Path.Combine(m.InstallRoot, m.InstallFolderName, "stage", tag);
             if (Directory.Exists(stage)) Directory.Delete(stage, true);
             Directory.CreateDirectory(stage);
             System.IO.Compression.ZipFile.ExtractToDirectory(zip, stage, true);
+            progress?.Invoke("استخراج فایل‌ها", 56, "Extract تکمیل شد");
             // The package ships a developer appsettings.json (Development, ecomm_dev). Like the PowerShell
             // installer, always run the instance with its saved configuration; without it the new version
             // silently served the wrong database or could not connect at all.
             if (!File.Exists(m.ConfigPath)) throw new FileNotFoundException("Saved instance configuration was not found; refusing to activate the package defaults.", m.ConfigPath);
             File.Copy(m.ConfigPath, Path.Combine(stage, "appsettings.json"), overwrite: true);
+            progress?.Invoke("تنظیم پیکربندی", 60, "appsettings محیط اعمال شد");
 
+            progress?.Invoke("توقف IIS", 64, $"{m.IisSite} / {m.AppPool}");
             StopInstance(m);
+            progress?.Invoke("توقف IIS", 68, "سایت و AppPool متوقف شدند");
             var current = m.InstallPath;
             var rollbackDir = Path.Combine(m.InstallRoot, m.InstallFolderName, "rollback-current");
             DeleteDirectoryWithRetry(rollbackDir);
             MoveDirectoryWithRetry(current, rollbackDir);
+            progress?.Invoke("حفظ نسخه قبلی", 72, $"نسخه قبلی در {rollbackDir} نگهداری شد");
+            progress?.Invoke("کپی نسخه جدید", 76, "فعال‌سازی فایل‌های جدید");
             MoveDirectoryWithRetry(stage, current);
+            progress?.Invoke("کپی نسخه جدید", 84, "فایل‌های جدید فعال شدند");
             File.WriteAllText(Path.Combine(m.InstallRoot, m.InstallFolderName, "installed-release.txt"), tag);
+            progress?.Invoke("شروع IIS", 86, $"{m.IisSite} / {m.AppPool}");
             StartInstance(m);
+            progress?.Invoke("Health Check", 90, RuntimeBaseUrl(m) + "/health");
             var health = await WaitForHealthAsync(m, cancellationToken);
             if (!health.Ok)
             {
@@ -168,6 +194,7 @@ public sealed class OrchestratorService
                     $". Automatic rollback is disabled. Previous files are preserved at '{rollbackDir}'.");
             }
             AppendHistory(m.Id, new VersionHealthRecord(tag, DateTime.UtcNow, "Healthy", health.Message, backup?.BackupId, actual));
+            progress?.Invoke("تکمیل", 100, health.Message);
             return new VersionOperationResult(tag, true, "Healthy", health.Message, backup?.BackupId);
         }
         catch (Exception ex)
@@ -269,10 +296,9 @@ public sealed class OrchestratorService
             throw new InvalidOperationException("Release tag does not belong to this product/channel.");
     }
 
-    private static async Task DownloadWithFallbackAsync(HttpClient http, string url, string destination, CancellationToken ct)
+    private static async Task DownloadWithFallbackAsync(HttpClient http, string url, string destination, CancellationToken ct, Action<int,long,long?>? progress = null)
     {
         var errors = new List<string>();
-        // Route 1: .NET HTTPS. Each attempt has a hard bound; no server may hang the manager for hours.
         for (var attempt=1; attempt<=2; attempt++)
         {
             try
@@ -281,24 +307,46 @@ public sealed class OrchestratorService
                 timeout.CancelAfter(TimeSpan.FromMinutes(3));
                 using var r = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
                 r.EnsureSuccessStatusCode();
+                var total = r.Content.Headers.ContentLength;
                 var temp = destination + ".part";
-                await using (var src = await r.Content.ReadAsStreamAsync(timeout.Token))
-                await using (var dst = File.Create(temp))
-                    await src.CopyToAsync(dst, timeout.Token);
+                await using var src = await r.Content.ReadAsStreamAsync(timeout.Token);
+                await using var dst = File.Create(temp);
+                var buffer = new byte[128 * 1024];
+                long done = 0;
+                int read;
+                var lastPercent = -1;
+                while ((read = await src.ReadAsync(buffer.AsMemory(0, buffer.Length), timeout.Token)) > 0)
+                {
+                    await dst.WriteAsync(buffer.AsMemory(0, read), timeout.Token);
+                    done += read;
+                    var pct = total is > 0 ? (int)Math.Clamp(done * 100L / total.Value, 0, 100) : 0;
+                    if (pct != lastPercent && (pct % 2 == 0 || pct == 100))
+                    {
+                        lastPercent = pct;
+                        progress?.Invoke(pct, done, total);
+                    }
+                }
+                await dst.FlushAsync(timeout.Token);
                 File.Move(temp, destination, true);
+                progress?.Invoke(100, done, total);
                 return;
             }
             catch(Exception ex) { errors.Add($"HTTP attempt {attempt}: {ex.Message}"); }
         }
 
-        // Route 2: Windows curl forced to IPv4 + HTTP/1.1, useful on hosts with broken IPv6/TLS routing.
         if (OperatingSystem.IsWindows())
         {
             try
             {
                 var temp = destination + ".part";
                 var r = RunProcess("curl.exe", new[] { "-4","--http1.1","--tlsv1.2","-fL","--retry","2","--retry-delay","2","--connect-timeout","15","--max-time","600",url,"-o",temp }, 11 * 60 * 1000);
-                if (r.ExitCode == 0 && File.Exists(temp)) { File.Move(temp,destination,true); return; }
+                if (r.ExitCode == 0 && File.Exists(temp))
+                {
+                    File.Move(temp,destination,true);
+                    var size = new FileInfo(destination).Length;
+                    progress?.Invoke(100, size, null);
+                    return;
+                }
                 errors.Add("curl IPv4: " + (string.IsNullOrWhiteSpace(r.StdErr) ? r.StdOut : r.StdErr));
             }
             catch(Exception ex) { errors.Add("curl IPv4: " + ex.Message); }
