@@ -62,7 +62,21 @@ function Invoke-HttpDownload([string]$Url,[string]$Out,[string]$Accept='applicat
     [void]$response.EnsureSuccessStatusCode()
     $stream=$response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
     $file=[System.IO.File]::Open($Out,[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
-    $stream.CopyTo($file)
+    $total=$response.Content.Headers.ContentLength
+    $buffer=New-Object byte[] 131072
+    [long]$done=0
+    $lastPct=-1
+    while(($read=$stream.Read($buffer,0,$buffer.Length)) -gt 0){
+      $file.Write($buffer,0,$read)
+      $done+=$read
+      if($total -and $total -gt 1048576){
+        $pct=[int][Math]::Min(100,[Math]::Floor(($done*100.0)/$total))
+        if($pct -ge ($lastPct+5) -or $pct -eq 100){
+          $lastPct=$pct
+          Write-Host ("[Download] {0}% ({1:N1}/{2:N1} MB)" -f $pct,($done/1MB),($total/1MB))
+        }
+      }
+    }
   } finally {
     if($file){$file.Dispose()};if($stream){$stream.Dispose()};if($response){$response.Dispose()};$client.Dispose();$handler.Dispose()
   }
