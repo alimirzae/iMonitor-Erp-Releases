@@ -51,10 +51,32 @@ app.MapGet("/api/releases/{product}/{channel}", async (string product, string ch
     Results.Ok(await orchestrator.ListReleasesAsync(product, channel, ct)));
 app.MapGet("/api/history/{id}", (string id, OrchestratorService orchestrator) =>
     Results.Ok(orchestrator.GetVersionHistory(id)));
-app.MapPost("/api/installations/{id}/install-version/{tag}", async (string id, string tag, OrchestratorService orchestrator, CancellationToken ct) =>
+app.MapGet("/api/approvals/{id}", (string id, OrchestratorService orchestrator) =>
+    Results.Ok(orchestrator.GetVersionApprovals(id)));
+app.MapPost("/api/approvals/{id}/{tag}", (string id, string tag, VersionApprovalRequest request, OrchestratorService orchestrator) =>
 {
-    try { return Results.Ok(await orchestrator.InstallVersionAsync(id, tag, ct)); }
+    try
+    {
+        orchestrator.SetVersionApproval(id, tag, request.Approved);
+        return Results.Ok(new { id, tag, approved = request.Approved });
+    }
     catch (Exception ex) { return Results.Problem(ex.Message); }
+});
+app.MapPost("/api/installations/{id}/install-version/{tag}", async (string id, string tag, OrchestratorService orchestrator, OperationLogStore logs, CancellationToken ct) =>
+{
+    var op = logs.Start($"Install version {id} {tag}");
+    try
+    {
+        var result = await orchestrator.InstallVersionAsync(id, tag, ct,
+            (stage, percent, message) => logs.Progress(op.Id, stage, percent, message));
+        logs.Complete(op.Id, true, result.Message);
+        return Results.Ok(new { result, operationId = op.Id });
+    }
+    catch (Exception ex)
+    {
+        logs.Complete(op.Id, false, ex.Message);
+        return Results.Problem(title: "Version installation failed", detail: $"Operation {op.Id}: {ex.Message}", statusCode: 500);
+    }
 });
 app.MapPost("/api/installations/{id}/rollback/{tag}", async (string id, string tag, OrchestratorService orchestrator, CancellationToken ct) =>
 {
@@ -123,10 +145,8 @@ app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorSer
             "-Force"
         };
         if (!isIMonitor && !manifest.AutoUpdate) args.Add("-DisableAutoUpdate");
-        logs.Add(op.Id, "info", $"Running upgrade on port {manifest.Port}.");
-        var run = RunPowerShell(args, 30 * 60 * 1000);
-        if (!string.IsNullOrWhiteSpace(run.Output)) logs.Add(op.Id, "stdout", run.Output);
-        if (!string.IsNullOrWhiteSpace(run.Error) && run.Error != run.Output) logs.Add(op.Id, "stderr", run.Error);
+        logs.Progress(op.Id, "اجرای ارتقا", 10, $"اجرای ارتقا روی {manifest.RuntimeUrl ?? $"http://127.0.0.1:{manifest.Port}"}");
+        var run = await RunPowerShellAsync(args, 30 * 60 * 1000, logs, op.Id, ct);
         if (run.ExitCode != 0)
         {
             logs.Complete(op.Id, false, $"PowerShell exit code {run.ExitCode}. Pre-upgrade backup: {backup.BackupId}. {run.Error}");
@@ -190,7 +210,7 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
         File.Copy(configPath, $"{configPath}.bak-{DateTime.Now:yyyyMMdd-HHmmss}", overwrite: true);
     File.WriteAllText(configPath, config.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     var effectiveAutoUpdate = isTest; // Test is always automatic; Production is always explicit/manual.
-    orchestrator.RegisterInstance(request.Product ?? (isIMonitor ? "iMonitor" : "Posiran"), channel, installRoot, appPort, installFolderName, database, effectiveAutoUpdate, configPath);
+    var registered = orchestrator.RegisterInstance(request.Product ?? (isIMonitor ? "iMonitor" : "Posiran"), channel, installRoot, appPort, installFolderName, database, effectiveAutoUpdate, configPath, request.RuntimeUrl);
 
     return Results.Ok(new
     {
@@ -201,6 +221,7 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
         autoUpdate = isTest,
         configPath,
         installPath = Path.Combine(installRoot, installFolderName, "current"),
+        runtimeUrl = registered.RuntimeUrl ?? $"http://127.0.0.1:{appPort}",
         message = "Configuration saved and instance registered. Password is intentionally not returned by the API."
     });
 });
@@ -208,7 +229,7 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
 app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory clients, OperationLogStore logs, CancellationToken requestCt) =>
 {
     var op = logs.Start($"Install {request.Product} {request.Channel}");
-    logs.Add(op.Id,"info","مرحله 1: اعتبارسنجی سیستم و تنظیمات");
+    logs.Progress(op.Id,"اعتبارسنجی",2,"بررسی سیستم و تنظیمات");
     if (!OperatingSystem.IsWindows()) return Results.BadRequest(new { error = "This installer currently supports Windows only." });
     if (!IsAdministrator()) return Results.BadRequest(new { error = "Run the installer service as Administrator." });
 
@@ -233,10 +254,10 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
 
     if (!File.Exists(scriptPath) || request.RefreshInstaller)
     {
-        logs.Add(op.Id,"info",$"مرحله 2: بررسی اسکریپت نصاب در cache: {scriptPath}");
+        logs.Progress(op.Id,"اسکریپت نصاب",5,$"بررسی cache: {scriptPath}");
         var http = clients.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(45);
-        try { await DownloadInstallerScriptAsync(http, scriptPath, isIMonitor, requestCt); logs.Add(op.Id,"ok","اسکریپت نصاب دریافت/تأیید شد."); }
+        try { await DownloadInstallerScriptAsync(http, scriptPath, isIMonitor, requestCt); logs.Progress(op.Id,"اسکریپت نصاب",8,"اسکریپت دریافت و تأیید شد"); }
         catch(Exception ex) when(File.Exists(scriptPath)) { logs.Add(op.Id,"warn","دریافت اسکریپت ناموفق بود؛ از نسخه cache شده استفاده می‌شود. "+ex.Message); }
         catch(Exception ex) { logs.Complete(op.Id,false,"دریافت اسکریپت ناموفق: "+ex.Message); throw; }
     }
@@ -250,15 +271,14 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     };
     if (!isIMonitor && !isTest) args.Add("-DisableAutoUpdate");
     if (request.Force) args.Add("-Force");
-    logs.Add(op.Id,"info","مرحله 3: اجرای PowerShell. timeout کل: 30 دقیقه؛ خروجی پس از پایان/timeout در کنسول ثبت می‌شود.");
-    var r = RunPowerShell(args, 30 * 60 * 1000);
-    if(!string.IsNullOrWhiteSpace(r.Output)) logs.Add(op.Id,"stdout",r.Output);
-    if(!string.IsNullOrWhiteSpace(r.Error) && r.Error != r.Output) logs.Add(op.Id,"stderr",r.Error);
+    logs.Progress(op.Id,"استقرار",10,"اجرای Installer؛ خروجی به‌صورت زنده نمایش داده می‌شود");
+    var r = await RunPowerShellAsync(args, 30 * 60 * 1000, logs, op.Id, requestCt);
     if (r.ExitCode != 0) { logs.Complete(op.Id,false,$"PowerShell exit code {r.ExitCode}: {r.Error}"); return Results.Problem(title: "Installation failed", detail: $"Operation {op.Id}: {r.Error}", statusCode: 500); }
 
     var productName = isIMonitor ? "iMonitor" : "Posiran";
     var instanceId = $"{productName.ToLowerInvariant()}-{channel.ToLowerInvariant()}";
-    logs.Add(op.Id,"info",$"مرحله 4: کنترل واقعی سرویس روی پورت {appPort}، وضعیت IIS و اتصال دیتابیس.");
+    var activeManifest = orchestrator.RequireManifest(instanceId);
+    logs.Progress(op.Id,"Health Check",92,$"کنترل {activeManifest.RuntimeUrl ?? $"http://127.0.0.1:{appPort}"}/health، IIS و دیتابیس");
     RuntimeVerificationResult verification;
     try
     {
@@ -275,13 +295,14 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
         return Results.Problem(title: "ERP did not become healthy", detail: $"Operation {op.Id}: {verification.Message}", statusCode: 500);
     }
 
+    logs.Progress(op.Id,"تکمیل",100,verification.Message);
     logs.Complete(op.Id,true,"نصب و Health Check واقعی با موفقیت پایان یافت: "+verification.Message);
 
     return Results.Ok(new
     {
         channel,
         exitCode = r.ExitCode,
-        localUrl = $"http://127.0.0.1:{appPort}/",
+        localUrl = (activeManifest.RuntimeUrl ?? $"http://127.0.0.1:{appPort}").TrimEnd('/') + "/",
         installPath = Path.Combine(installRoot, installFolderName, "current"),
         autoUpdate = request.AutoUpdate,
         operationId = op.Id,
@@ -320,19 +341,57 @@ static async Task DownloadInstallerScriptAsync(HttpClient http, string destinati
     Console.WriteLine("Installer script downloaded from Posiran ERP installer release v1.0.5.");
 }
 
-static InstallerProcessResult RunPowerShell(IEnumerable<string> args, int timeoutMs = 30 * 60 * 1000)
+static async Task<InstallerProcessResult> RunPowerShellAsync(IEnumerable<string> args, int timeoutMs, OperationLogStore logs, string operationId, CancellationToken cancellationToken)
 {
     var psi = new ProcessStartInfo { FileName = "powershell.exe", RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
     foreach (var arg in args) psi.ArgumentList.Add(arg);
-    using var process = Process.Start(psi) ?? throw new InvalidOperationException("Could not start PowerShell.");
-    var output = process.StandardOutput.ReadToEnd();
-    var error = process.StandardError.ReadToEnd();
-    if (!process.WaitForExit(timeoutMs))
+    using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+    var output = new System.Text.StringBuilder();
+    var error = new System.Text.StringBuilder();
+
+    void HandleLine(string level, string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return;
+        lock (output)
+        {
+            if (level == "stderr") error.AppendLine(line); else output.AppendLine(line);
+        }
+        var pm = Regex.Match(line, @"^\[PROGRESS\s+(\d{1,3})\]\s*(.*)$", RegexOptions.IgnoreCase);
+        if (pm.Success && int.TryParse(pm.Groups[1].Value, out var pct))
+        {
+            logs.Progress(operationId, "استقرار", pct, pm.Groups[2].Value);
+            return;
+        }
+        var sm = Regex.Match(line, @"^\[STAGE\s+([^\]]+)\]\s*(.*)$", RegexOptions.IgnoreCase);
+        if (sm.Success)
+        {
+            logs.Progress(operationId, sm.Groups[1].Value, Math.Max(1, logs.Get(operationId)?.ProgressPercent ?? 1), sm.Groups[2].Value);
+            return;
+        }
+        logs.Add(operationId, level, line);
+    }
+
+    process.OutputDataReceived += (_, e) => HandleLine("stdout", e.Data);
+    process.ErrorDataReceived += (_, e) => HandleLine("stderr", e.Data);
+    if (!process.Start()) throw new InvalidOperationException("Could not start PowerShell.");
+    process.BeginOutputReadLine();
+    process.BeginErrorReadLine();
+
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    timeout.CancelAfter(timeoutMs);
+    try
+    {
+        await process.WaitForExitAsync(timeout.Token);
+        process.WaitForExit();
+        var outText = output.ToString();
+        var errText = error.ToString();
+        return new InstallerProcessResult(process.ExitCode, outText, string.IsNullOrWhiteSpace(errText) ? outText : errText);
+    }
+    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
     {
         try { process.Kill(true); } catch { }
-        return new InstallerProcessResult(124, output, $"PowerShell timed out after {TimeSpan.FromMilliseconds(timeoutMs)}. {error}");
+        return new InstallerProcessResult(124, output.ToString(), $"PowerShell timed out after {TimeSpan.FromMilliseconds(timeoutMs)}. {error}");
     }
-    return new InstallerProcessResult(process.ExitCode, output, string.IsNullOrWhiteSpace(error) ? output : error);
 }
 
 static JsonObject? LoadExistingAppSettings(string configPath)
@@ -480,7 +539,8 @@ static bool MySqlServiceDetected()
     catch { return false; }
 }
 
-record SetupRequest(string? Product, string Channel, string DatabaseServer, int DatabasePort, string DatabaseUser, string DatabasePassword, string DatabaseName, string? MySqlVersion, int? AppPort, string? InstallRoot, string? InstallFolderName, bool AutoUpdate = true);
+record SetupRequest(string? Product, string Channel, string DatabaseServer, int DatabasePort, string DatabaseUser, string DatabasePassword, string DatabaseName, string? MySqlVersion, int? AppPort, string? InstallRoot, string? InstallFolderName, string? RuntimeUrl = null, bool AutoUpdate = true);
 record InstallRequest(string? Product, string Channel, int? AppPort, string? InstallRoot, string? InstallFolderName, bool AutoUpdate = true, bool Force = false, bool RefreshInstaller = true);
 record BackupRequest(string? Reason);
+record VersionApprovalRequest(bool Approved);
 record InstallerProcessResult(int ExitCode, string Output, string Error);
