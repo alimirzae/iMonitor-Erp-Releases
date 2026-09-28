@@ -179,14 +179,8 @@ param([switch]`$Force)
 `$rollback=`$root+'.rollback'
 `$port=$($info.Port)
 function Test-Health { try{`$r=Invoke-WebRequest "http://127.0.0.1:`$port/health" -UseBasicParsing -TimeoutSec 8;return `$r.StatusCode -eq 200}catch{return `$false} }
-if((Test-Path `$rollback) -and -not (Test-Health)){
-  try{Import-Module WebAdministration -ErrorAction SilentlyContinue}catch{}
-  if(Test-Path `$root){Remove-Item `$root -Recurse -Force -ErrorAction SilentlyContinue}
-  Move-Item `$rollback `$root -Force
-  try{Start-WebAppPool $(Q $info.Pool) -ErrorAction SilentlyContinue;Start-Website $(Q $info.Site) -ErrorAction SilentlyContinue}catch{}
-  Start-Sleep 5
-  if(-not (Test-Health)){throw 'Automatic rollback was attempted but the previous Posiran version is still unhealthy.'}
-}
+# Automatic rollback is intentionally disabled. A failed version is kept for diagnostics.
+# Administrators explicitly choose a previously healthy release from the Deployment Manager.
 & $(Q $channelInstaller) -Channel $(Q $info.Name) -Mode UpdateOnly -InstallRoot $(Q $InstallRoot) -ConfigRoot $(Q $ConfigRoot) -TestFolderName $(Q $TestFolderName) -ProductionFolderName $(Q $ProductionFolderName) -TestPort $TestPort -ProductionPort $ProductionPort -SkipTaskRegistration -Force:`$Force
 "@
   Set-Content (Join-Path $Destination 'Update-PosiranERP.ps1') $content -Encoding UTF8
@@ -239,7 +233,8 @@ function Find-CachedPackage([string]$Tag,[string]$ExpectedHash){
 
 function Install-Channel($info){
   $backup=$null
-  Write-Host "=== Posiran ERP $($info.Name) ===" -ForegroundColor Cyan
+  Write-Host "=== Posiran iBOS $($info.Name) ===" -ForegroundColor Cyan
+  Write-Host "[PROGRESS 2] شروع نصب و بررسی تنظیمات"
   Write-Host "Folder=$($info.Folder) Port=$($info.Port) Database=$($info.Database) UpdateMode=$(if($info.Name -eq 'Test' -and -not $DisableAutoUpdate){'AutoEvery10Minutes'}else{'ManualOnly'})"
   if(!(Test-Path $info.Config)){if($Mode -eq 'UpdateOnly'){Write-Warning "Config missing for $($info.Name); update skipped.";return};throw "Dedicated Posiran ERP configuration not found: $($info.Config)"}
   Normalize-ChannelConfig $info
@@ -268,17 +263,20 @@ function Install-Channel($info){
   $work=Join-Path $env:TEMP ('posiran-'+$info.Key+'-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Force -Path $work,(Split-Path $info.State -Parent),$info.Root|Out-Null
   $zip=Join-Path $work $asset;$shaFile=$zip+'.sha256'
   try{
+    Write-Host "[PROGRESS 10] دریافت checksum نسخه"
     Invoke-AssetDownload $rel.ShaApiUrl $rel.ShaBrowserUrl $shaFile 60
     $expected=((Get-Content $shaFile -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
     if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
     $cached=Find-CachedPackage $rel.Tag $expected
-    if($cached){Copy-Item $cached $zip -Force}else{Invoke-AssetDownload $rel.ZipApiUrl $rel.ZipBrowserUrl $zip 900}
+    if($cached){Write-Host "[PROGRESS 35] استفاده از package cache";Copy-Item $cached $zip -Force}else{Write-Host "[PROGRESS 15] دانلود بسته انتشار";Invoke-AssetDownload $rel.ZipApiUrl $rel.ZipBrowserUrl $zip 900;Write-Host "[PROGRESS 38] دانلود بسته کامل شد"}
     $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant();if($expected -ne $actual){throw "SHA256 mismatch. expected=$expected actual=$actual"}
 
     $cacheDir=Join-Path $packageCache $rel.Tag;New-Item -ItemType Directory -Force -Path $cacheDir|Out-Null
     Copy-Item $zip (Join-Path $cacheDir $asset) -Force;Copy-Item $shaFile (Join-Path $cacheDir ($asset+'.sha256')) -Force
 
+    Write-Host "[PROGRESS 45] شروع Extract/Unzip"
     $stage=Join-Path $work 'stage';Expand-Archive $zip -DestinationPath $stage -Force
+    Write-Host "[PROGRESS 55] Extract/Unzip تکمیل شد"
     if(!(Test-Path (Join-Path $stage 'Ecomm.dll')) -or !(Test-Path (Join-Path $stage 'web.config'))){throw 'Release package is incomplete (Ecomm.dll/web.config missing).'}
     Copy-Item $info.Config (Join-Path $stage 'appsettings.json') -Force
     Set-Content (Join-Path $stage 'release-tag.txt') $rel.Tag -Encoding ASCII
@@ -286,7 +284,9 @@ function Install-Channel($info){
     if(!(Test-Path $packagedInstaller)){Copy-Item $stableInstaller $packagedInstaller -Force}
     Write-LocalUpdater $info $stage
     Import-Module WebAdministration
+    Write-Host "[PROGRESS 60] توقف IIS و AppPool"
     Stop-ChannelHost $info
+    Write-Host "[PROGRESS 66] IIS متوقف و فایل‌ها آزاد شدند"
     $backup=$info.Root+'.rollback'
     if(Test-Path $backup){for($i=1;$i -le 10;$i++){try{Remove-Item $backup -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}}
     if(Test-Path $info.Root){
@@ -295,7 +295,9 @@ function Install-Channel($info){
       Remove-Item (Join-Path $backup 'app_offline.htm') -Force -ErrorAction SilentlyContinue # taken after Stop-ChannelHost wrote it; a restore must not bring the 503 back
       for($i=1;$i -le 10;$i++){try{Get-ChildItem $info.Root -Force|Remove-Item -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}
     }else{[void][IO.Directory]::CreateDirectory($info.Root)}
+    Write-Host "[PROGRESS 74] کپی و فعال‌سازی نسخه جدید"
     for($i=1;$i -le 10;$i++){try{Copy-Item (Join-Path $stage '*') $info.Root -Recurse -Force -ErrorAction Stop;break}catch{if($i -eq 10){throw};Start-Sleep 1}}
+    Write-Host "[PROGRESS 82] کپی نسخه جدید تکمیل شد"
     # Ensure IIS worker can read/execute the deployed application after Move-Item/rollback operations.
     & icacls.exe $info.Root /grant:r "IIS_IUSRS:(OI)(CI)RX" /T /C | Out-Null
     if($LASTEXITCODE -ne 0){throw "Failed to grant IIS_IUSRS read/execute permission on $($info.Root)."}
@@ -303,22 +305,21 @@ function Install-Channel($info){
     if($LASTEXITCODE -ne 0){Write-Warning "Could not grant explicit AppPool ACL; IIS_IUSRS permission is present."}
     if(!(Test-Path "IIS:\AppPools\$($info.Pool)")){New-WebAppPool -Name $info.Pool|Out-Null};Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name managedRuntimeVersion -Value '';Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name startMode -Value 'AlwaysRunning'
     if(!(Test-Path "IIS:\Sites\$($info.Site)")){New-Website -Name $info.Site -PhysicalPath $info.Root -Port $info.Port -ApplicationPool $info.Pool|Out-Null}else{Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name physicalPath -Value $info.Root;Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name applicationPool -Value $info.Pool;Get-WebBinding -Name $info.Site -Protocol http|Remove-WebBinding -ErrorAction SilentlyContinue;New-WebBinding -Name $info.Site -Protocol http -IPAddress '*' -Port $info.Port|Out-Null}
+    Write-Host "[PROGRESS 86] شروع IIS و AppPool"
     Start-WebAppPool $info.Pool;Start-Website $info.Site
+    Write-Host "[PROGRESS 90] Health Check سرویس"
     $ok=$false;for($i=1;$i -le 45;$i++){Start-Sleep 2;try{$r=Invoke-WebRequest "http://127.0.0.1:$($info.Port)/health" -UseBasicParsing -TimeoutSec 8;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
     if(!$ok){throw "Health check failed on port $($info.Port)."}
     if(Test-Path $backup){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
+    Write-Host "[PROGRESS 100] نصب و Health Check موفق"
     Copy-Item (Join-Path $info.Root 'Install-PosiranERP.ps1') $stableInstaller -Force
     Set-Content $info.State $rel.Tag -Encoding ASCII;Write-Host "[OK] $($rel.Tag) -> http://127.0.0.1:$($info.Port)/ ; DB=$($info.Database) ; Folder=$($info.Folder)" -ForegroundColor Green;Register-Updater $info
   }catch{
     $failure=$_
     if($backup -and (Test-Path $backup)){
-      Stop-ChannelHost $info
-      if(Test-Path $info.Root){Get-ChildItem $info.Root -Force|Remove-Item -Recurse -Force -ErrorAction SilentlyContinue}else{[void][IO.Directory]::CreateDirectory($info.Root)}
-      Copy-Item (Join-Path $backup '*') $info.Root -Recurse -Force
-      Remove-Item (Join-Path $info.Root 'app_offline.htm') -Force -ErrorAction SilentlyContinue
-      Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue
-      Start-Website $info.Site -ErrorAction SilentlyContinue
-      Write-Warning "Deployment rolled back for $($info.Name)."
+      Write-Warning "Deployment failed for $($info.Name). Automatic rollback is disabled. Previous files are preserved at $backup for an explicit administrator rollback."
+    }else{
+      Write-Warning "Deployment failed for $($info.Name). Automatic rollback is disabled."
     }
     throw $failure
   }finally{Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue}
