@@ -270,7 +270,7 @@ ERPهای چنددفتره نباید قبل از بازیابی دفتر فعا
 
 ```text
 scripts/Install-PosiranERP-v1.0.5.ps1
-scripts/Install-iMonitorERP-v2.1.5.ps1
+scripts/Install-iMonitorERP-v2.1.6.ps1
 ```
 
 ---
