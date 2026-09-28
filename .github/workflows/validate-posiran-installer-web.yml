@@ -1,4 +1,4 @@
-name: Validate Unified ERP Deployment Manager
+name: Validate Unified iBOS Deployment Manager
 
 on:
   push:
@@ -34,7 +34,7 @@ jobs:
           $ui=Get-Content installer\PosiranERP.Installer.Web\wwwroot\index.html -Raw
           if($program -notmatch '127\.0\.0\.1:8099'){throw 'Installer must default to loopback port 8099.'}
           if($ui -notmatch 'posiran_test' -or $ui -notmatch 'ecomm_dev'){throw 'Canonical ERP databases are missing from unified UI.'}
-          if($ui -notmatch 'راه‌اندازی یکپارچه ERP'){throw 'Unified manager UI is missing.'}
+          if($ui -notmatch 'راه‌اندازی یکپارچه iBOS'){throw 'Unified iBOS manager UI is missing.'}
           if($program -notmatch 'UseWindowsService'){throw 'Windows Service hosting is missing.'}
 
       - name: Smoke test setup host on port 8099
@@ -59,7 +59,7 @@ jobs:
               if(Test-Path $stderr){Get-Content $stderr}
               throw 'Setup host smoke test failed on 127.0.0.1:8099.'
             }
-            Write-Host '[OK] Unified ERP Deployment Manager responded on http://127.0.0.1:8099/health'
+            Write-Host '[OK] Unified iBOS Deployment Manager responded on http://127.0.0.1:8099/health'
           }
           finally {
             if(!$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
