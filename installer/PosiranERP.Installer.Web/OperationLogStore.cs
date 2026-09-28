@@ -11,7 +11,7 @@ public sealed class OperationLogStore
     public OperationState Start(string title)
     {
         var id = DateTime.UtcNow.ToString("yyyyMMddHHmmss") + "-" + Guid.NewGuid().ToString("N")[..8];
-        var state = new OperationState(id, title, "Running", DateTime.UtcNow, null, new List<OperationLogLine>());
+        var state = new OperationState(id, title, "Running", DateTime.UtcNow, null, new List<OperationLogLine>(), "شروع", 0);
         _states[id] = state; Save(state); Add(id, "info", "عملیات شروع شد: " + title);
         return state;
     }
@@ -27,11 +27,26 @@ public sealed class OperationLogStore
         }
     }
 
+    public void Progress(string id, string stage, int percent, string? message = null)
+    {
+        if (!_states.TryGetValue(id, out var state)) return;
+        percent = Math.Clamp(percent, 0, 100);
+        _states[id] = state with { Stage = stage, ProgressPercent = percent };
+        Save(_states[id]);
+        if (!string.IsNullOrWhiteSpace(message)) Add(id, "progress", $"[{percent}%] {stage}: {message}");
+    }
+
     public void Complete(string id, bool ok, string message)
     {
         if (!_states.TryGetValue(id, out var state)) return;
         Add(id, ok ? "ok" : "error", message);
-        _states[id] = state with { Status = ok ? "Succeeded" : "Failed", CompletedAtUtc = DateTime.UtcNow };
+        _states[id] = state with
+        {
+            Status = ok ? "Succeeded" : "Failed",
+            CompletedAtUtc = DateTime.UtcNow,
+            Stage = ok ? "تکمیل" : "خطا",
+            ProgressPercent = ok ? 100 : state.ProgressPercent
+        };
         Save(_states[id]);
     }
 
@@ -54,5 +69,5 @@ public sealed class OperationLogStore
     }
     private static string Safe(string value) => new(value.Where(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_').ToArray());
 }
-public sealed record OperationState(string Id,string Title,string Status,DateTime StartedAtUtc,DateTime? CompletedAtUtc,List<OperationLogLine> Lines);
+public sealed record OperationState(string Id,string Title,string Status,DateTime StartedAtUtc,DateTime? CompletedAtUtc,List<OperationLogLine> Lines,string Stage="شروع",int ProgressPercent=0);
 public sealed record OperationLogLine(DateTime AtUtc,string Level,string Message);
