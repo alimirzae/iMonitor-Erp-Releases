@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'scripts/Install-iMonitorERP-v2.1.5.ps1'
+      - 'scripts/Install-iMonitorERP-v2.1.6.ps1'
       - 'scripts/Start-iMonitorERP-Setup.ps1'
       - 'scripts/Install-PosiranERP-v1.0.5.ps1'
       - 'installer/iMonitorERP.Installer.Web/**'
@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-imonitor-erp-installer-v2.1.5
+  group: publish-imonitor-erp-installer-v2.1.6
   cancel-in-progress: true
 
 jobs:
@@ -29,7 +29,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $files=@(
-            'scripts/Install-iMonitorERP-v2.1.5.ps1',
+            'scripts/Install-iMonitorERP-v2.1.6.ps1',
             'scripts/Start-iMonitorERP-Setup.ps1',
             'scripts/Install-PosiranERP-v1.0.5.ps1'
           )
@@ -61,9 +61,9 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference='Stop'
-          $tag='imonitor-erp-installer-v2.1.5'
+          $tag='imonitor-erp-installer-v2.1.6'
           $assets=@(
-            'scripts/Install-iMonitorERP-v2.1.5.ps1',
+            'scripts/Install-iMonitorERP-v2.1.6.ps1',
             'scripts/Start-iMonitorERP-Setup.ps1'
           )
           $exists=$false
@@ -76,7 +76,7 @@ jobs:
           if($exists){
             & gh release upload $tag @assets --clobber --repo $env:GITHUB_REPOSITORY
           }else{
-            & gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --target main --title 'iMonitor ERP Installer 2.1.5' --notes 'Bootstrap and installer without dependency on raw.githubusercontent.com. Includes channel-aware Test/Production installation, verified package cache, rollback, health check, and scheduled self-update.'
+            & gh release create $tag @assets --repo $env:GITHUB_REPOSITORY --target main --title 'iMonitor ERP Installer 2.1.6' --notes 'Bootstrap and installer without dependency on raw.githubusercontent.com. Includes channel-aware Test/Production installation, verified package cache, rollback, health check, and scheduled self-update.'
           }
           if($LASTEXITCODE -ne 0){throw 'Installer release publication failed.'}
 
