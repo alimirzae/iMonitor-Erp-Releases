@@ -35,7 +35,7 @@ public sealed class OrchestratorService
             foreach (var m in manifests.Values.OrderBy(x => x.Product).ThenBy(x => x.Channel).ThenBy(x => x.DisplayName))
             {
                 var installed = ReadInstalledRelease(m);
-                var health = await CheckHealthAsync(m.Port, cancellationToken);
+                var health = await CheckHealthAsync(m, cancellationToken);
                 var iis = GetIisState(m.IisSite, m.AppPool);
                 var db = CheckDatabase(m.ConfigPath);
                 var latestTag = latest.TryGetValue($"{m.Product}:{m.Channel}", out var tag) ? tag : null;
@@ -45,7 +45,7 @@ public sealed class OrchestratorService
                     !string.IsNullOrWhiteSpace(latestTag) && !string.Equals(installed, latestTag, StringComparison.OrdinalIgnoreCase),
                     string.Equals(m.Channel, "Test", StringComparison.OrdinalIgnoreCase) && m.AutoUpdate, Directory.Exists(m.InstallPath), File.Exists(m.ConfigPath),
                     iis.SiteState, iis.PoolState, health.Ok, health.Message,
-                    db.Reachable, db.Message, GetBackupSummaries(m.Id)));
+                    db.Reachable, db.Message, GetBackupSummaries(m.Id), RuntimeBaseUrl(m)));
             }
             return result;
         }
@@ -154,25 +154,21 @@ public sealed class OrchestratorService
             var rollbackDir = Path.Combine(m.InstallRoot, m.InstallFolderName, "rollback-current");
             DeleteDirectoryWithRetry(rollbackDir);
             MoveDirectoryWithRetry(current, rollbackDir);
-            try
+            MoveDirectoryWithRetry(stage, current);
+            File.WriteAllText(Path.Combine(m.InstallRoot, m.InstallFolderName, "installed-release.txt"), tag);
+            StartInstance(m);
+            var health = await WaitForHealthAsync(m, cancellationToken);
+            if (!health.Ok)
             {
-                MoveDirectoryWithRetry(stage, current);
-                StartInstance(m);
-                var health = await WaitForHealthAsync(m.Port, cancellationToken);
-                if (!health.Ok) throw new InvalidOperationException("Health check failed after version activation: " + health.Message);
-                File.WriteAllText(Path.Combine(m.InstallRoot, m.InstallFolderName, "installed-release.txt"), tag);
-                AppendHistory(m.Id, new VersionHealthRecord(tag, DateTime.UtcNow, "Healthy", health.Message, backup?.BackupId, actual));
-                if (Directory.Exists(rollbackDir)) Directory.Delete(rollbackDir, true);
-                return new VersionOperationResult(tag, true, "Healthy", health.Message, backup?.BackupId);
+                // Deliberately do NOT auto-rollback. Keep the failed deployment and the
+                // previous files in rollback-current so the administrator can inspect
+                // diagnostics and explicitly choose a known-good version.
+                throw new InvalidOperationException(
+                    "Health check failed after version activation: " + health.Message +
+                    $". Automatic rollback is disabled. Previous files are preserved at '{rollbackDir}'.");
             }
-            catch
-            {
-                try { StopInstance(m); } catch { }
-                try { if (Directory.Exists(current)) Directory.Delete(current, true); } catch { }
-                if (Directory.Exists(rollbackDir)) Directory.Move(rollbackDir, current);
-                try { StartInstance(m); } catch { }
-                throw;
-            }
+            AppendHistory(m.Id, new VersionHealthRecord(tag, DateTime.UtcNow, "Healthy", health.Message, backup?.BackupId, actual));
+            return new VersionOperationResult(tag, true, "Healthy", health.Message, backup?.BackupId);
         }
         catch (Exception ex)
         {
@@ -209,6 +205,38 @@ public sealed class OrchestratorService
             }
             catch { }
         }
+    }
+
+    public IReadOnlyDictionary<string, bool> GetVersionApprovals(string id)
+    {
+        ValidateInstanceId(id);
+        var path = ApprovalPath(id);
+        if (!File.Exists(path)) return new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, bool>>(File.ReadAllText(path), JsonOptions)
+                   ?? new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch { return new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase); }
+    }
+
+    public void SetVersionApproval(string id, string tag, bool approved)
+    {
+        ValidateInstanceId(id);
+        var m = RequireManifest(id);
+        ValidateReleaseTagForManifest(m, tag);
+        var map = new Dictionary<string, bool>(GetVersionApprovals(id), StringComparer.OrdinalIgnoreCase);
+        if (approved) map[tag] = true; else map.Remove(tag);
+        var path = ApprovalPath(id);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, JsonSerializer.Serialize(map, JsonOptions));
+    }
+
+    private string ApprovalPath(string id)
+    {
+        var dir = Path.Combine(_stateRoot, "version-approvals");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, id + ".json");
     }
 
     private string HistoryPath(string id)
@@ -301,7 +329,7 @@ public sealed class OrchestratorService
         catch { return Array.Empty<MySqlServiceStatus>(); }
     }
 
-    public InstallationManifest RegisterInstance(string product, string channel, string installRoot, int port, string folderName, string database, bool autoUpdate, string configPath)
+    public InstallationManifest RegisterInstance(string product, string channel, string installRoot, int port, string folderName, string database, bool autoUpdate, string configPath, string? runtimeUrl = null)
     {
         channel = NormalizeChannel(channel) ?? throw new InvalidOperationException("Invalid channel.");
         var normalizedProduct = NormalizeProduct(product);
@@ -327,7 +355,8 @@ public sealed class OrchestratorService
             site,
             channel == "Test",
             existing?.CreatedAtUtc ?? now,
-            now);
+            now,
+            NormalizeRuntimeUrl(runtimeUrl ?? existing?.RuntimeUrl, port));
         SaveManifest(manifest);
         return manifest;
     }
@@ -413,7 +442,7 @@ public sealed class OrchestratorService
         }
         finally { StartInstance(m); }
 
-        var health = await WaitForHealthAsync(m.Port, cancellationToken);
+        var health = await WaitForHealthAsync(m, cancellationToken);
         if (!health.Ok) throw new InvalidOperationException($"Restore completed but ERP health failed. Pre-restore backup: {preRestore.BackupId}. {health.Message}");
         return new RestoreResult(backupId, preRestore.BackupId, true, health.Message);
     }
@@ -426,7 +455,7 @@ public sealed class OrchestratorService
         else if (action == "start") StartInstance(m);
         else if (action == "restart") { StopInstance(m); await Task.Delay(1000, cancellationToken); StartInstance(m); }
         else throw new InvalidOperationException("Action must be start, stop or restart.");
-        var health = action == "stop" ? new HealthResult(false, "Stopped by administrator") : await WaitForHealthAsync(m.Port, cancellationToken);
+        var health = action == "stop" ? new HealthResult(false, "Stopped by administrator") : await WaitForHealthAsync(m, cancellationToken);
         return new OperationResult(action, health.Ok, health.Message);
     }
 
@@ -435,7 +464,7 @@ public sealed class OrchestratorService
     public async Task<RuntimeVerificationResult> VerifyInstallationRuntimeAsync(string id, CancellationToken cancellationToken = default)
     {
         var m = RequireManifest(id);
-        var health = await WaitForHealthAsync(m.Port, cancellationToken);
+        var health = await WaitForHealthAsync(m, cancellationToken);
         var iis = GetIisState(m.IisSite, m.AppPool);
         var db = CheckDatabase(m.ConfigPath);
 
@@ -581,28 +610,52 @@ public sealed class OrchestratorService
         try { return File.Exists(state) ? File.ReadAllText(state).Trim() : null; } catch { return null; }
     }
 
-    private async Task<HealthResult> CheckHealthAsync(int port, CancellationToken cancellationToken)
+    private string RuntimeBaseUrl(InstallationManifest m)
+        => NormalizeRuntimeUrl(m.RuntimeUrl, m.Port);
+
+    private static string NormalizeRuntimeUrl(string? runtimeUrl, int port)
     {
+        var value = string.IsNullOrWhiteSpace(runtimeUrl) ? $"http://127.0.0.1:{port}" : runtimeUrl.Trim();
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            throw new InvalidOperationException("Runtime URL must be an absolute http/https URL.");
+        return value.TrimEnd('/');
+    }
+
+    private async Task<HealthResult> CheckHealthAsync(InstallationManifest m, CancellationToken cancellationToken)
+    {
+        var baseUrl = RuntimeBaseUrl(m);
         try
         {
             var http = _clients.CreateClient();
-            http.Timeout = TimeSpan.FromSeconds(4);
-            using var r = await http.GetAsync($"http://127.0.0.1:{port}/health", cancellationToken);
-            return new HealthResult(r.IsSuccessStatusCode, $"HTTP {(int)r.StatusCode}");
+            http.Timeout = TimeSpan.FromSeconds(8);
+            using var r = await http.GetAsync(baseUrl + "/health", cancellationToken);
+            return new HealthResult(r.IsSuccessStatusCode, $"HTTP {(int)r.StatusCode} @ {baseUrl}/health");
         }
-        catch (Exception ex) { return new HealthResult(false, ex.GetType().Name); }
+        catch (Exception ex) { return new HealthResult(false, $"{ex.GetType().Name} @ {baseUrl}/health"); }
     }
 
-    private async Task<HealthResult> WaitForHealthAsync(int port, CancellationToken cancellationToken)
+    private async Task<HealthResult> WaitForHealthAsync(InstallationManifest m, CancellationToken cancellationToken)
     {
         HealthResult last = new(false, "Not checked");
         for (var i = 0; i < 15; i++)
         {
             await Task.Delay(1500, cancellationToken);
-            last = await CheckHealthAsync(port, cancellationToken);
+            last = await CheckHealthAsync(m, cancellationToken);
             if (last.Ok) return last;
         }
         return last;
+    }
+
+    private async Task<HealthResult> CheckHealthAsync(int port, CancellationToken cancellationToken)
+    {
+        var temp = new InstallationManifest("", "", "", "", "", port, "", "", "", "", "", "", false, DateTime.MinValue, DateTime.MinValue, null);
+        return await CheckHealthAsync(temp, cancellationToken);
+    }
+
+    private async Task<HealthResult> WaitForHealthAsync(int port, CancellationToken cancellationToken)
+    {
+        var temp = new InstallationManifest("", "", "", "", "", port, "", "", "", "", "", "", false, DateTime.MinValue, DateTime.MinValue, null);
+        return await WaitForHealthAsync(temp, cancellationToken);
     }
 
     private (string SiteState, string PoolState) GetIisState(string site, string pool)
@@ -887,8 +940,8 @@ public sealed class OrchestratorService
     }
 }
 
-public sealed record InstallationManifest(string Id, string DisplayName, string Product, string Channel, string InstallRoot, int Port, string InstallFolderName, string InstallPath, string ConfigPath, string DatabaseName, string IisSite, string AppPool, bool AutoUpdate, DateTime CreatedAtUtc, DateTime UpdatedAtUtc);
-public sealed record InstallationStatus(string Id, string DisplayName, string Product, string Channel, string InstallRoot, int Port, string InstallFolderName, string InstallPath, string ConfigPath, string DatabaseName, string? InstalledVersion, string? LatestVersion, bool UpdateAvailable, bool AutoUpdate, bool FolderExists, bool ConfigExists, string IisSiteState, string IisPoolState, bool HealthOk, string HealthMessage, bool DatabaseReachable, string DatabaseMessage, IReadOnlyList<BackupSummary> Backups);
+public sealed record InstallationManifest(string Id, string DisplayName, string Product, string Channel, string InstallRoot, int Port, string InstallFolderName, string InstallPath, string ConfigPath, string DatabaseName, string IisSite, string AppPool, bool AutoUpdate, DateTime CreatedAtUtc, DateTime UpdatedAtUtc, string? RuntimeUrl = null);
+public sealed record InstallationStatus(string Id, string DisplayName, string Product, string Channel, string InstallRoot, int Port, string InstallFolderName, string InstallPath, string ConfigPath, string DatabaseName, string? InstalledVersion, string? LatestVersion, bool UpdateAvailable, bool AutoUpdate, bool FolderExists, bool ConfigExists, string IisSiteState, string IisPoolState, bool HealthOk, string HealthMessage, bool DatabaseReachable, string DatabaseMessage, IReadOnlyList<BackupSummary> Backups, string RuntimeUrl);
 public sealed record MySqlServiceStatus(string Name, string DisplayName, string State, string StartMode, string PathName);
 public sealed record BackupFile(string Kind, string Database, string FileName, string Sha256, long SizeBytes);
 public sealed record BackupMetadata(string BackupId, string InstanceId, DateTime CreatedAtUtc, string Reason, IReadOnlyList<BackupFile> Files);
