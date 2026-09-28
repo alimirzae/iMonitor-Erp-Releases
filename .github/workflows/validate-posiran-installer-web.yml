@@ -5,7 +5,8 @@ on:
     branches: [ main ]
     paths:
       - 'installer/PosiranERP.Installer.Web/**'
-      - 'scripts/Install-PosiranERP-v1.0.2.ps1'
+      - 'scripts/Install-PosiranERP-v1.0.5.ps1'
+      - 'scripts/Install-iMonitorERP-v2.1.6.ps1'
       - '.github/workflows/validate-posiran-installer-web.yml'
   workflow_dispatch:
 
