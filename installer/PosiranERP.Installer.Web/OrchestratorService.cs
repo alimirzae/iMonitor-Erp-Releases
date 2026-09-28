@@ -664,8 +664,10 @@ public sealed class OrchestratorService
     private static string NormalizeRuntimeUrl(string? runtimeUrl, int port)
     {
         var value = string.IsNullOrWhiteSpace(runtimeUrl) ? $"http://127.0.0.1:{port}" : runtimeUrl.Trim();
+        if (!value.Contains("://", StringComparison.Ordinal))
+            value = "https://" + value;
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-            throw new InvalidOperationException("Runtime URL must be an absolute http/https URL.");
+            throw new InvalidOperationException("Runtime URL must be a valid http/https URL or hostname.");
         return value.TrimEnd('/');
     }
 
