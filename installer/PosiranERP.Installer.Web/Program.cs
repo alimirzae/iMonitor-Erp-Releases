@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Host.UseWindowsService(options => options.ServiceName = "ERP Deployment Manager");
+builder.Host.UseWindowsService(options => options.ServiceName = "iBOS Deployment Manager");
 builder.WebHost.UseUrls("http://127.0.0.1:8099");
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<OperationLogStore>();
@@ -29,7 +29,7 @@ app.MapGet("/api/status", (OrchestratorService orchestrator) =>
 
     return Results.Ok(new
     {
-        product = "Posiran ERP Installer",
+        product = "iBOS Deployment Manager",
         url = "http://127.0.0.1:8099",
         isWindows,
         isAdministrator = isAdmin,
