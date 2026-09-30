@@ -11,13 +11,12 @@ function Ensure-Parent([string]$p){$d=Split-Path $p -Parent;if($d){New-Item -Ite
 function Copy-Overlay([string]$relative){$src=Join-Path $OverlayRoot $relative;$dst=Join-Path $SourceRoot $relative;if(!(Test-Path $src)){throw "Canonical Posiran overlay missing: $src"};Ensure-Parent $dst;Copy-Item $src $dst -Force}
 
 # IMPORTANT: this overlay is BRANDING ONLY. Authentication, setup wizard, database,
-# services, routes and business logic are inherited from the Ecomm source branch.
+# services, routes, business logic and GitHub workflow files are inherited from the
+# Ecomm source branch. The release guard must never rewrite .github/workflows.
 foreach($p in @(
   'Ecomm\wwwroot\posiran-brand.css',
   'Ecomm\wwwroot\img\posiran-logo.svg',
   'Ecomm\wwwroot\build-info.css',
-  '.github\workflows\publish-posiran-windows.yml',
-  '.github\workflows\deploy-posiran-local.yml',
   'POSIRAN_WHITE_LABEL.md'
 )){Copy-Overlay $p}
 
