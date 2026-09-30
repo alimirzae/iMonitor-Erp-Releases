@@ -1,8 +1,6 @@
 name: Guard Posiran ERP White-label Branches
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: '17 * * * *'
