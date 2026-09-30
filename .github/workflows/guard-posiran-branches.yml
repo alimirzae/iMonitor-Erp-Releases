@@ -37,6 +37,13 @@ jobs:
             -SourceRoot "$env:GITHUB_WORKSPACE/EcommSource" `
             -OverlayRoot "$env:GITHUB_WORKSPACE/ReleaseCenter/posiran/overlay"
 
+      - name: Keep branch workflows outside white-label recovery
+        shell: bash
+        working-directory: EcommSource
+        run: |
+          set -euo pipefail
+          git restore -- .github/workflows || true
+
       - name: Validate no visible app-shell fallback to iMonitor
         shell: pwsh
         run: |
@@ -61,8 +68,6 @@ jobs:
                   Ecomm/wwwroot/build-info.css \
                   Ecomm/Components/App.razor \
                   Ecomm/Components/Layout/MainLayout.razor \
-                  .github/workflows/publish-posiran-windows.yml \
-                  .github/workflows/deploy-posiran-local.yml \
                   POSIRAN_WHITE_LABEL.md
           git commit -m 'chore(posiran): restore protected white-label contract'
           git push origin HEAD:${{ matrix.branch }}
