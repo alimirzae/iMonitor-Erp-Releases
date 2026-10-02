@@ -317,7 +317,7 @@ function Install-Channel($info){
     if($LASTEXITCODE -ne 0){throw "Failed to grant IIS_IUSRS read/execute permission on $($info.Root)."}
     & icacls.exe $info.Root /grant:r "IIS AppPool\$($info.Pool):(OI)(CI)RX" /T /C | Out-Null
     if($LASTEXITCODE -ne 0){Write-Warning "Could not grant explicit AppPool ACL; IIS_IUSRS permission is present."}
-    if(!(Test-Path "IIS:\AppPools\$($info.Pool)")){New-WebAppPool -Name $info.Pool|Out-Null};Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name managedRuntimeVersion -Value '';Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name startMode -Value 'AlwaysRunning'
+    if(!(Test-Path "IIS:\AppPools\$($info.Pool)")){New-WebAppPool -Name $info.Pool|Out-Null};Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name managedRuntimeVersion -Value '';Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name enable32BitAppOnWin64 -Value $false;Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name startMode -Value 'AlwaysRunning'
     if(!(Test-Path "IIS:\Sites\$($info.Site)")){New-Website -Name $info.Site -PhysicalPath $info.Root -Port $info.Port -ApplicationPool $info.Pool|Out-Null}else{Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name physicalPath -Value $info.Root;Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name applicationPool -Value $info.Pool;Get-WebBinding -Name $info.Site -Protocol http|Remove-WebBinding -ErrorAction SilentlyContinue;New-WebBinding -Name $info.Site -Protocol http -IPAddress '*' -Port $info.Port|Out-Null}
     Write-Host "[PROGRESS 86] Start IIS site and application pool"
     Start-WebAppPool $info.Pool;Start-Website $info.Site
