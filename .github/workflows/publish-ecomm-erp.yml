@@ -22,6 +22,7 @@ jobs:
       SOURCE_SHA: ${{ github.event.client_payload.sha }}
       SOURCE_BRANCH: ${{ github.event.client_payload.branch }}
       SOURCE_RUN_NUMBER: ${{ github.event.client_payload.run_number }}
+      VERIFIED_ASSET_URL: ${{ github.event.client_payload.artifact_url }}
     steps:
       - name: Validate dispatch payload
         shell: powershell
@@ -77,14 +78,15 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Publish Windows package only
+      - name: Publish package only when no verified package was supplied
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
+          $out = Join-Path $env:RUNNER_TEMP 'ecomm-publish'
+          if(Test-Path $out){Remove-Item $out -Recurse -Force}
           Set-Location "$env:GITHUB_WORKSPACE\EcommSource"
           dotnet restore Ecomm\Ecomm.csproj -r win-x64
           if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
-          $out = Join-Path $env:RUNNER_TEMP 'ecomm-publish'
           dotnet publish Ecomm\Ecomm.csproj -c Release -r win-x64 --self-contained false --no-restore -o $out
           if ($LASTEXITCODE -ne 0) { throw 'Ecomm publish failed.' }
           if (-not (Test-Path (Join-Path $out 'Ecomm.dll'))) { throw 'Ecomm.dll is missing from publish output.' }
