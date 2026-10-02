@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/**'
+      - 'drivers/**'
       - '.github/workflows/validate-installers.yml'
 
 permissions:
@@ -44,6 +45,23 @@ jobs:
             }
           }
           if($failed){exit 1}
+
+      - name: Reconstruct and verify Behpardakht POS-PC 1.4.48
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $env:RUNNER_TEMP 'pcpos-driver-validation'
+          if(Test-Path $root){Remove-Item $root -Recurse -Force}
+          New-Item -ItemType Directory -Force $root | Out-Null
+          & ./scripts/Ensure-BehpardakhtPosPcDriver.ps1 -TargetRoot $root
+          $dll=Join-Path $root 'DeviceDrivers\pos\behpardakht-pospc-1.4.48\POS_PC.dll'
+          if(!(Test-Path $dll)){throw 'Reconstructed POS_PC.dll is missing.'}
+          $sha=(Get-FileHash $dll -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($sha -ne 'f691da423cae1052f3c867a327109d18117128ee24098ae4aefa13408e52d5b6'){throw "Unexpected POS_PC SHA256: $sha"}
+          $version=[Diagnostics.FileVersionInfo]::GetVersionInfo($dll).FileVersion
+          if(-not $version.StartsWith('1.4.48')){throw "Unexpected POS_PC version: $version"}
+          if((Get-Item $dll).Length -ne 95232){throw "Unexpected POS_PC size: $((Get-Item $dll).Length)"}
+          Write-Host "[OK] POS_PC.dll $version / $sha / 95232 bytes"
 
       - name: Validate standalone iMonitor installer contract
         shell: pwsh
