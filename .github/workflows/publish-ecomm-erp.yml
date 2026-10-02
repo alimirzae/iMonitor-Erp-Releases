@@ -51,18 +51,34 @@ jobs:
 
       - name: Download verified package from Ecomm CI
         if: ${{ env.VERIFIED_ARTIFACT_ID != '' }}
+        id: verified_artifact
         env:
           GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
         shell: powershell
+        continue-on-error: true
         run: |
           $ErrorActionPreference='Stop'
           $zip = Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
-          gh api "repos/$env:SOURCE_REPO/actions/artifacts/$env:VERIFIED_ARTIFACT_ID/zip" > "$zip.download.zip"
-          Expand-Archive "$zip.download.zip" -DestinationPath "$env:RUNNER_TEMP\verified-artifact" -Force
-          $inner = Get-ChildItem "$env:RUNNER_TEMP\verified-artifact" -Filter $env:ASSET_NAME -Recurse | Select-Object -First 1
-          if(!$inner){ throw 'Verified Ecomm package was not found in artifact.' }
-          Copy-Item $inner.FullName $zip -Force
-          "VERIFIED_PACKAGE=$zip" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          $download = "$zip.download.zip"
+          $extract = Join-Path $env:RUNNER_TEMP 'verified-artifact'
+          if(Test-Path $download){Remove-Item $download -Force}
+          if(Test-Path $extract){Remove-Item $extract -Recurse -Force}
+          try {
+            gh api "repos/$env:SOURCE_REPO/actions/artifacts/$env:VERIFIED_ARTIFACT_ID/zip" --method GET --output $download
+            if($LASTEXITCODE -ne 0){ throw "Artifact API download failed with exit code $LASTEXITCODE." }
+            if(!(Test-Path $download) -or (Get-Item $download).Length -lt 100){ throw 'Artifact download is missing or invalid.' }
+            Expand-Archive $download -DestinationPath $extract -Force
+            $inner = Get-ChildItem $extract -Filter $env:ASSET_NAME -Recurse | Select-Object -First 1
+            if(!$inner){ throw 'Verified Ecomm package was not found in artifact.' }
+            Copy-Item $inner.FullName $zip -Force
+            "VERIFIED_PACKAGE=$zip" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+            "downloaded=true" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          }
+          catch {
+            Write-Warning "Verified artifact download unavailable: $($_.Exception.Message)"
+            "downloaded=false" | Out-File $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            exit 1
+          }
 
       - name: Harden Stimulsoft startup paths
         shell: powershell
@@ -90,13 +106,13 @@ jobs:
           }
 
       - name: Setup .NET 8 only for fallback publish
-        if: ${{ env.VERIFIED_PACKAGE == '' }}
+        if: ${{ steps.verified_artifact.outputs.downloaded != 'true' }}
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
       - name: Fallback publish only when CI artifact is unavailable
-        if: ${{ env.VERIFIED_PACKAGE == '' }}
+        if: ${{ steps.verified_artifact.outputs.downloaded != 'true' }}
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
