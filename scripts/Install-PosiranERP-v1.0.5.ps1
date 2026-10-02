@@ -108,6 +108,82 @@ function Invoke-AssetDownload([string]$ApiUrl,[string]$BrowserUrl,[string]$Out,[
   throw "All native download methods failed for $BrowserUrl`n$($errors -join "`n")"
 }
 
+
+function Ensure-BehpardakhtPosPcDriver([string]$StageRoot){
+  $driverVersion='1.4.48'
+  $expectedSha='f691da423cae1052f3c867a327109d18117128ee24098ae4aefa13408e52d5b6'
+  $relative='DeviceDrivers\pos\behpardakht-pospc-1.4.48\POS_PC.dll'
+  $target=Join-Path $StageRoot $relative
+  $targetDir=Split-Path $target -Parent
+  $cacheDir=Join-Path $packageCache 'drivers\behpardakht-pospc-1.4.48'
+  $cache=Join-Path $cacheDir 'POS_PC.dll'
+
+  function Test-VerifiedPosPc([string]$Path){
+    if(!(Test-Path $Path)){return $false}
+    try{return (Get-FileHash $Path -Algorithm SHA256).Hash.ToLowerInvariant() -eq $expectedSha}catch{return $false}
+  }
+
+  if(Test-VerifiedPosPc $target){
+    Unblock-File -Path $target -ErrorAction SilentlyContinue
+    Write-Host "[PCPOS] Behpardakht POS_PC $driverVersion already present and verified." -ForegroundColor Green
+    return
+  }
+
+  New-Item -ItemType Directory -Force -Path $targetDir,$cacheDir | Out-Null
+  if(Test-VerifiedPosPc $cache){
+    Copy-Item $cache $target -Force
+    Unblock-File -Path $target -ErrorAction SilentlyContinue
+    Write-Host "[PCPOS] Behpardakht POS_PC $driverVersion restored from verified local cache." -ForegroundColor Green
+    return
+  }
+
+  $tmp=Join-Path $env:TEMP ('pospc-1.4.48-'+[guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+  try{
+    $bases=@(
+      'https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/drivers/behpardakht-pospc-1.4.48',
+      'https://github.com/alimirzae/iMonitor-Erp-Releases/raw/refs/heads/main/drivers/behpardakht-pospc-1.4.48'
+    )
+    $chunks=New-Object System.Collections.Generic.List[string]
+    for($i=1;$i -le 8;$i++){
+      $name=('POS_PC.dll.gz.b64.part{0:d2}' -f $i)
+      $part=Join-Path $tmp $name
+      $downloaded=$false
+      $errors=New-Object System.Collections.Generic.List[string]
+      foreach($base in $bases){
+        try{
+          Invoke-HttpDownload "$base/$name?cb=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" $part 'text/plain' 60
+          if((Test-Path $part) -and (Get-Item $part).Length -gt 0){$downloaded=$true;break}
+        }catch{$errors.Add($_.Exception.Message)}
+      }
+      if(!$downloaded){throw "Could not download Behpardakht POS-PC payload $name. $($errors -join ' | ')"}
+      $chunks.Add((Get-Content $part -Raw).Trim())
+    }
+
+    $b64=($chunks -join '')
+    if($b64.Length -ne 41632){throw "Behpardakht POS-PC payload length mismatch. expected=41632 actual=$($b64.Length)"}
+    $compressed=[Convert]::FromBase64String($b64)
+    $input=New-Object System.IO.MemoryStream(,$compressed)
+    $gzip=New-Object System.IO.Compression.GZipStream($input,[System.IO.Compression.CompressionMode]::Decompress)
+    $output=[System.IO.File]::Open($target,[System.IO.FileMode]::Create,[System.IO.FileAccess]::Write,[System.IO.FileShare]::None)
+    try{$gzip.CopyTo($output)}finally{$output.Dispose();$gzip.Dispose();$input.Dispose()}
+
+    $actual=(Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+    if($actual -ne $expectedSha){Remove-Item $target -Force -ErrorAction SilentlyContinue;throw "Behpardakht POS-PC SHA256 mismatch. expected=$expectedSha actual=$actual"}
+    $version=[System.Diagnostics.FileVersionInfo]::GetVersionInfo($target).FileVersion
+    if([string]::IsNullOrWhiteSpace($version) -or -not $version.StartsWith('1.4.48')){Remove-Item $target -Force -ErrorAction SilentlyContinue;throw "Behpardakht POS-PC file version mismatch: $version"}
+
+    Unblock-File -Path $target -ErrorAction SilentlyContinue
+    Remove-Item ($target+':Zone.Identifier') -Force -ErrorAction SilentlyContinue
+    Copy-Item $target $cache -Force
+    Unblock-File -Path $cache -ErrorAction SilentlyContinue
+    Write-Host "[OK] Behpardakht POS-PC $driverVersion provisioned and SHA256 verified." -ForegroundColor Green
+  } finally {
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+
 function Get-LatestRelease($info){
   $cb=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
   $manifestChannel=if($info.Name -eq 'Test'){'test'}else{'production'}
@@ -290,6 +366,7 @@ function Install-Channel($info){
 
     Write-Host "[PROGRESS 45] Extract package"
     $stage=Join-Path $work 'stage';Expand-Archive $zip -DestinationPath $stage -Force
+    Ensure-BehpardakhtPosPcDriver $stage
     Write-Host "[PROGRESS 55] Package extraction completed"
     if(!(Test-Path (Join-Path $stage 'Ecomm.dll')) -or !(Test-Path (Join-Path $stage 'web.config'))){throw 'Release package is incomplete (Ecomm.dll/web.config missing).'}
     Copy-Item $info.Config (Join-Path $stage 'appsettings.json') -Force
