@@ -144,7 +144,9 @@ jobs:
           Set-Content (Join-Path $out 'release-notes.md') $notes -Encoding UTF8
           [ordered]@{product='imonitor';channel=$channel;tag=$tag;version=$version;sourceSha=$env:SOURCE_SHA;publishedAt=(Get-Date).ToUniversalTime().ToString('o')} |
             ConvertTo-Json | Set-Content (Join-Path $out 'release-info.json') -Encoding UTF8
-          Copy-Item "$env:GITHUB_WORKSPACE\ReleaseCenter\scripts\Install-iMonitorERP-v2.1.5.ps1" (Join-Path $out 'Install-iMonitorERP.ps1') -Force
+          & "$env:GITHUB_WORKSPACE\ReleaseCenter\scripts\Ensure-BehpardakhtPosPcDriver.ps1" -TargetRoot $out
+          if($LASTEXITCODE -ne 0){throw 'Behpardakht POS-PC provisioning failed'}
+          Copy-Item "$env:GITHUB_WORKSPACE\ReleaseCenter\scripts\Install-iMonitorERP-v2.1.6.ps1" (Join-Path $out 'Install-iMonitorERP.ps1') -Force
 
       - name: Zip and checksum
         shell: powershell
