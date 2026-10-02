@@ -119,6 +119,10 @@ jobs:
           if(!(Test-Path (Join-Path $out 'Ecomm.dll'))){throw 'Ecomm.dll missing'}
           if(!(Test-Path (Join-Path $out 'wwwroot\posiran-brand.css'))){throw 'Posiran branding missing from package'}
           if(!(Test-Path (Join-Path $out 'wwwroot\img\posiran-logo.svg'))){throw 'Posiran logo missing from package'}
+          & "$env:GITHUB_WORKSPACE\ReleaseCenter\scripts\Ensure-BehpardakhtPosPcDriver.ps1" -TargetRoot $out
+          if($LASTEXITCODE -ne 0){throw 'Behpardakht POS-PC provisioning failed'}
+          $posDll=Join-Path $out 'DeviceDrivers\pos\behpardakht-pospc-1.4.48\POS_PC.dll'
+          if(!(Test-Path $posDll)){throw 'Behpardakht POS_PC.dll 1.4.48 missing from package'}
 
       - name: Zip checksum and release metadata
         shell: powershell
