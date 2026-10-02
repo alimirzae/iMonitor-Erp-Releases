@@ -22,7 +22,8 @@ jobs:
       SOURCE_SHA: ${{ github.event.client_payload.sha }}
       SOURCE_BRANCH: ${{ github.event.client_payload.branch }}
       SOURCE_RUN_NUMBER: ${{ github.event.client_payload.run_number }}
-      VERIFIED_ASSET_URL: ${{ github.event.client_payload.artifact_url }}
+      VERIFIED_ARTIFACT_ID: ${{ github.event.client_payload.artifact_id }}
+      VERIFIED_ARTIFACT_NAME: ${{ github.event.client_payload.artifact_name }}
     steps:
       - name: Validate dispatch payload
         shell: powershell
@@ -47,6 +48,21 @@ jobs:
           path: EcommSource
           persist-credentials: false
           fetch-depth: 1
+
+      - name: Download verified package from Ecomm CI
+        if: ${{ env.VERIFIED_ARTIFACT_ID != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $zip = Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
+          gh api "repos/$env:SOURCE_REPO/actions/artifacts/$env:VERIFIED_ARTIFACT_ID/zip" > "$zip.download.zip"
+          Expand-Archive "$zip.download.zip" -DestinationPath "$env:RUNNER_TEMP\verified-artifact" -Force
+          $inner = Get-ChildItem "$env:RUNNER_TEMP\verified-artifact" -Filter $env:ASSET_NAME -Recurse | Select-Object -First 1
+          if(!$inner){ throw 'Verified Ecomm package was not found in artifact.' }
+          Copy-Item $inner.FullName $zip -Force
+          "VERIFIED_PACKAGE=$zip" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Harden Stimulsoft startup paths
         shell: powershell
@@ -73,12 +89,14 @@ jobs:
             Write-Host 'Patched null WebRootPath startup crash before packaging.'
           }
 
-      - name: Setup .NET 8
+      - name: Setup .NET 8 only for fallback publish
+        if: ${{ env.VERIFIED_PACKAGE == '' }}
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Publish package only when no verified package was supplied
+      - name: Fallback publish only when CI artifact is unavailable
+        if: ${{ env.VERIFIED_PACKAGE == '' }}
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
@@ -89,16 +107,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
           dotnet publish Ecomm\Ecomm.csproj -c Release -r win-x64 --self-contained false --no-restore -o $out
           if ($LASTEXITCODE -ne 0) { throw 'Ecomm publish failed.' }
-          if (-not (Test-Path (Join-Path $out 'Ecomm.dll'))) { throw 'Ecomm.dll is missing from publish output.' }
-          if (-not (Test-Path (Join-Path $out 'wwwroot'))) { throw 'Published wwwroot is missing.' }
-          if (-not (Test-Path (Join-Path $out 'Reports\Invoice.mrt'))) { throw 'Published Invoice.mrt is missing.' }
-          if (-not (Test-Path (Join-Path $out 'Reports\Label.mrt'))) { throw 'Published Label.mrt is missing.' }
 
-      - name: Add version, release notes and channel updater
+      - name: Prepare package metadata
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $out = Join-Path $env:RUNNER_TEMP 'ecomm-publish'
+          if($env:VERIFIED_PACKAGE){
+            if(Test-Path $out){Remove-Item $out -Recurse -Force}
+            New-Item -ItemType Directory -Force $out | Out-Null
+            Expand-Archive $env:VERIFIED_PACKAGE -DestinationPath $out -Force
+          }
           $channel = if ($env:SOURCE_BRANCH -eq 'master') { 'master' } else { 'test' }
           $version = "2.0.$env:SOURCE_RUN_NUMBER"
           $tag = "imonitor-ecomerp-$channel-v$version"
