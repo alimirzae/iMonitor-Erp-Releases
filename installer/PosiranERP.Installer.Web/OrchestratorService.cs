@@ -160,7 +160,9 @@ public sealed class OrchestratorService
             if (Directory.Exists(stage)) Directory.Delete(stage, true);
             Directory.CreateDirectory(stage);
             System.IO.Compression.ZipFile.ExtractToDirectory(zip, stage, true);
-            progress?.Invoke("استخراج فایل‌ها", 56, "Extract تکمیل شد");
+            progress?.Invoke("استخراج فایل‌ها", 54, "Extract تکمیل شد");
+            await EnsureBehpardakhtPosPcDriverAsync(stage, m.InstallRoot, cancellationToken, progress);
+            progress?.Invoke("استخراج فایل‌ها", 58, "درایور PC-POS 1.4.48 آماده است");
             // The package ships a developer appsettings.json (Development, ecomm_dev). Like the PowerShell
             // installer, always run the instance with its saved configuration; without it the new version
             // silently served the wrong database or could not connect at all.
@@ -294,6 +296,109 @@ public sealed class OrchestratorService
             : (m.Channel == "Test" ? "imonitor-ecomerp-test-v" : "imonitor-ecomerp-master-v");
         if (!tag.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Release tag does not belong to this product/channel.");
+    }
+
+
+    private async Task EnsureBehpardakhtPosPcDriverAsync(
+        string stageRoot,
+        string installRoot,
+        CancellationToken cancellationToken,
+        Action<string,int,string?>? progress = null)
+    {
+        const string expectedSha = "f691da423cae1052f3c867a327109d18117128ee24098ae4aefa13408e52d5b6";
+        const string version = "1.4.48";
+        var targetDir = Path.Combine(stageRoot, "DeviceDrivers", "pos", "behpardakht-pospc-1.4.48");
+        var target = Path.Combine(targetDir, "POS_PC.dll");
+        var cacheDir = Path.Combine(installRoot, "packages", "drivers", "behpardakht-pospc-1.4.48");
+        var cache = Path.Combine(cacheDir, "POS_PC.dll");
+
+        static bool Verified(string path, string expected)
+            => File.Exists(path) && string.Equals(Hash(path), expected, StringComparison.OrdinalIgnoreCase);
+
+        Directory.CreateDirectory(targetDir);
+        Directory.CreateDirectory(cacheDir);
+
+        if (Verified(target, expectedSha))
+        {
+            TryRemoveZoneIdentifier(target);
+            progress?.Invoke("PC-POS", 55, $"Behpardakht {version}: موجود در بسته و SHA256 معتبر");
+            return;
+        }
+
+        if (Verified(cache, expectedSha))
+        {
+            File.Copy(cache, target, true);
+            TryRemoveZoneIdentifier(target);
+            progress?.Invoke("PC-POS", 55, $"Behpardakht {version}: بازیابی از cache معتبر");
+            return;
+        }
+
+        progress?.Invoke("PC-POS", 55, $"دریافت خودکار Behpardakht POS_PC {version}");
+        var http = _clients.CreateClient();
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("ERPDeploymentManager-PCPOS/1.0");
+        http.Timeout = TimeSpan.FromSeconds(90);
+        var bases = new[]
+        {
+            "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/drivers/behpardakht-pospc-1.4.48",
+            "https://github.com/alimirzae/iMonitor-Erp-Releases/raw/refs/heads/main/drivers/behpardakht-pospc-1.4.48"
+        };
+
+        var b64 = new StringBuilder(41632);
+        for (var i = 1; i <= 8; i++)
+        {
+            var name = $"POS_PC.dll.gz.b64.part{i:00}";
+            string? chunk = null;
+            Exception? last = null;
+            foreach (var root in bases)
+            {
+                try
+                {
+                    chunk = (await http.GetStringAsync($"{root}/{name}?cb={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}", cancellationToken)).Trim();
+                    if (!string.IsNullOrWhiteSpace(chunk)) break;
+                }
+                catch (Exception ex) { last = ex; }
+            }
+            if (string.IsNullOrWhiteSpace(chunk))
+                throw new InvalidOperationException($"Behpardakht driver payload {name} could not be downloaded.", last);
+            b64.Append(chunk);
+        }
+
+        if (b64.Length != 41632)
+            throw new InvalidOperationException($"Behpardakht driver payload length mismatch. expected=41632 actual={b64.Length}");
+
+        var compressed = Convert.FromBase64String(b64.ToString());
+        using (var input = new MemoryStream(compressed, writable: false))
+        using (var gzip = new System.IO.Compression.GZipStream(input, System.IO.Compression.CompressionMode.Decompress))
+        using (var output = File.Create(target))
+            await gzip.CopyToAsync(output, cancellationToken);
+
+        var actual = Hash(target);
+        if (!string.Equals(actual, expectedSha, StringComparison.OrdinalIgnoreCase))
+        {
+            File.Delete(target);
+            throw new InvalidOperationException($"Behpardakht POS_PC SHA256 mismatch. expected={expectedSha} actual={actual}");
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            var fileVersion = FileVersionInfo.GetVersionInfo(target).FileVersion ?? "";
+            if (!fileVersion.StartsWith("1.4.48", StringComparison.OrdinalIgnoreCase))
+            {
+                File.Delete(target);
+                throw new InvalidOperationException($"Behpardakht POS_PC file version mismatch: {fileVersion}");
+            }
+        }
+
+        TryRemoveZoneIdentifier(target);
+        File.Copy(target, cache, true);
+        TryRemoveZoneIdentifier(cache);
+        progress?.Invoke("PC-POS", 57, $"Behpardakht {version}: دانلود، بازسازی و SHA256 تأیید شد");
+    }
+
+    private static void TryRemoveZoneIdentifier(string path)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try { File.Delete(path + ":Zone.Identifier"); } catch { }
     }
 
     private static async Task DownloadWithFallbackAsync(HttpClient http, string url, string destination, CancellationToken ct, Action<int,long,long?>? progress = null)
