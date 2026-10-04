@@ -90,7 +90,18 @@ jobs:
             "SOURCE_SHA=$env:SOURCE_SHA" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           }
 
-          if($env:SOURCE_SHA.Length -ne 40 -or $env:SOURCE_SHA -notmatch '^[0-9a-fA-F]+
+          $nonHex = ($env:SOURCE_SHA -replace '[0-9a-fA-F]','')
+          if($env:SOURCE_SHA.Length -ne 40 -or $nonHex.Length -ne 0){throw 'Invalid SHA'}
+          $nonDigits = ($env:SOURCE_RUN_NUMBER -replace '[0-9]','')
+          if([string]::IsNullOrWhiteSpace($env:SOURCE_RUN_NUMBER) -or $nonDigits.Length -ne 0){throw 'Invalid run number'}
+
+          # Verify the requested SHA exists in the source repository.
+          & gh api "repos/alimirzae/Ecomm/commits/$env:SOURCE_SHA" --jq .sha | Out-Null
+          if($LASTEXITCODE -ne 0){ throw "Requested source SHA does not exist: $env:SOURCE_SHA" }
+
+          Write-Host "Resolved Posiran source branch=$env:SOURCE_BRANCH sha=$env:SOURCE_SHA"
+
+      - name: Checkout exact Posiran source commit
         uses: actions/checkout@v4
         with:
           repository: alimirzae/Ecomm
