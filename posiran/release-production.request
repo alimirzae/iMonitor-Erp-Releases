@@ -1,4 +1,4 @@
 Publish Posiran ERP production package from the latest posiran_production branch.
 Requested source: 3ce51de271d799200df4e02e54c9b88fd0360afd
-Requested at: 2026-10-04 09:27 +03:00
-Reason: final retry after restoring valid workflow YAML; exact current posiran_production head.
+Requested at: 2026-10-04 09:34 +03:00
+Reason: final production republish after restoring the known-good release workflow.
