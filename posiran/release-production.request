@@ -1,4 +1,4 @@
 Publish Posiran ERP production package from the latest posiran_production branch.
-Requested source: 6235d4f35179f43227c695b9bc79bb172f744447
-Requested at: 2026-10-02 18:00 UTC
-Reason: bundle verified Behpardakht POS-PC 1.4.48 driver automatically.
+Requested source: d179257ef05a321aa6573ecf1dafddb493663705
+Requested at: 2026-10-04 09:07 +03:00
+Reason: promote latest verified iMonitor test upgrades to Posiran production.
