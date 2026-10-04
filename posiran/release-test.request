@@ -1,4 +1,4 @@
 Publish Posiran ERP test package from the latest posiran_test branch.
-Requested source: 32df3f83d6f7534f9de93e34aec6430ce4005bc8
-Requested at: 2026-10-02 18:00 UTC
-Reason: bundle verified Behpardakht POS-PC 1.4.48 driver automatically.
+Requested source: 5fe5cb620cb3987bc84a7070d4d9896013a3e796
+Requested at: 2026-10-04 09:07 +03:00
+Reason: promote latest verified iMonitor test upgrades to Posiran test.
