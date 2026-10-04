@@ -1,4 +1,4 @@
 Publish Posiran ERP production package from the latest posiran_production branch.
-Requested source: d179257ef05a321aa6573ecf1dafddb493663705
-Requested at: 2026-10-04 09:07 +03:00
-Reason: promote latest verified iMonitor test upgrades to Posiran production.
+Requested source: 3ce51de271d799200df4e02e54c9b88fd0360afd
+Requested at: 2026-10-04 09:20 +03:00
+Reason: retry latest iMonitor test promotion after restoring PosiranBrandDefaults.
