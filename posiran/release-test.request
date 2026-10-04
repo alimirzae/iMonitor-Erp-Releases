@@ -1,4 +1,4 @@
 Publish Posiran ERP test package from the latest posiran_test branch.
-Requested source: 211957b214cbb6f13cdf4e6394d289cfcdec7441
-Requested at: 2026-10-04 09:20 +03:00
-Reason: retry latest iMonitor test promotion after restoring PosiranBrandDefaults.
+Requested source: 5edc9bdd0f9e24fa4143976961239286aedb6087
+Requested at: 2026-10-04 10:00 +03:00
+Reason: republish exact current posiran_test head after final white-label UI synchronization.
