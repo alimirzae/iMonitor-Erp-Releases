@@ -50,21 +50,320 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
         run: |
-          if([string]::IsNullOrWhiteSpace($env:SOURCE_BRANCH)){
-            if($env:GITHUB_EVENT_NAME -eq 'push' -and $env:PUSH_MESSAGE -match 'posiran_production'){
+          $ErrorActionPreference='Stop'
+
+          # Push-triggered releases are identified from the request file that changed,
+          # never from an English commit-message heuristic. This prevents a production
+          # request from accidentally publishing the test branch.
+          if([string]::IsNullOrWhiteSpace($env:SOURCE_BRANCH) -and $env:GITHUB_EVENT_NAME -eq 'push'){
+            $changed = @(& git -C "$env:GITHUB_WORKSPACE/ReleaseCenter" diff-tree --no-commit-id --name-only -r $env:GITHUB_SHA)
+            if($changed -contains 'posiran/release-production.request'){
               $env:SOURCE_BRANCH='posiran_production'
-            } else {
+              $requestFile = Join-Path $env:GITHUB_WORKSPACE 'ReleaseCenter/posiran/release-production.request'
+            }
+            elseif($changed -contains 'posiran/release-test.request'){
               $env:SOURCE_BRANCH='posiran_test'
+              $requestFile = Join-Path $env:GITHUB_WORKSPACE 'ReleaseCenter/posiran/release-test.request'
+            }
+            else {
+              throw "Could not determine Posiran channel from changed request file(s): $($changed -join ', ')"
+            }
+
+            # Pin the exact requested source SHA when the request file provides it.
+            if(Test-Path $requestFile){
+              $requestText = Get-Content $requestFile -Raw
+              if($requestText -match 'Requested source:\s*([0-9a-fA-F]{40})'){
+                $env:SOURCE_SHA = $Matches[1]
+                "SOURCE_SHA=$env:SOURCE_SHA" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+              }
             }
             "SOURCE_BRANCH=$env:SOURCE_BRANCH" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           }
+
+          if([string]::IsNullOrWhiteSpace($env:SOURCE_BRANCH)){
+            throw 'SOURCE_BRANCH was not supplied and could not be derived safely.'
+          }
           if($env:SOURCE_BRANCH -notin @('posiran_test','posiran_production')){throw "Unsupported branch: $env:SOURCE_BRANCH"}
+
           if([string]::IsNullOrWhiteSpace($env:SOURCE_SHA)){
             $env:SOURCE_SHA = (gh api "repos/alimirzae/Ecomm/commits/$env:SOURCE_BRANCH" --jq .sha).Trim()
             "SOURCE_SHA=$env:SOURCE_SHA" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
           }
-          if($env:SOURCE_SHA -notmatch '^[0-9a-fA-F]{40}$'){throw 'Invalid SHA'}
-          if($env:SOURCE_RUN_NUMBER -notmatch '^\d+$'){throw 'Invalid run number'}
+
+          if($env:SOURCE_SHA -notmatch '^[0-9a-fA-F]{40}
+
+      - name: Checkout exact Posiran source commit
+        uses: actions/checkout@v4
+        with:
+          repository: alimirzae/Ecomm
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.RELEASE_REPO_TOKEN }}
+          path: EcommSource
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Apply canonical Posiran white-label
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/ReleaseCenter/scripts/Apply-PosiranWhiteLabel.ps1" `
+            -SourceRoot "$env:GITHUB_WORKSPACE/EcommSource" `
+            -OverlayRoot "$env:GITHUB_WORKSPACE/ReleaseCenter/posiran/overlay"
+
+      - name: Validate isolated package contract
+        shell: powershell
+        run: |
+          $root="$env:GITHUB_WORKSPACE\EcommSource"
+          $app=Get-Content (Join-Path $root 'Ecomm\Components\App.razor') -Raw
+          $layout=Get-Content (Join-Path $root 'Ecomm\Components\Layout\MainLayout.razor') -Raw
+          if($app -notmatch 'posiran-brand\.css'){throw 'Posiran stylesheet is not loaded.'}
+          if($app -match 'iMonitor ERP' -or $layout -match 'iMonitor ERP'){throw 'Visible iMonitor branding remains in Posiran shell.'}
+          foreach($p in @('Ecomm\wwwroot\posiran-brand.css','Ecomm\wwwroot\img\posiran-logo.svg')){if(!(Test-Path (Join-Path $root $p))){throw "Missing Posiran asset: $p"}}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore and build
+        shell: powershell
+        run: |
+          Set-Location "$env:GITHUB_WORKSPACE\EcommSource"
+          dotnet restore Ecomm.sln
+          if($LASTEXITCODE -ne 0){throw 'Restore failed'}
+          dotnet build Ecomm.sln -c Release --no-restore
+          if($LASTEXITCODE -ne 0){throw 'Build failed'}
+          dotnet test Ecomm.Tests\Ecomm.Tests.csproj -c Release --no-build --verbosity normal
+          if($LASTEXITCODE -ne 0){throw 'Tests failed'}
+
+      - name: Publish clean Windows package
+        shell: powershell
+        run: |
+          Set-Location "$env:GITHUB_WORKSPACE\EcommSource"
+          $out=Join-Path $env:RUNNER_TEMP 'posiran-publish'
+          dotnet publish Ecomm\Ecomm.csproj -c Release -r win-x64 --self-contained false --no-restore -o $out
+          if($LASTEXITCODE -ne 0){throw 'Publish failed'}
+          foreach($f in @('appsettings.json','appsettings.Development.json','appsettings.Production.json')){$p=Join-Path $out $f;if(Test-Path $p){Remove-Item $p -Force}}
+          if(!(Test-Path (Join-Path $out 'Ecomm.dll'))){throw 'Ecomm.dll missing'}
+          if(!(Test-Path (Join-Path $out 'wwwroot\posiran-brand.css'))){throw 'Posiran branding missing from package'}
+          if(!(Test-Path (Join-Path $out 'wwwroot\img\posiran-logo.svg'))){throw 'Posiran logo missing from package'}
+          & "$env:GITHUB_WORKSPACE\ReleaseCenter\scripts\Ensure-BehpardakhtPosPcDriver.ps1" -TargetRoot $out
+          if($LASTEXITCODE -ne 0){throw 'Behpardakht POS-PC provisioning failed'}
+          $posDll=Join-Path $out 'DeviceDrivers\pos\behpardakht-pospc-1.4.48\POS_PC.dll'
+          if(!(Test-Path $posDll)){throw 'Behpardakht POS_PC.dll 1.4.48 missing from package'}
+
+      - name: Zip checksum and release metadata
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'posiran-publish'
+          $isTest=$env:SOURCE_BRANCH -eq 'posiran_test'
+          $channel=if($isTest){'test'}else{'production'}
+          $version="1.0.$env:SOURCE_RUN_NUMBER"
+          $tag="posiran-erp-$channel-v$version"
+          $notesSource=Join-Path $env:GITHUB_WORKSPACE 'EcommSource\RELEASE_NOTES.md'
+          $notes=if(Test-Path $notesSource){Get-Content $notesSource -Raw -Encoding UTF8}else{(& git -C "$env:GITHUB_WORKSPACE\EcommSource" log -1 --pretty=%B)}
+          $notesFile=Join-Path $env:RUNNER_TEMP 'posiran-release-notes.md'
+          $releaseBody = $notes + [Environment]::NewLine + [Environment]::NewLine +
+            '---' + [Environment]::NewLine +
+            "Channel: $channel" + [Environment]::NewLine +
+            "Source branch: $env:SOURCE_BRANCH" + [Environment]::NewLine +
+            "Source SHA: $env:SOURCE_SHA" + [Environment]::NewLine +
+            'Database settings and credentials are excluded from the package and preserved during upgrade.'
+          Set-Content $notesFile $releaseBody -Encoding UTF8
+          Set-Content (Join-Path $out 'release-tag.txt') $tag -Encoding ASCII
+          Set-Content (Join-Path $out 'release-notes.md') $notes -Encoding UTF8
+          [ordered]@{product='posiran';channel=$channel;tag=$tag;version=$version;sourceSha=$env:SOURCE_SHA;publishedAt=(Get-Date).ToUniversalTime().ToString('o')} |
+            ConvertTo-Json | Set-Content (Join-Path $out 'release-info.json') -Encoding UTF8
+          Copy-Item "$env:GITHUB_WORKSPACE\ReleaseCenter\scripts\Install-PosiranERP-v1.0.5.ps1" (Join-Path $out 'Install-PosiranERP.ps1') -Force
+
+          $zip=Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
+          Compress-Archive -Path "$out\*" -DestinationPath $zip -CompressionLevel Optimal -Force
+          $hash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $env:ASSET_NAME" | Set-Content "$zip.sha256" -Encoding ASCII
+
+          "RELEASE_TAG=$tag" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_TITLE=Posiran ERP $channel $version" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_PRERELEASE=$($isTest.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_ZIP=$zip" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_SHA=$zip.sha256" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_CHANNEL=$channel" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_NOTES=$notesFile" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Create or refresh Posiran release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TITLE }}
+          body_path: ${{ env.RELEASE_NOTES }}
+          target_commitish: main
+          prerelease: ${{ env.RELEASE_PRERELEASE }}
+          make_latest: false
+          files: |
+            ${{ env.RELEASE_ZIP }}
+            ${{ env.RELEASE_SHA }}
+
+      - name: Release summary
+        shell: powershell
+        run: |
+          "channel=$env:RELEASE_CHANNEL" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "tag=$env:RELEASE_TAG" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "source=$env:SOURCE_SHA" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Publish API-free channel manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $channel=$env:RELEASE_CHANNEL
+          $path="channels/posiran/$channel/latest.json"
+          $json=[ordered]@{product='posiran';channel=$channel;tag=$env:RELEASE_TAG;asset=$env:ASSET_NAME;sourceSha=$env:SOURCE_SHA;sourceBranch=$env:SOURCE_BRANCH;publishedAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json -Compress
+          $content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
+          $existing=(& gh api "repos/$env:GITHUB_REPOSITORY/contents/$path" --jq .sha 2>$null)
+          $args=@('api',"repos/$env:GITHUB_REPOSITORY/contents/$path",'--method','PUT','-f',"message=chore(releases): update Posiran $channel manifest",'-f',"content=$content",'-f','branch=main')
+          if($LASTEXITCODE -eq 0 -and $existing){$args+=@('-f',"sha=$($existing.Trim())")}
+          & gh @args
+          if($LASTEXITCODE -ne 0){throw 'Failed to update API-free channel manifest.'}
+){throw 'Invalid SHA'}
+          if($env:SOURCE_RUN_NUMBER -notmatch '^\d+
+
+      - name: Checkout exact Posiran source commit
+        uses: actions/checkout@v4
+        with:
+          repository: alimirzae/Ecomm
+          ref: ${{ env.SOURCE_SHA }}
+          token: ${{ secrets.RELEASE_REPO_TOKEN }}
+          path: EcommSource
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Apply canonical Posiran white-label
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/ReleaseCenter/scripts/Apply-PosiranWhiteLabel.ps1" `
+            -SourceRoot "$env:GITHUB_WORKSPACE/EcommSource" `
+            -OverlayRoot "$env:GITHUB_WORKSPACE/ReleaseCenter/posiran/overlay"
+
+      - name: Validate isolated package contract
+        shell: powershell
+        run: |
+          $root="$env:GITHUB_WORKSPACE\EcommSource"
+          $app=Get-Content (Join-Path $root 'Ecomm\Components\App.razor') -Raw
+          $layout=Get-Content (Join-Path $root 'Ecomm\Components\Layout\MainLayout.razor') -Raw
+          if($app -notmatch 'posiran-brand\.css'){throw 'Posiran stylesheet is not loaded.'}
+          if($app -match 'iMonitor ERP' -or $layout -match 'iMonitor ERP'){throw 'Visible iMonitor branding remains in Posiran shell.'}
+          foreach($p in @('Ecomm\wwwroot\posiran-brand.css','Ecomm\wwwroot\img\posiran-logo.svg')){if(!(Test-Path (Join-Path $root $p))){throw "Missing Posiran asset: $p"}}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore and build
+        shell: powershell
+        run: |
+          Set-Location "$env:GITHUB_WORKSPACE\EcommSource"
+          dotnet restore Ecomm.sln
+          if($LASTEXITCODE -ne 0){throw 'Restore failed'}
+          dotnet build Ecomm.sln -c Release --no-restore
+          if($LASTEXITCODE -ne 0){throw 'Build failed'}
+          dotnet test Ecomm.Tests\Ecomm.Tests.csproj -c Release --no-build --verbosity normal
+          if($LASTEXITCODE -ne 0){throw 'Tests failed'}
+
+      - name: Publish clean Windows package
+        shell: powershell
+        run: |
+          Set-Location "$env:GITHUB_WORKSPACE\EcommSource"
+          $out=Join-Path $env:RUNNER_TEMP 'posiran-publish'
+          dotnet publish Ecomm\Ecomm.csproj -c Release -r win-x64 --self-contained false --no-restore -o $out
+          if($LASTEXITCODE -ne 0){throw 'Publish failed'}
+          foreach($f in @('appsettings.json','appsettings.Development.json','appsettings.Production.json')){$p=Join-Path $out $f;if(Test-Path $p){Remove-Item $p -Force}}
+          if(!(Test-Path (Join-Path $out 'Ecomm.dll'))){throw 'Ecomm.dll missing'}
+          if(!(Test-Path (Join-Path $out 'wwwroot\posiran-brand.css'))){throw 'Posiran branding missing from package'}
+          if(!(Test-Path (Join-Path $out 'wwwroot\img\posiran-logo.svg'))){throw 'Posiran logo missing from package'}
+          & "$env:GITHUB_WORKSPACE\ReleaseCenter\scripts\Ensure-BehpardakhtPosPcDriver.ps1" -TargetRoot $out
+          if($LASTEXITCODE -ne 0){throw 'Behpardakht POS-PC provisioning failed'}
+          $posDll=Join-Path $out 'DeviceDrivers\pos\behpardakht-pospc-1.4.48\POS_PC.dll'
+          if(!(Test-Path $posDll)){throw 'Behpardakht POS_PC.dll 1.4.48 missing from package'}
+
+      - name: Zip checksum and release metadata
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'posiran-publish'
+          $isTest=$env:SOURCE_BRANCH -eq 'posiran_test'
+          $channel=if($isTest){'test'}else{'production'}
+          $version="1.0.$env:SOURCE_RUN_NUMBER"
+          $tag="posiran-erp-$channel-v$version"
+          $notesSource=Join-Path $env:GITHUB_WORKSPACE 'EcommSource\RELEASE_NOTES.md'
+          $notes=if(Test-Path $notesSource){Get-Content $notesSource -Raw -Encoding UTF8}else{(& git -C "$env:GITHUB_WORKSPACE\EcommSource" log -1 --pretty=%B)}
+          $notesFile=Join-Path $env:RUNNER_TEMP 'posiran-release-notes.md'
+          $releaseBody = $notes + [Environment]::NewLine + [Environment]::NewLine +
+            '---' + [Environment]::NewLine +
+            "Channel: $channel" + [Environment]::NewLine +
+            "Source branch: $env:SOURCE_BRANCH" + [Environment]::NewLine +
+            "Source SHA: $env:SOURCE_SHA" + [Environment]::NewLine +
+            'Database settings and credentials are excluded from the package and preserved during upgrade.'
+          Set-Content $notesFile $releaseBody -Encoding UTF8
+          Set-Content (Join-Path $out 'release-tag.txt') $tag -Encoding ASCII
+          Set-Content (Join-Path $out 'release-notes.md') $notes -Encoding UTF8
+          [ordered]@{product='posiran';channel=$channel;tag=$tag;version=$version;sourceSha=$env:SOURCE_SHA;publishedAt=(Get-Date).ToUniversalTime().ToString('o')} |
+            ConvertTo-Json | Set-Content (Join-Path $out 'release-info.json') -Encoding UTF8
+          Copy-Item "$env:GITHUB_WORKSPACE\ReleaseCenter\scripts\Install-PosiranERP-v1.0.5.ps1" (Join-Path $out 'Install-PosiranERP.ps1') -Force
+
+          $zip=Join-Path $env:RUNNER_TEMP $env:ASSET_NAME
+          Compress-Archive -Path "$out\*" -DestinationPath $zip -CompressionLevel Optimal -Force
+          $hash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $env:ASSET_NAME" | Set-Content "$zip.sha256" -Encoding ASCII
+
+          "RELEASE_TAG=$tag" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_TITLE=Posiran ERP $channel $version" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_PRERELEASE=$($isTest.ToString().ToLowerInvariant())" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_ZIP=$zip" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_SHA=$zip.sha256" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_CHANNEL=$channel" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_NOTES=$notesFile" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Create or refresh Posiran release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TITLE }}
+          body_path: ${{ env.RELEASE_NOTES }}
+          target_commitish: main
+          prerelease: ${{ env.RELEASE_PRERELEASE }}
+          make_latest: false
+          files: |
+            ${{ env.RELEASE_ZIP }}
+            ${{ env.RELEASE_SHA }}
+
+      - name: Release summary
+        shell: powershell
+        run: |
+          "channel=$env:RELEASE_CHANNEL" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "tag=$env:RELEASE_TAG" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "source=$env:SOURCE_SHA" | Add-Content $env:GITHUB_STEP_SUMMARY
+
+      - name: Publish API-free channel manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $channel=$env:RELEASE_CHANNEL
+          $path="channels/posiran/$channel/latest.json"
+          $json=[ordered]@{product='posiran';channel=$channel;tag=$env:RELEASE_TAG;asset=$env:ASSET_NAME;publishedAt=(Get-Date).ToUniversalTime().ToString('o')} | ConvertTo-Json -Compress
+          $content=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
+          $existing=(& gh api "repos/$env:GITHUB_REPOSITORY/contents/$path" --jq .sha 2>$null)
+          $args=@('api',"repos/$env:GITHUB_REPOSITORY/contents/$path",'--method','PUT','-f',"message=chore(releases): update Posiran $channel manifest",'-f',"content=$content",'-f','branch=main')
+          if($LASTEXITCODE -eq 0 -and $existing){$args+=@('-f',"sha=$($existing.Trim())")}
+          & gh @args
+          if($LASTEXITCODE -ne 0){throw 'Failed to update API-free channel manifest.'}
+){throw 'Invalid run number'}
+
+          # Verify the requested SHA exists in the source repository.
+          & gh api "repos/alimirzae/Ecomm/commits/$env:SOURCE_SHA" --jq .sha | Out-Null
+          if($LASTEXITCODE -ne 0){ throw "Requested source SHA does not exist: $env:SOURCE_SHA" }
+
+          Write-Host "Resolved Posiran source: branch=$env:SOURCE_BRANCH sha=$env:SOURCE_SHA"
 
       - name: Checkout exact Posiran source commit
         uses: actions/checkout@v4
