@@ -1,4 +1,4 @@
 Publish Posiran ERP production package from the latest posiran_production branch.
-Requested source: 3ce51de271d799200df4e02e54c9b88fd0360afd
-Requested at: 2026-10-04 09:34 +03:00
-Reason: final production republish after restoring the known-good release workflow.
+Requested source: 6128c665a24e5936857c496c72b1b6df84471a43
+Requested at: 2026-10-04 10:00 +03:00
+Reason: republish exact current posiran_production head after final white-label UI synchronization.
