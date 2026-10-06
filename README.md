@@ -1,4 +1,33 @@
 # iMonitor Release Center
+## iTrack / iMonitor Platform — نصب یک‌خطی Ubuntu و Auto Update
+
+نسخه عمومی iTrack از مخزن خصوصی `alimirzae/iTrack` بعد از موفقیت CI با تگ‌های `imonitor-platform-v*` در همین Release Center منتشر می‌شود. بسته انتشار شامل سورس نسخه‌شده، Docker imageهای آماده و فایل SHA256 است.
+
+نصب روی Ubuntu/Debian با یک خط:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-iMonitorPlatform-v1.0.3.sh | sudo bash
+```
+
+Installer به‌صورت خودکار Docker/Compose را آماده می‌کند، آخرین Release را با checksum دانلود می‌کند، imageها را load می‌کند، config و credentialهای محلی را در `/etc/imonitor-platform` نگه می‌دارد، stack را در `/opt/imonitor-platform/current` اجرا می‌کند و health backend/frontend را کنترل می‌کند.
+
+پس از نصب، `imonitor-platform-update.timer` هر ۳۰ دقیقه Release Center را بررسی می‌کند و در صورت وجود نسخه جدید updater عمومی را اجرا می‌کند. داده‌ها و credentialهای محلی در upgrade بازنویسی نمی‌شوند.
+
+بررسی وضعیت:
+
+```bash
+systemctl status imonitor-platform.service
+systemctl status imonitor-platform-update.timer
+cd /opt/imonitor-platform/current && sudo docker compose ps
+```
+
+اجرای دستی update:
+
+```bash
+sudo /usr/local/sbin/imonitor-platform-update
+```
+
+
 
 مرکز عمومی انتشار، نصب و ارتقای محصولات **iMonitor ERP / Ecomm ERP / Posiran ERP**.
 
