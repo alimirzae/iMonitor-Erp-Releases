@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(builder.Configuration["Installer:Url"] ?? "http://127.0.0.1:8099");
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<OperationLogStore>();
 
 var defaultInstallRoot = builder.Configuration["Installer:InstallRoot"] ?? @"C:\iMonitorERP";
 var defaultConfigRoot = builder.Configuration["Installer:ConfigRoot"] ?? @"C:\Deploy\iMonitorERP";
@@ -43,6 +44,13 @@ app.MapGet("/api/status", (OrchestratorService orchestrator) =>
 app.MapGet("/api/installations", async (OrchestratorService orchestrator, CancellationToken ct) =>
     Results.Ok(await orchestrator.ListInstallationsAsync(ct)));
 
+app.MapGet("/api/operations", (OperationLogStore logs) => Results.Ok(logs.Recent()));
+app.MapGet("/api/operations/{id}", (string id, OperationLogStore logs) =>
+{
+    var state = logs.Get(id);
+    return state is null ? Results.NotFound() : Results.Ok(state);
+});
+
 app.MapGet("/api/mysql/services", (OrchestratorService orchestrator) => Results.Ok(orchestrator.ListMySqlServices()));
 
 app.MapPost("/api/installations/{id}/backup", async (string id, BackupRequest? request, OrchestratorService orchestrator, CancellationToken ct) =>
@@ -63,32 +71,102 @@ app.MapPost("/api/installations/{id}/control/{action}", async (string id, string
     catch (Exception ex) { return Results.Problem(ex.Message); }
 });
 
-app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorService orchestrator, IHttpClientFactory clients, CancellationToken ct) =>
+app.MapPost("/api/installations/{id}/upgrade", (string id, OrchestratorService orchestrator, IHttpClientFactory clients, OperationLogStore logs) =>
 {
+    var existing = logs.Recent().FirstOrDefault(x =>
+        string.Equals(x.Status, "Running", StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(x.Title, $"Upgrade {id}", StringComparison.OrdinalIgnoreCase));
+    if (existing is not null)
+        return Results.Accepted($"/api/operations/{existing.Id}", new
+        {
+            operationId = existing.Id,
+            status = existing.Status,
+            stage = existing.Stage,
+            progressPercent = existing.ProgressPercent,
+            message = "ارتقای این نصب از قبل در حال اجرا است."
+        });
+
+    InstallationManifest manifest;
     try
     {
-        var manifest = orchestrator.RequireManifest(id);
-        var backup = await orchestrator.BackupAsync(id, "pre-upgrade", ct);
-        var scriptDirectory = Path.Combine(defaultInstallRoot, "installer");
-        Directory.CreateDirectory(scriptDirectory);
-        var scriptPath = Path.Combine(scriptDirectory, "Install-iMonitorERP-v2.1.6.ps1");
-        var http = clients.CreateClient();
-        http.Timeout = TimeSpan.FromSeconds(60);
-        await DownloadInstallerScriptAsync(http, scriptPath, ct);
-        var args = new List<string>
-        {
-            "-NoProfile","-ExecutionPolicy","Bypass","-File",scriptPath,
-            "-Channel",manifest.Channel,"-Mode","InstallOrUpdate","-InstallRoot",defaultInstallRoot,"-ConfigRoot",defaultConfigRoot,
-            manifest.Channel == "Test" ? "-TestPort" : "-ProductionPort",manifest.Port.ToString(),
-            manifest.Channel == "Test" ? "-TestFolderName" : "-ProductionFolderName",manifest.InstallFolderName,
-            "-Force"
-        };
-        
-        var r = RunPowerShell(args);
-        if (r.ExitCode != 0) return Results.Problem($"Upgrade failed. Pre-upgrade backup: {backup.BackupId}. {r.Error}");
-        return Results.Ok(new { upgraded = true, preUpgradeBackup = backup.BackupId, output = r.Output });
+        manifest = orchestrator.RequireManifest(id);
     }
-    catch (Exception ex) { return Results.Problem(ex.Message); }
+    catch (Exception ex)
+    {
+        return Results.Problem(title: "Upgrade request rejected", detail: ex.Message, statusCode: 404);
+    }
+
+    var op = logs.Start($"Upgrade {id}");
+    logs.Progress(op.Id, "آماده‌سازی", 1, $"درخواست ارتقای {manifest.DisplayName} پذیرفته شد.");
+
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            logs.Progress(op.Id, "پشتیبان‌گیری", 4, "ایجاد Backup قبل از ارتقا");
+            var backup = await orchestrator.BackupAsync(id, "pre-upgrade", CancellationToken.None);
+            logs.Progress(op.Id, "پشتیبان‌گیری", 10, $"Backup آماده شد: {backup.BackupId}");
+
+            var scriptDirectory = Path.Combine(defaultInstallRoot, "installer");
+            Directory.CreateDirectory(scriptDirectory);
+            var scriptPath = Path.Combine(scriptDirectory, "Install-iMonitorERP-v2.1.6.ps1");
+            logs.Progress(op.Id, "نصاب", 12, "بررسی و دریافت آخرین اسکریپت نصب");
+            var http = clients.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(60);
+            await DownloadInstallerScriptAsync(http, scriptPath, CancellationToken.None);
+            logs.Progress(op.Id, "نصاب", 16, "اسکریپت نصب آماده است");
+
+            var args = new List<string>
+            {
+                "-NoProfile","-ExecutionPolicy","Bypass","-File",scriptPath,
+                "-Channel",manifest.Channel,"-Mode","InstallOrUpdate","-InstallRoot",defaultInstallRoot,"-ConfigRoot",defaultConfigRoot,
+                manifest.Channel == "Test" ? "-TestPort" : "-ProductionPort",manifest.Port.ToString(),
+                manifest.Channel == "Test" ? "-TestFolderName" : "-ProductionFolderName",manifest.InstallFolderName,
+                "-Force"
+            };
+
+            logs.Progress(op.Id, "استقرار", 20, "اجرای Installer؛ خروجی و مراحل به‌صورت زنده ثبت می‌شوند");
+            var run = await RunPowerShellAsync(args, 30 * 60 * 1000, logs, op.Id, CancellationToken.None);
+            if (run.ExitCode != 0)
+            {
+                logs.Complete(op.Id, false, $"PowerShell exit code {run.ExitCode}. Backup: {backup.BackupId}. {run.Error}");
+                return;
+            }
+
+            logs.Progress(op.Id, "Health Check", 95, $"کنترل وضعیت HTTP، IIS و دیتابیس روی پورت {manifest.Port}");
+            var statuses = await orchestrator.ListInstallationsAsync(CancellationToken.None);
+            var active = statuses.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (active is null)
+            {
+                logs.Complete(op.Id, false, "ارتقا اجرا شد اما وضعیت نصب در Deployment Manager پیدا نشد.");
+                return;
+            }
+
+            if (!active.HealthOk || !active.DatabaseReachable)
+            {
+                logs.Complete(op.Id, false,
+                    $"ارتقا پایان یافت اما Health Check موفق نبود. HTTP: {active.HealthMessage}; DB: {active.DatabaseMessage}");
+                return;
+            }
+
+            logs.Progress(op.Id, "تکمیل", 100, $"نسخه {active.InstalledRelease ?? "جدید"} سالم و در دسترس است.");
+            logs.Complete(op.Id, true,
+                $"ارتقا با موفقیت انجام شد. Backup: {backup.BackupId}. HTTP و دیتابیس سالم هستند.");
+        }
+        catch (Exception ex)
+        {
+            logs.Complete(op.Id, false, ex.Message);
+        }
+    });
+
+    return Results.Accepted($"/api/operations/{op.Id}", new
+    {
+        operationId = op.Id,
+        status = "Running",
+        stage = "آماده‌سازی",
+        progressPercent = 1,
+        message = "عملیات ارتقا در سرویس 8099 شروع شد."
+    });
 });
 
 app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchestrator) =>
@@ -206,6 +284,82 @@ static InstallerProcessResult RunPowerShell(IEnumerable<string> args)
     var error = process.StandardError.ReadToEnd();
     process.WaitForExit();
     return new InstallerProcessResult(process.ExitCode, output, string.IsNullOrWhiteSpace(error) ? output : error);
+}
+
+static async Task<InstallerProcessResult> RunPowerShellAsync(
+    IEnumerable<string> args,
+    int timeoutMs,
+    OperationLogStore logs,
+    string operationId,
+    CancellationToken cancellationToken)
+{
+    var psi = new ProcessStartInfo
+    {
+        FileName = "powershell.exe",
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+    };
+    foreach (var arg in args) psi.ArgumentList.Add(arg);
+
+    using var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
+    var output = new System.Text.StringBuilder();
+    var error = new System.Text.StringBuilder();
+
+    void HandleLine(string level, string? line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return;
+        lock (output)
+        {
+            if (level == "stderr") error.AppendLine(line); else output.AppendLine(line);
+        }
+
+        var progress = Regex.Match(line, @"^\[PROGRESS\s+(\d{1,3})\]\s*(.*)$", RegexOptions.IgnoreCase);
+        if (progress.Success && int.TryParse(progress.Groups[1].Value, out var pct))
+        {
+            logs.Progress(operationId, "استقرار", pct, progress.Groups[2].Value);
+            return;
+        }
+
+        var stage = Regex.Match(line, @"^\[STAGE\s+([^\]]+)\]\s*(.*)$", RegexOptions.IgnoreCase);
+        if (stage.Success)
+        {
+            logs.Progress(operationId, stage.Groups[1].Value,
+                Math.Max(1, logs.Get(operationId)?.ProgressPercent ?? 1),
+                stage.Groups[2].Value);
+            return;
+        }
+
+        logs.Add(operationId, level, line);
+    }
+
+    process.OutputDataReceived += (_, e) => HandleLine("stdout", e.Data);
+    process.ErrorDataReceived += (_, e) => HandleLine("stderr", e.Data);
+
+    if (!process.Start())
+        throw new InvalidOperationException("Could not start PowerShell.");
+
+    process.BeginOutputReadLine();
+    process.BeginErrorReadLine();
+
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    timeout.CancelAfter(timeoutMs);
+    try
+    {
+        await process.WaitForExitAsync(timeout.Token);
+        process.WaitForExit();
+        var outText = output.ToString();
+        var errText = error.ToString();
+        return new InstallerProcessResult(process.ExitCode, outText,
+            string.IsNullOrWhiteSpace(errText) ? outText : errText);
+    }
+    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+    {
+        try { process.Kill(true); } catch { }
+        return new InstallerProcessResult(124, output.ToString(),
+            $"PowerShell timed out after {TimeSpan.FromMilliseconds(timeoutMs)}. {error}");
+    }
 }
 
 static object BuildAppSettings(bool isTest, SetupRequest request, string connectionString)
