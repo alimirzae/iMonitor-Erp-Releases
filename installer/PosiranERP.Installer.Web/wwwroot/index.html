@@ -14,7 +14,7 @@
 <div class="actions"><button id="installBtn" class="primary" onclick="runAll()">نصب / بروزرسانی کانال‌های انتخاب‌شده</button><button class="secondary" onclick="loadOps()">نمایش کنسول عملیات</button><button class="secondary" onclick="loadRuntimeHealth()">کنترل Runtime URL / IIS / DB</button></div><div class="bar"><i id="overallBar"></i></div><div id="progress" class="progressbox"></div><div id="summary" class="summary"></div><div class="help"><b>نصب آفلاین / سرور دارای محدودیت GitHub</b><p>اگر دانلود مستقیم متوقف شد، ZIP نسخه و فایل <span dir=ltr>.sha256</span> آن را دستی در cache قرار دهید. نصاب در اجرای بعدی ابتدا cache معتبر را استفاده می‌کند و دانلود نمی‌کند.</p><div id="manualHelp">در حال دریافت مسیرها و دستورات...</div></div><div id="console" class="console">Web Console آماده است. برای دیدن عملیات روی «نمایش کنسول عملیات» بزنید.</div><div class="db"><h3>مدیریت نصب‌ها، نسخه‌های سالم و تأییدهای کاربر</h3><div class="actions"><button class="primary" onclick="loadInstallations()">بروزرسانی وضعیت نصب‌ها</button></div><div id="installations" class="summary"></div><div class="db"><h3>کنترل مستقل سرویس‌ها / Watchdog</h3>
 <p>آدرس Health را وارد کنید. تنظیمات روی دیسک ذخیره و توسط Windows Task مستقل از پنل و AiBOS اجرا می‌شود.</p>
 <div class="grid"><div><label>نصب</label><select id="wdId"></select></div><div><label>آدرس کامل Health</label><input id="wdUrl" dir="ltr" placeholder="https://erp.example.com/health"></div><div><label>فاصله بررسی (دقیقه)</label><input id="wdInterval" type="number" min="1" value="2"></div><div><label>فاصله بعد از ریستارت (دقیقه)</label><input id="wdGrace" type="number" min="1" value="4"></div><div><label>Timeout (ثانیه)</label><input id="wdTimeout" type="number" min="2" value="10"></div><div><label><input id="wdEnabled" type="checkbox"> Watchdog فعال</label><label><input id="wdRestart" type="checkbox" checked> ریستارت خودکار در خطای Health</label></div></div>
-<div class="actions"><button class="secondary" onclick="loadWatchdog()">خواندن تنظیمات و وضعیت</button><button class="primary" onclick="saveWatchdog()">ذخیره و فعال‌سازی زمان‌بند</button><button class="secondary" onclick="controlInstance('start')">Start</button><button class="secondary" onclick="controlInstance('stop')">Stop</button><button class="secondary" onclick="controlInstance('restart')">Restart</button></div><pre id="wdStatus" style="white-space:pre-wrap;direction:ltr"></pre></div></div>
+<div class="actions"><button class="secondary" onclick="loadWatchdog()">خواندن تنظیمات و وضعیت</button><button class="primary" onclick="saveWatchdog()">ذخیره و فعال‌سازی زمان‌بند</button><button class="secondary" onclick="testHealthUrl()">آزمون Health URL</button><button class="secondary" onclick="saveRuntimeUrl()">ذخیره Runtime URL</button><button class="secondary" onclick="pruneBackups()">پاکسازی نسخه‌های قدیمی</button><button class="secondary" onclick="controlInstance('start')">Start</button><button class="secondary" onclick="controlInstance('stop')">Stop</button><button class="secondary" onclick="controlInstance('restart')">Restart</button></div><pre id="wdStatus" style="white-space:pre-wrap;direction:ltr"></pre></div></div>
 </div></div></div>
 <script>
 const el=id=>document.getElementById(id);
@@ -101,6 +101,25 @@ async function saveWatchdog(){
   try{const d=await post('/api/watchdog/'+encodeURIComponent(id),{enabled:el('wdEnabled').checked,healthUrl:el('wdUrl').value.trim(),intervalMinutes:+el('wdInterval').value,afterRestartDelayMinutes:+el('wdGrace').value,timeoutSeconds:+el('wdTimeout').value,restartOnFailure:el('wdRestart').checked});
     st('Watchdog ذخیره شد: '+d.task,'ok');await loadWatchdog();
   }catch(e){st('خطا در ذخیره Watchdog: '+e.message,'warn')}
+}
+async function testHealthUrl(){
+ const id=el('wdId').value;if(!id)return;
+ try{const x=await post('/api/installations/'+encodeURIComponent(id)+'/test-health-url',{runtimeUrl:el('wdUrl').value.trim()});
+ st(x.ok?'Health URL سالم است: '+x.message:'Health URL پاسخ سالم نداد: '+x.message,x.ok?'ok':'warn');
+ }catch(e){st('Health check: '+e.message,'warn')}
+}
+async function saveRuntimeUrl(){
+ const id=el('wdId').value;if(!id)return;
+ try{const x=await post('/api/installations/'+encodeURIComponent(id)+'/runtime-url',{runtimeUrl:el('wdUrl').value.trim()});
+ st('URL بررسی و ذخیره شد: '+x.runtimeUrl,'ok');await loadInstallations()
+ }catch(e){st('URL ذخیره نشد: '+e.message,'warn')}
+}
+async function pruneBackups(){
+ const id=el('wdId').value;if(!id)return;
+ if(!confirm('پشتیبان‌های قدیمیِ کامل، با حفظ ۱۰ مورد آخر و نسخه‌های قابل بازگشت، پاک شوند؟'))return;
+ try{const x=await post('/api/installations/'+encodeURIComponent(id)+'/prune-backups',{});
+ st('پشتیبان قدیمی حذف‌شده: '+x.removed,'ok');await loadInstallations()
+ }catch(e){st('پاکسازی ناموفق: '+e.message,'warn')}
 }
 async function controlInstance(action){
  const id=el('wdId').value;if(!id)return;
