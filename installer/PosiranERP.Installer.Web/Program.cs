@@ -126,6 +126,7 @@ app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorSer
     try
     {
         var manifest = orchestrator.RequireManifest(id);
+        using var maintenance = orchestrator.AcquireMaintenance(id);
         logs.Add(op.Id, "info", $"Pre-upgrade backup for {manifest.DisplayName}");
         var backup = await orchestrator.BackupAsync(id, "pre-upgrade", ct);
         var scriptDirectory = Path.Combine(manifest.InstallRoot, "installer");
