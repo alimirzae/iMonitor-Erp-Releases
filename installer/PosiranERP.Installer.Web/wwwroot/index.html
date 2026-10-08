@@ -107,10 +107,10 @@ async function refreshWatchdogActivity(){
    fetch('/api/watchdog/'+encodeURIComponent(id)+'/history').then(async r=>{if(!r.ok)throw Error(await r.text());return r.json()})
   ]);
   const state=a.state||{},history=h.records||[];
-  el('wdLastCheck').textContent=wdDate(state.lastCheckUtc);
-  el('wdNextCheck').textContent=wdDate(state.nextCheckUtc);
-  el('wdLastResult').textContent=state.healthy===true?'سالم — '+(state.detail||'HTTP 200'):state.healthy===false?'ناسالم — '+(state.detail||'بدون پاسخ'):'هنوز هیچ بررسی خودکاری اجرا نشده است';
-  el('wdRestarted').textContent=state.restarted?'بله، آخرین بررسی باعث ریستارت شد':'خیر / ثبت نشده';
+  el('wdLastCheck').textContent=wdDate(state.lastCheckUtc||state.LastCheckUtc);
+  el('wdNextCheck').textContent=wdDate(state.nextCheckUtc||state.NextCheckUtc);
+  el('wdLastResult').textContent=(state.healthy??state.Healthy)===true?'سالم — '+(state.detail||state.Detail||'HTTP 200'):(state.healthy??state.Healthy)===false?'ناسالم — '+(state.detail||state.Detail||'بدون پاسخ'):'هنوز هیچ بررسی خودکاری اجرا نشده است';
+  el('wdRestarted').textContent=(state.restarted??state.Restarted)?'بله، آخرین بررسی باعث ریستارت شد':'خیر / ثبت نشده';
   el('wdStatus').textContent=JSON.stringify({settings:a.settings,state,historyCount:history.length},null,2);
   const box=el('wdHistory');box.replaceChildren();
   if(!history.length){box.textContent='هنوز گزارشی ثبت نشده است. پس از فعال‌سازی Watchdog و اجرای Windows Task، رویدادها اینجا نمایش داده می‌شوند.';return}
@@ -136,10 +136,10 @@ async function loadWatchdog(){
   const id=el('wdId').value;if(!id)return;
   try{const r=await fetch('/api/watchdog/'+encodeURIComponent(id));if(!r.ok)throw new Error(await r.text());const d=await r.json();
     const s=d.settings||{}, fallback=el('wdId').selectedOptions[0]?.dataset.url||'';
-    el('wdUrl').value=s.healthUrl||((fallback.replace(/\/$/,'')+'/health'));
-    el('wdInterval').value=s.intervalMinutes??2;el('wdGrace').value=s.afterRestartDelayMinutes??4;
-    el('wdTimeout').value=s.timeoutSeconds??10;el('wdEnabled').checked=!!s.enabled;
-    el('wdRestart').checked=s.restartOnFailure!==false;await refreshWatchdogActivity();
+    el('wdUrl').value=s.healthUrl||s.HealthUrl||((fallback.replace(/\/$/,'')+'/health'));
+    el('wdInterval').value=s.intervalMinutes??s.IntervalMinutes??2;el('wdGrace').value=s.afterRestartDelayMinutes??s.AfterRestartDelayMinutes??4;
+    el('wdTimeout').value=s.timeoutSeconds??s.TimeoutSeconds??10;el('wdEnabled').checked=!!(s.enabled??s.Enabled);
+    el('wdRestart').checked=(s.restartOnFailure??s.RestartOnFailure)!==false;await refreshWatchdogActivity();
   }catch(e){st('Watchdog: '+e.message,'warn')}
 }
 async function saveWatchdog(){
