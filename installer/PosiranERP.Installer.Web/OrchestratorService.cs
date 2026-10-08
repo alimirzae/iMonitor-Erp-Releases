@@ -215,6 +215,7 @@ public sealed class OrchestratorService
             }
             AppendHistory(m.Id, new VersionHealthRecord(tag, DateTime.UtcNow, "Healthy", health.Message, backup?.BackupId, actual));
             PruneOldBackups(m.Id);
+            PruneOldPackages(m.Id);
             progress?.Invoke("تکمیل", 100, health.Message);
             return new VersionOperationResult(tag, true, "Healthy", health.Message, backup?.BackupId);
         }
@@ -697,6 +698,46 @@ public sealed class OrchestratorService
             try { Directory.Delete(dir, recursive: true); removed++; }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
+        }
+        return removed;
+    }
+
+    /// <summary>
+    /// Preserve the latest ten healthy package archives for each product/channel,
+    /// plus any package currently installed on another local instance. Never remove
+    /// partial or manually staged packages that have not passed checksum validation.
+    /// </summary>
+    public int PruneOldPackages(string id, int retain = 10)
+    {
+        var manifest = RequireManifest(id);
+        var packageRoot = Path.Combine(manifest.InstallRoot, "packages");
+        if (!Directory.Exists(packageRoot)) return 0;
+        retain = Math.Clamp(retain, 10, 100);
+        var prefix = manifest.Product == "Posiran"
+            ? (manifest.Channel == "Test" ? "posiran-erp-test-v" : "posiran-erp-production-v")
+            : (manifest.Channel == "Test" ? "imonitor-ecomerp-test-v" : "imonitor-ecomerp-master-v");
+        var healthy = GetVersionHistory(id)
+            .Where(x => x.Status == "Healthy" && x.Tag.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(x => x.Tag, StringComparer.OrdinalIgnoreCase)
+            .Select(x => (tag: x.Key, date: x.Max(v => v.CheckedAtUtc)))
+            .OrderByDescending(x => x.date).ToList();
+        var preserve = healthy.Take(retain).Select(x => x.tag)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var m in LoadManifests().Where(x => string.Equals(x.InstallRoot, manifest.InstallRoot, StringComparison.OrdinalIgnoreCase)))
+        {
+            var installed = ReadInstalledRelease(m);
+            if (!string.IsNullOrWhiteSpace(installed)) preserve.Add(installed);
+        }
+        var removed = 0;
+        foreach (var older in healthy.Skip(retain))
+        {
+            if (preserve.Contains(older.tag) || older.tag.Contains('/') || older.tag.Contains('\\')) continue;
+            var directory = Path.Combine(packageRoot, older.tag);
+            if (!Directory.Exists(directory)) continue;
+            if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(directory)), Path.GetFullPath(packageRoot), StringComparison.OrdinalIgnoreCase)) continue;
+            if (!Directory.EnumerateFiles(directory, "*.sha256", SearchOption.TopDirectoryOnly).Any()) continue;
+            try { Directory.Delete(directory, recursive: true); removed++; }
+            catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
         return removed;
     }
