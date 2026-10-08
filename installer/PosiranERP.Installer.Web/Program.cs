@@ -161,6 +161,7 @@ app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorSer
             return Results.Problem(title: "Upgrade runtime verification failed", detail: $"Operation {op.Id}: {verification.Message}", statusCode: 500);
         }
 
+        try { orchestrator.PruneOldBackups(id); } catch (Exception ex) { logs.Add(op.Id, "warn", "Backup retention: " + ex.Message); }
         logs.Complete(op.Id, true, "Upgrade and runtime verification succeeded: " + verification.Message);
         return Results.Ok(new { upgraded = true, preUpgradeBackup = backup.BackupId, operationId = op.Id, runtime = verification, output = run.Output });
     }
