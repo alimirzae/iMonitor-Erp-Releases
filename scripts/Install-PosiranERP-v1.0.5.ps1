@@ -8,6 +8,7 @@ param(
   [string]$ProductionFolderName='production',
   [int]$TestPort=8082,
   [int]$ProductionPort=8083,
+  [string]$RuntimeHealthUrl='',
   [switch]$DisableAutoUpdate,
   [switch]$Force,
   [switch]$SkipTaskRegistration
@@ -399,7 +400,27 @@ function Install-Channel($info){
     Write-Host "[PROGRESS 86] Start IIS site and application pool"
     Start-WebAppPool $info.Pool;Start-Website $info.Site
     Write-Host "[PROGRESS 90] Verify runtime health"
-    $ok=$false;for($i=1;$i -le 45;$i++){Start-Sleep 2;try{$r=Invoke-WebRequest "http://127.0.0.1:$($info.Port)/health" -UseBasicParsing -TimeoutSec 8;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
+    $healthUrl=if($RuntimeHealthUrl){$RuntimeHealthUrl.TrimEnd('/')}else{"http://127.0.0.1:$($info.Port)"}
+    if($healthUrl -notmatch '^https?://'){throw 'RuntimeHealthUrl must be HTTP(S)'}
+    if($healthUrl -notmatch '/health
+    if(!$ok){throw "Health check failed on port $($info.Port)."}
+    if(Test-Path $backup){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
+    Write-Host "[PROGRESS 100] Installation and health verification succeeded"
+    Copy-Item (Join-Path $info.Root 'Install-PosiranERP.ps1') $stableInstaller -Force
+    Set-Content $info.State $rel.Tag -Encoding ASCII;Write-Host "[OK] $($rel.Tag) -> http://127.0.0.1:$($info.Port)/ ; DB=$($info.Database) ; Folder=$($info.Folder)" -ForegroundColor Green;Register-Updater $info
+  }catch{
+    $failure=$_
+    if($backup -and (Test-Path $backup)){
+      Write-Warning "Deployment failed for $($info.Name). Automatic rollback is disabled. Previous files are preserved at $backup for an explicit administrator rollback."
+    }else{
+      Write-Warning "Deployment failed for $($info.Name). Automatic rollback is disabled."
+    }
+    throw $failure
+  }finally{Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue}
+}
+$selected=@();if($Channel -in @('Both','Test')){$selected+=Get-ChannelInfo 'Test'};if($Channel -in @('Both','Production')){$selected+=Get-ChannelInfo 'Production'};foreach($i in $selected){Install-Channel $i}
+){$healthUrl+='/health'}
+    $ok=$false;for($i=1;$i -le 45;$i++){Start-Sleep 2;try{$r=Invoke-WebRequest $healthUrl -UseBasicParsing -TimeoutSec 8;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
     if(!$ok){throw "Health check failed on port $($info.Port)."}
     if(Test-Path $backup){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
     Write-Host "[PROGRESS 100] Installation and health verification succeeded"
