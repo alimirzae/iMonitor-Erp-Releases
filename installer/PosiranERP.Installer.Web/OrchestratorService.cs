@@ -802,7 +802,31 @@ public sealed class OrchestratorService
             value = "https://" + value;
         if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             throw new InvalidOperationException("Runtime URL must be a valid http/https URL or hostname.");
-        return value.TrimEnd('/');
+        if (!string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
+            throw new InvalidOperationException("Runtime URL cannot contain credentials, queries or fragments.");
+        var normalized = value.TrimEnd('/');
+        return normalized.EndsWith("/health", StringComparison.OrdinalIgnoreCase) ? normalized[..^7] : normalized;
+    }
+
+    public async Task<HealthResult> TestRuntimeUrlAsync(string url, CancellationToken ct = default)
+    {
+        var baseUrl = NormalizeRuntimeUrl(url, 8081);
+        try
+        {
+            var http = _clients.CreateClient();
+            http.Timeout = TimeSpan.FromSeconds(10);
+            using var response = await http.GetAsync(baseUrl + "/health", ct);
+            return new HealthResult(response.StatusCode == System.Net.HttpStatusCode.OK, $"HTTP {(int)response.StatusCode} @ {baseUrl}/health");
+        }
+        catch (Exception ex) { return new HealthResult(false, ex.GetType().Name + ": " + ex.Message); }
+    }
+
+    public InstallationManifest UpdateRuntimeUrl(string id, string url)
+    {
+        var manifest = RequireManifest(id);
+        var updated = manifest with { RuntimeUrl = NormalizeRuntimeUrl(url, manifest.Port), UpdatedAtUtc = DateTime.UtcNow };
+        SaveManifest(updated);
+        return updated;
     }
 
     private async Task<HealthResult> CheckHealthAsync(InstallationManifest m, CancellationToken cancellationToken)
