@@ -537,9 +537,14 @@ function Install-Channel($info){
     $healthUrls=New-Object System.Collections.Generic.List[string]
     if($RuntimeHealthUrl){
       $explicit=$RuntimeHealthUrl.TrimEnd('/')
-      if($explicit -notmatch '/health
-    if($bindingPort -ne $info.Port){[void]$healthUrls.Add("http://127.0.0.1:$($info.Port)/health")}
-    if($info.HostHeader){[void]$healthUrls.Add("http://$($info.HostHeader)/health")}
+      if(-not $explicit.EndsWith('/health',[StringComparison]::OrdinalIgnoreCase)){$explicit+='/health'}
+      if($explicit -notmatch '^https?://'){throw 'RuntimeHealthUrl must be HTTP(S)'}
+      [void]$healthUrls.Add($explicit)
+      $headers=@{}
+    }else{
+      [void]$healthUrls.Add("http://127.0.0.1:$bindingPort/health")
+      if($bindingPort -ne $info.Port){[void]$healthUrls.Add("http://127.0.0.1:$($info.Port)/health")}
+      if($info.HostHeader){[void]$healthUrls.Add("http://$($info.HostHeader)/health")}
     }
     Write-Host "[PROGRESS 90] Verify runtime health"
     $lastHealthError=''
