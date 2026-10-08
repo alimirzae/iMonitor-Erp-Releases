@@ -14,7 +14,7 @@
 <div class="actions"><button id="installBtn" class="primary" onclick="runAll()">نصب / بروزرسانی کانال‌های انتخاب‌شده</button><button class="secondary" onclick="loadOps()">نمایش کنسول عملیات</button><button class="secondary" onclick="loadRuntimeHealth()">کنترل Runtime URL / IIS / DB</button></div><div class="bar"><i id="overallBar"></i></div><div id="progress" class="progressbox"></div><div id="summary" class="summary"></div><div class="help"><b>نصب آفلاین / سرور دارای محدودیت GitHub</b><p>اگر دانلود مستقیم متوقف شد، ZIP نسخه و فایل <span dir=ltr>.sha256</span> آن را دستی در cache قرار دهید. نصاب در اجرای بعدی ابتدا cache معتبر را استفاده می‌کند و دانلود نمی‌کند.</p><div id="manualHelp">در حال دریافت مسیرها و دستورات...</div></div><div id="console" class="console">Web Console آماده است. برای دیدن عملیات روی «نمایش کنسول عملیات» بزنید.</div><div class="db"><h3>مدیریت نصب‌ها، نسخه‌های سالم و تأییدهای کاربر</h3><div class="actions"><button class="primary" onclick="loadInstallations()">بروزرسانی وضعیت نصب‌ها</button></div><div id="installations" class="summary"></div><div class="db"><h3>کنترل مستقل سرویس‌ها / Watchdog</h3>
 <p>آدرس Health را وارد کنید. تنظیمات روی دیسک ذخیره و توسط Windows Task مستقل از پنل و AiBOS اجرا می‌شود.</p>
 <div class="grid"><div><label>نصب</label><select id="wdId"></select></div><div><label>آدرس کامل Health</label><input id="wdUrl" dir="ltr" placeholder="https://erp.example.com/health"></div><div><label>فاصله بررسی (دقیقه)</label><input id="wdInterval" type="number" min="1" value="2"></div><div><label>فاصله بعد از ریستارت (دقیقه)</label><input id="wdGrace" type="number" min="1" value="4"></div><div><label>Timeout (ثانیه)</label><input id="wdTimeout" type="number" min="2" value="10"></div><div><label><input id="wdEnabled" type="checkbox"> Watchdog فعال</label><label><input id="wdRestart" type="checkbox" checked> ریستارت خودکار در خطای Health</label></div></div>
-<div class="actions"><button class="secondary" onclick="loadWatchdog()">خواندن تنظیمات و وضعیت</button><button class="primary" onclick="saveWatchdog()">ذخیره و فعال‌سازی زمان‌بند</button><button class="secondary" onclick="testHealthUrl()">آزمون Health URL</button><button class="secondary" onclick="saveRuntimeUrl()">ذخیره Runtime URL</button><button class="secondary" onclick="pruneBackups()">پاکسازی نسخه‌های قدیمی</button><button class="secondary" onclick="controlInstance('start')">Start</button><button class="secondary" onclick="controlInstance('stop')">Stop</button><button class="secondary" onclick="controlInstance('restart')">Restart</button></div><div id="wdFeedback" class="status">برای شروع یک نصب را انتخاب کنید و «خواندن تنظیمات و وضعیت» را بزنید.</div>
+<div class="actions"><button class="secondary" onclick="loadWatchdog()">خواندن تنظیمات و وضعیت</button><button class="primary" onclick="saveWatchdog()">ذخیره و فعال‌سازی زمان‌بند</button><button class="secondary" onclick="testHealthUrl()">آزمون Health URL</button><button class="secondary" onclick="saveRuntimeUrl()">ذخیره Runtime URL</button><button class="secondary" onclick="pruneBackups()">پاکسازی نسخه‌های قدیمی</button><button class="secondary" onclick="controlInstance('start')">Start</button><button class="secondary" onclick="controlInstance('stop')">Stop</button><button class="secondary" onclick="controlInstance('restart')">Restart</button></div><div id="wdTaskInfo" class="status">وضعیت Windows Scheduled Task در حال دریافت است...</div><div id="wdFeedback" class="status">برای شروع یک نصب را انتخاب کنید و «خواندن تنظیمات و وضعیت» را بزنید.</div>
 <div class="grid" style="margin:15px 0"><div class="target"><b>آخرین بررسی</b><div id="wdLastCheck">هنوز بررسی نشده</div></div><div class="target"><b>بررسی بعدی</b><div id="wdNextCheck">نامشخص</div></div><div class="target"><b>آخرین نتیجه</b><div id="wdLastResult">در انتظار اطلاعات</div></div><div class="target"><b>ریستارت اخیر</b><div id="wdRestarted">اطلاعاتی ثبت نشده</div></div></div>
 <div class="actions"><button class="secondary" onclick="refreshWatchdogActivity()">تازه‌سازی رویدادها</button><button class="secondary" onclick="testHealthUrl()">بررسی Health همین حالا</button></div>
 <h4>تاریخچه بررسی‌ها و بازیابی‌ها</h4><div id="wdHistory" class="version-list" style="max-height:420px">هنوز رویدادی ثبت نشده است.</div><details><summary>وضعیت خام برای عیب‌یابی</summary><pre id="wdStatus" style="white-space:pre-wrap;direction:ltr"></pre></details></div></div>
@@ -102,16 +102,19 @@ function wdDate(value){if(!value)return 'ثبت نشده';const d=new Date(value
 async function refreshWatchdogActivity(){
  const id=el('wdId').value;if(!id)return;
  try{
-  const [a,h]=await Promise.all([
+  const [a,h,t]=await Promise.all([
    fetch('/api/watchdog/'+encodeURIComponent(id)).then(async r=>{if(!r.ok)throw Error(await r.text());return r.json()}),
-   fetch('/api/watchdog/'+encodeURIComponent(id)+'/history').then(async r=>{if(!r.ok)throw Error(await r.text());return r.json()})
+   fetch('/api/watchdog/'+encodeURIComponent(id)+'/history').then(async r=>{if(!r.ok)throw Error(await r.text());return r.json()}),
+   fetch('/api/watchdog/task-status').then(async r=>{if(!r.ok)throw Error(await r.text());return r.json()})
   ]);
   const state=a.state||{},history=h.records||[];
+  el('wdTaskInfo').textContent=t.installed?'Windows Task ثبت شده و قابل بررسی است. جزئیات در پایین: '+(t.details||'').slice(0,400):'Windows Task نصب نشده یا قابل خواندن نیست: '+(t.details||'');
+  el('wdTaskInfo').className='status '+(t.installed?'ok':'warn');
   el('wdLastCheck').textContent=wdDate(state.lastCheckUtc||state.LastCheckUtc);
   el('wdNextCheck').textContent=wdDate(state.nextCheckUtc||state.NextCheckUtc);
   el('wdLastResult').textContent=(state.healthy??state.Healthy)===true?'سالم — '+(state.detail||state.Detail||'HTTP 200'):(state.healthy??state.Healthy)===false?'ناسالم — '+(state.detail||state.Detail||'بدون پاسخ'):'هنوز هیچ بررسی خودکاری اجرا نشده است';
   el('wdRestarted').textContent=(state.restarted??state.Restarted)?'بله، آخرین بررسی باعث ریستارت شد':'خیر / ثبت نشده';
-  el('wdStatus').textContent=JSON.stringify({settings:a.settings,state,historyCount:history.length},null,2);
+  el('wdStatus').textContent=JSON.stringify({settings:a.settings,state,historyCount:history.length,scheduledTask:t},null,2);
   const box=el('wdHistory');box.replaceChildren();
   if(!history.length){box.textContent='هنوز گزارشی ثبت نشده است. پس از فعال‌سازی Watchdog و اجرای Windows Task، رویدادها اینجا نمایش داده می‌شوند.';return}
   for(const item of history){
@@ -157,22 +160,22 @@ async function testHealthUrl(){
 async function saveRuntimeUrl(){
  const id=el('wdId').value;if(!id)return;
  try{const x=await post('/api/installations/'+encodeURIComponent(id)+'/runtime-url',{runtimeUrl:el('wdUrl').value.trim()});
- st('URL بررسی و ذخیره شد: '+x.runtimeUrl,'ok');await loadInstallations()
- }catch(e){st('URL ذخیره نشد: '+e.message,'warn')}
+ wdMessage('URL بررسی و ذخیره شد: '+x.runtimeUrl,true);await loadInstallations()
+ }catch(e){wdMessage('URL ذخیره نشد: '+e.message,false)}
 }
 async function pruneBackups(){
  const id=el('wdId').value;if(!id)return;
  if(!confirm('پشتیبان‌های قدیمیِ کامل، با حفظ ۱۰ مورد آخر و نسخه‌های قابل بازگشت، پاک شوند؟'))return;
  try{const x=await post('/api/installations/'+encodeURIComponent(id)+'/prune-backups',{});
- st('پشتیبان قدیمی حذف‌شده: '+x.removed,'ok');await loadInstallations()
- }catch(e){st('پاکسازی ناموفق: '+e.message,'warn')}
+ wdMessage('پشتیبان‌های قدیمی حذف‌شده: '+x.removed,true);await loadInstallations()
+ }catch(e){wdMessage('پاکسازی ناموفق: '+e.message,false)}
 }
 async function controlInstance(action){
  const id=el('wdId').value;if(!id)return;
  if(action==='stop'&&!confirm('سرویس انتخابی متوقف شود؟'))return;
  try{const result=await post('/api/installations/'+encodeURIComponent(id)+'/control/'+action,{});
-   st('نتیجه '+action+': '+(result.message||JSON.stringify(result)),result.ok?'ok':'warn');await loadInstallations();
- }catch(e){st('خطا در کنترل سرویس: '+e.message,'warn')}
+   wdMessage('نتیجه '+action+': '+(result.message||JSON.stringify(result)),result.ok);await loadInstallations();
+ }catch(e){wdMessage('خطا در کنترل سرویس: '+e.message,false)}
 }
 
 async function approveVersion(id,tag,approved){try{await post('/api/approvals/'+encodeURIComponent(id)+'/'+encodeURIComponent(tag),{approved});st((approved?'نسخه مورد تأیید شما ثبت شد: ':'تأیید نسخه برداشته شد: ')+tag,'ok')}catch(e){st('خطا در ثبت تأیید نسخه: '+e.message,'warn');loadInstallations()}}
