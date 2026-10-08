@@ -3,7 +3,7 @@
 <title>راه‌اندازی یکپارچه iBOS</title><style>
 *{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#182230;font-family:Tahoma,Arial,sans-serif}.wrap{max-width:980px;margin:32px auto;padding:18px}.card{background:#fff;border:1px solid #e4e9f0;border-radius:20px;box-shadow:0 18px 55px rgba(22,34,51,.08);overflow:hidden}.head{padding:26px 30px;background:linear-gradient(135deg,#102d5b,#176fa5);color:#fff}.head h1{margin:0 0 7px}.body{padding:28px 30px}.status{padding:13px 15px;border-radius:12px;background:#eef7fb;margin-bottom:20px;white-space:pre-wrap}.ok{background:#eaf8ef}.warn{background:#fff4e5}.products{display:grid;grid-template-columns:1fr 1fr;gap:14px}.target{border:1px solid #dce5ee;border-radius:14px;padding:16px}.target h3{margin:0 0 12px}.row{display:flex;gap:10px;align-items:center;margin-bottom:10px}.row input[type=checkbox]{width:auto}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}label{font-size:12px;font-weight:700;display:block;margin-bottom:5px}input{width:100%;padding:10px;border:1px solid #ccd5df;border-radius:9px;font:inherit}.db{margin-top:18px;padding-top:18px;border-top:1px solid #e5eaf0}.actions{margin-top:20px;display:flex;gap:10px}button{border:0;border-radius:10px;padding:12px 18px;font:inherit;font-weight:700;cursor:pointer}.primary{background:#116f9f;color:white}.summary{margin-top:18px;line-height:1.9}.progressbox{margin-top:18px;display:grid;gap:10px}.step{padding:14px 16px;border:1px solid #dce5ee;border-radius:12px;background:#fff}.step.running{border-color:#2f80ed;background:#f2f7ff}.step.okstep{border-color:#2aa66a;background:#f0fbf5}.step.failstep{border-color:#d45b5b;background:#fff5f5}.bar{height:8px;background:#e9eef5;border-radius:99px;overflow:hidden;margin:12px 0}.bar>i{display:block;height:100%;width:0;background:#176fa5;transition:width .35s}.meta{font-size:12px;color:#637083}.badge{display:inline-block;padding:3px 8px;border-radius:99px;background:#eef3f8;font-size:11px}.target select{width:100%;padding:10px;border:1px solid #ccd5df;border-radius:9px;background:#fff}.secondary{background:#edf2f7;color:#24364b}.console{margin-top:18px;background:#0b1220;color:#d7e2f0;border-radius:12px;padding:14px;direction:ltr;text-align:left;white-space:pre-wrap;max-height:360px;overflow:auto;font-family:Consolas,monospace;font-size:12px}.help{margin-top:18px;padding:14px;border:1px dashed #a9b9ca;border-radius:12px;background:#f8fbff}.help code{display:block;direction:ltr;text-align:left;white-space:pre-wrap;margin:7px 0;background:#eef3f8;padding:8px;border-radius:7px}.hidden{display:none}@media(max-width:720px){.products,.grid{grid-template-columns:1fr}.wrap{margin:0;padding:0}.card{border-radius:0}}
 .version-list{margin-top:10px;border:1px solid #e1e7ef;border-radius:10px;max-height:310px;overflow:auto}.version-row{display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:10px;align-items:center;padding:8px 10px;border-bottom:1px solid #eef2f6}.version-row:last-child{border-bottom:0}.version-row .tag{direction:ltr;text-align:left;font-family:Consolas,monospace}.goodmark{color:#197a45;font-weight:700}.failmark{color:#a52b2b;font-weight:700}.approve{display:flex;align-items:center;gap:5px;white-space:nowrap}.approve input{width:auto}.op-progress{height:8px;background:#e9eef5;border-radius:99px;overflow:hidden;margin-top:8px}.op-progress i{display:block;height:100%;background:#176fa5;width:0;transition:width .25s}</style></head><body><div class="wrap"><div class="card"><div class="head"><h1>راه‌اندازی یکپارچه iBOS</h1><p>نصب، ارتقا و کنترل نسخه‌های Posiran iBOS و iMonitor iBOS از یک صفحه</p></div><div class="body">
-<div id="status" class="status">در حال بررسی سیستم...</div>
+<div class="actions" style="margin:0 0 18px"><button type="button" id="navSetup" class="primary" onclick="switchSetupView('setup')">نصب و ارتقا</button><button type="button" id="navWatchdog" class="secondary" onclick="switchSetupView('watchdog')">مانیتورینگ و Watchdog</button></div><div id="wdPage" class="hidden"></div><div id="setupPage"><div id="status" class="status">در حال بررسی سیستم...</div>
 <div class="products">
 <div class="target"><div class="row"><input id="pt" type="checkbox" checked><h3>Posiran iBOS Test</h3></div><div class="grid"><div><label>پورت IIS</label><input id="ptPort" type="number" value="8082"></div><div><label>Runtime URL / Health URL</label><input id="ptUrl" value="http://127.0.0.1:8082" dir="ltr"></div><div><label>دیتابیس</label><input id="ptDb" value="posiran_test" dir="ltr"></div><div><label>پوشه اصلی</label><input id="ptRoot" value="C:\PosiranERP" dir="ltr"></div><div><label><input id="ptAuto" type="checkbox" checked> به‌روزرسانی خودکار</label></div></div></div>
 <div class="target"><div class="row"><input id="pp" type="checkbox"><h3>Posiran iBOS Production</h3></div><div class="grid"><div><label>پورت IIS</label><input id="ppPort" type="number" value="8083"></div><div><label>Runtime URL / Health URL</label><input id="ppUrl" value="http://127.0.0.1:8083" dir="ltr"></div><div><label>دیتابیس</label><input id="ppDb" value="posiran" dir="ltr"></div><div><label>پوشه اصلی</label><input id="ppRoot" value="C:\PosiranERP" dir="ltr"></div><div><label><input id="ppAuto" type="checkbox" disabled> فقط ارتقای دستی توسط مدیر</label></div></div></div>
@@ -14,8 +14,11 @@
 <div class="actions"><button id="installBtn" class="primary" onclick="runAll()">نصب / بروزرسانی کانال‌های انتخاب‌شده</button><button class="secondary" onclick="loadOps()">نمایش کنسول عملیات</button><button class="secondary" onclick="loadRuntimeHealth()">کنترل Runtime URL / IIS / DB</button></div><div class="bar"><i id="overallBar"></i></div><div id="progress" class="progressbox"></div><div id="summary" class="summary"></div><div class="help"><b>نصب آفلاین / سرور دارای محدودیت GitHub</b><p>اگر دانلود مستقیم متوقف شد، ZIP نسخه و فایل <span dir=ltr>.sha256</span> آن را دستی در cache قرار دهید. نصاب در اجرای بعدی ابتدا cache معتبر را استفاده می‌کند و دانلود نمی‌کند.</p><div id="manualHelp">در حال دریافت مسیرها و دستورات...</div></div><div id="console" class="console">Web Console آماده است. برای دیدن عملیات روی «نمایش کنسول عملیات» بزنید.</div><div class="db"><h3>مدیریت نصب‌ها، نسخه‌های سالم و تأییدهای کاربر</h3><div class="actions"><button class="primary" onclick="loadInstallations()">بروزرسانی وضعیت نصب‌ها</button></div><div id="installations" class="summary"></div><div class="db"><h3>کنترل مستقل سرویس‌ها / Watchdog</h3>
 <p>آدرس Health را وارد کنید. تنظیمات روی دیسک ذخیره و توسط Windows Task مستقل از پنل و AiBOS اجرا می‌شود.</p>
 <div class="grid"><div><label>نصب</label><select id="wdId"></select></div><div><label>آدرس کامل Health</label><input id="wdUrl" dir="ltr" placeholder="https://erp.example.com/health"></div><div><label>فاصله بررسی (دقیقه)</label><input id="wdInterval" type="number" min="1" value="2"></div><div><label>فاصله بعد از ریستارت (دقیقه)</label><input id="wdGrace" type="number" min="1" value="4"></div><div><label>Timeout (ثانیه)</label><input id="wdTimeout" type="number" min="2" value="10"></div><div><label><input id="wdEnabled" type="checkbox"> Watchdog فعال</label><label><input id="wdRestart" type="checkbox" checked> ریستارت خودکار در خطای Health</label></div></div>
-<div class="actions"><button class="secondary" onclick="loadWatchdog()">خواندن تنظیمات و وضعیت</button><button class="primary" onclick="saveWatchdog()">ذخیره و فعال‌سازی زمان‌بند</button><button class="secondary" onclick="testHealthUrl()">آزمون Health URL</button><button class="secondary" onclick="saveRuntimeUrl()">ذخیره Runtime URL</button><button class="secondary" onclick="pruneBackups()">پاکسازی نسخه‌های قدیمی</button><button class="secondary" onclick="controlInstance('start')">Start</button><button class="secondary" onclick="controlInstance('stop')">Stop</button><button class="secondary" onclick="controlInstance('restart')">Restart</button></div><pre id="wdStatus" style="white-space:pre-wrap;direction:ltr"></pre></div></div>
-</div></div></div>
+<div class="actions"><button class="secondary" onclick="loadWatchdog()">خواندن تنظیمات و وضعیت</button><button class="primary" onclick="saveWatchdog()">ذخیره و فعال‌سازی زمان‌بند</button><button class="secondary" onclick="testHealthUrl()">آزمون Health URL</button><button class="secondary" onclick="saveRuntimeUrl()">ذخیره Runtime URL</button><button class="secondary" onclick="pruneBackups()">پاکسازی نسخه‌های قدیمی</button><button class="secondary" onclick="controlInstance('start')">Start</button><button class="secondary" onclick="controlInstance('stop')">Stop</button><button class="secondary" onclick="controlInstance('restart')">Restart</button></div><div id="wdFeedback" class="status">برای شروع یک نصب را انتخاب کنید و «خواندن تنظیمات و وضعیت» را بزنید.</div>
+<div class="grid" style="margin:15px 0"><div class="target"><b>آخرین بررسی</b><div id="wdLastCheck">هنوز بررسی نشده</div></div><div class="target"><b>بررسی بعدی</b><div id="wdNextCheck">نامشخص</div></div><div class="target"><b>آخرین نتیجه</b><div id="wdLastResult">در انتظار اطلاعات</div></div><div class="target"><b>ریستارت اخیر</b><div id="wdRestarted">اطلاعاتی ثبت نشده</div></div></div>
+<div class="actions"><button class="secondary" onclick="refreshWatchdogActivity()">تازه‌سازی رویدادها</button><button class="secondary" onclick="testHealthUrl()">بررسی Health همین حالا</button></div>
+<h4>تاریخچه بررسی‌ها و بازیابی‌ها</h4><div id="wdHistory" class="version-list" style="max-height:420px">هنوز رویدادی ثبت نشده است.</div><details><summary>وضعیت خام برای عیب‌یابی</summary><pre id="wdStatus" style="white-space:pre-wrap;direction:ltr"></pre></details></div></div>
+</div></div></div></div>
 <script>
 const el=id=>document.getElementById(id);
 // Safety default: Test channels are selected on every load; Production channels
@@ -79,6 +82,49 @@ async function runAll(){
   finally{el('installBtn').disabled=false;loadInstallations()}
 }
 async function loadInstallations(){try{const r=await fetch('/api/installations');const xs=await r.json();if(!xs.length){el('installations').innerHTML='هنوز نصبی ثبت نشده است.';return}let html='';for(const x of xs){const rel=await fetch('/api/releases/'+encodeURIComponent(x.product)+'/'+encodeURIComponent(x.channel)).then(r=>r.json()).catch(()=>[]);const hist=await fetch('/api/history/'+encodeURIComponent(x.id)).then(r=>r.json()).catch(()=>[]);const approvals=await fetch('/api/approvals/'+encodeURIComponent(x.id)).then(r=>r.json()).catch(()=>({}));const latestByTag={};for(const h of hist){if(!latestByTag[h.tag])latestByTag[h.tag]=h}const rows=rel.slice(0,40).map(v=>{const h=latestByTag[v.tag];const healthy=hist.some(z=>z.tag===v.tag&&z.status==='Healthy');const failed=h&&h.status==='Failed';const approved=!!approvals[v.tag];const systemMark=healthy?'<span class="goodmark">✓ سالمِ تأییدشده</span>':(failed?'<span class="failmark">✗ خطا</span>':'<span class="meta">بررسی‌نشده</span>');return '<div class="version-row"><label class="tag"><input type="radio" name="ver_'+x.id+'" value="'+v.tag+'" '+(v.tag===x.installedVersion?'checked':'')+'> '+v.tag+'</label>'+systemMark+'<label class="approve"><input type="checkbox" '+(approved?'checked':'')+' onchange="approveVersion(\''+x.id+'\',\''+v.tag+'\',this.checked)"> تأیید من</label></div>'}).join('');html+='<div class="target"><b>'+x.displayName+'</b><br>Root: <span dir=ltr>'+x.installRoot+'</span><br>Runtime URL: <a dir=ltr href="'+x.runtimeUrl+'" target="_blank">'+x.runtimeUrl+'</a><br>Port IIS: <span dir=ltr>'+x.port+'</span> | HTTP: '+(x.healthOk?'✓':'✗')+' ('+(x.healthMessage||'—')+') | IIS Site: '+x.iisSiteState+' | AppPool: '+x.iisPoolState+' | DB: '+(x.databaseReachable?'✓':'✗')+' ('+(x.databaseMessage||'—')+')<br>Installed: '+(x.installedVersion||'—')+' | Latest: '+(x.latestVersion||'—')+' | Update policy: '+(x.channel==='Test'?'AUTO / 10 min':'MANUAL / admin only')+'<div class="version-list">'+rows+'</div><div class="actions"><button class="primary" onclick="installSelectedVersion(\''+x.id+'\')">نصب نسخه انتخابی</button></div><div class="hint">✓ سالمِ تأییدشده یعنی این نسخه قبلاً روی همین کانال Health Check واقعی موفق داشته و در JSON تاریخچه ذخیره شده است. «تأیید من» نیز مستقل در JSON محلی ذخیره می‌شود. در خطا هیچ Rollback خودکاری انجام نمی‌شود.</div></div><br>'}el('installations').innerHTML=html;await prepareWatchdogTargets(xs)}catch(e){el('installations').textContent='خطا: '+e.message}}
+let activeSetupView='setup', wdPoll=null;
+function switchSetupView(view){
+  activeSetupView=view;
+  el('setupPage').classList.toggle('hidden',view==='watchdog');
+  el('wdPage').classList.toggle('hidden',view!=='watchdog');
+  el('navSetup').className=view==='setup'?'primary':'secondary';
+  el('navWatchdog').className=view==='watchdog'?'primary':'secondary';
+  if(view==='watchdog')refreshWatchdogActivity();
+}
+window.addEventListener('DOMContentLoaded',()=>{
+ const panel=document.querySelector('.db:has(#wdId)');
+ if(panel){el('wdPage').appendChild(panel);panel.style.marginTop='0';}
+ const picker=el('wdId');if(picker)picker.addEventListener('change',loadWatchdog);
+ wdPoll=setInterval(()=>{if(activeSetupView==='watchdog')refreshWatchdogActivity()},12000);
+});
+function wdMessage(text,isOk){const x=el('wdFeedback');x.textContent=text;x.className='status '+(isOk?'ok':'warn')}
+function wdDate(value){if(!value)return 'ثبت نشده';const d=new Date(value);return Number.isNaN(d.getTime())?String(value):d.toLocaleString('fa-IR')}
+async function refreshWatchdogActivity(){
+ const id=el('wdId').value;if(!id)return;
+ try{
+  const [a,h]=await Promise.all([
+   fetch('/api/watchdog/'+encodeURIComponent(id)).then(async r=>{if(!r.ok)throw Error(await r.text());return r.json()}),
+   fetch('/api/watchdog/'+encodeURIComponent(id)+'/history').then(async r=>{if(!r.ok)throw Error(await r.text());return r.json()})
+  ]);
+  const state=a.state||{},history=h.records||[];
+  el('wdLastCheck').textContent=wdDate(state.lastCheckUtc);
+  el('wdNextCheck').textContent=wdDate(state.nextCheckUtc);
+  el('wdLastResult').textContent=state.healthy===true?'سالم — '+(state.detail||'HTTP 200'):state.healthy===false?'ناسالم — '+(state.detail||'بدون پاسخ'):'هنوز هیچ بررسی خودکاری اجرا نشده است';
+  el('wdRestarted').textContent=state.restarted?'بله، آخرین بررسی باعث ریستارت شد':'خیر / ثبت نشده';
+  el('wdStatus').textContent=JSON.stringify({settings:a.settings,state,historyCount:history.length},null,2);
+  const box=el('wdHistory');box.replaceChildren();
+  if(!history.length){box.textContent='هنوز گزارشی ثبت نشده است. پس از فعال‌سازی Watchdog و اجرای Windows Task، رویدادها اینجا نمایش داده می‌شوند.';return}
+  for(const item of history){
+    const line=document.createElement('div');line.className='version-row';line.style.gridTemplateColumns='minmax(180px,auto) 1fr auto';
+    const date=document.createElement('span');date.textContent=wdDate(item.atUtc||item.AtUtc);
+    const detail=document.createElement('span');detail.textContent=item.detail||item.Detail||item.error||item.Error||'بدون جزئیات';
+    const result=document.createElement('b');const healthy=item.healthy??item.Healthy;
+    result.textContent=item.restarted||item.Restarted?'ریستارت IIS':healthy===true?'سالم':healthy===false?'ناموفق':'خطا';
+    result.style.color=healthy===true?'#197a45':'#a52b2b';
+    line.append(date,detail,result);box.appendChild(line)
+  }
+ }catch(e){wdMessage('دریافت رویدادهای Watchdog ناموفق بود: '+e.message,false)}
+}
 async function prepareWatchdogTargets(xs){
   const select=el('wdId'), before=select.value;
   select.replaceChildren();
@@ -93,20 +139,20 @@ async function loadWatchdog(){
     el('wdUrl').value=s.healthUrl||((fallback.replace(/\/$/,'')+'/health'));
     el('wdInterval').value=s.intervalMinutes??2;el('wdGrace').value=s.afterRestartDelayMinutes??4;
     el('wdTimeout').value=s.timeoutSeconds??10;el('wdEnabled').checked=!!s.enabled;
-    el('wdRestart').checked=s.restartOnFailure!==false;el('wdStatus').textContent=JSON.stringify(d.state||{},null,2);
+    el('wdRestart').checked=s.restartOnFailure!==false;await refreshWatchdogActivity();
   }catch(e){st('Watchdog: '+e.message,'warn')}
 }
 async function saveWatchdog(){
   const id=el('wdId').value;if(!id)return;
   try{const d=await post('/api/watchdog/'+encodeURIComponent(id),{enabled:el('wdEnabled').checked,healthUrl:el('wdUrl').value.trim(),intervalMinutes:+el('wdInterval').value,afterRestartDelayMinutes:+el('wdGrace').value,timeoutSeconds:+el('wdTimeout').value,restartOnFailure:el('wdRestart').checked});
-    st('Watchdog ذخیره شد: '+d.task,'ok');await loadWatchdog();
-  }catch(e){st('خطا در ذخیره Watchdog: '+e.message,'warn')}
+    wdMessage('تنظیمات ذخیره شد و Task ثبت شد: '+d.task,true);await loadWatchdog();
+  }catch(e){wdMessage('خطا در ذخیره Watchdog: '+e.message,false)}
 }
 async function testHealthUrl(){
  const id=el('wdId').value;if(!id)return;
  try{const x=await post('/api/installations/'+encodeURIComponent(id)+'/test-health-url',{runtimeUrl:el('wdUrl').value.trim()});
- st(x.ok?'Health URL سالم است: '+x.message:'Health URL پاسخ سالم نداد: '+x.message,x.ok?'ok':'warn');
- }catch(e){st('Health check: '+e.message,'warn')}
+ wdMessage(x.ok?'آزمون فوری Health موفق: '+x.message:'آزمون فوری Health ناموفق: '+x.message,x.ok);
+ }catch(e){wdMessage('آزمون Health: '+e.message,false)}
 }
 async function saveRuntimeUrl(){
  const id=el('wdId').value;if(!id)return;
