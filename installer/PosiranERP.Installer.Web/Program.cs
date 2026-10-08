@@ -311,6 +311,64 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     });
 });
 
+
+app.MapGet("/api/watchdog/{id}", (string id) =>
+{
+    if (!Regex.IsMatch(id, @"^[a-zA-Z0-9_-]+$")) return Results.BadRequest();
+    var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "iMonitor", "ERPDeploymentManager");
+    var path = Path.Combine(root, "watchdog", id + ".json");
+    var state = Path.Combine(root, "watchdog-logs", id + ".state.json");
+    return Results.Ok(new { settings = File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) : null,
+        state = File.Exists(state) ? JsonNode.Parse(File.ReadAllText(state)) : null });
+});
+app.MapPost("/api/watchdog/{id}", async (string id, WatchdogSettings request, OrchestratorService orchestrator) =>
+{
+    try
+    {
+        if (!OperatingSystem.IsWindows()) return Results.BadRequest(new { error = "Windows only." });
+        if (!Regex.IsMatch(id, @"^[a-zA-Z0-9_-]+$")) return Results.BadRequest(new { error = "Invalid ID" });
+        var instance = orchestrator.RequireManifest(id);
+        if (request.IntervalMinutes is < 1 or > 1440 || request.AfterRestartDelayMinutes is < 1 or > 60 || request.TimeoutSeconds is < 2 or > 60)
+            return Results.BadRequest(new { error = "Invalid watchdog intervals." });
+        if (!Uri.TryCreate(request.HealthUrl, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) ||
+            !string.IsNullOrEmpty(uri.UserInfo) || uri.HostNameType == UriHostNameType.Unknown)
+            return Results.BadRequest(new { error = "Enter an absolute HTTP(S) health URL." });
+        // Only registered endpoints, with no credentials, fragments or query secrets.
+        if (!string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
+            return Results.BadRequest(new { error = "Health URL must not contain query or fragment." });
+        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "iMonitor", "ERPDeploymentManager");
+        var folder = Path.Combine(root, "watchdog");
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, id + ".json");
+        var tmp = path + ".tmp";
+        await File.WriteAllTextAsync(tmp, JsonSerializer.Serialize(request with { HealthUrl = uri.AbsoluteUri }));
+        File.Move(tmp, path, true);
+        var script = Path.Combine(AppContext.BaseDirectory, "Invoke-ERPWatchdog.ps1");
+        if (!File.Exists(script))
+            return Results.Problem("Watchdog script not installed beside Setup Host. Restart with updated installer.", statusCode: 500);
+        // Scheduled task outlives the Setup Host and checks persisted config every minute.
+        var quoted = "\"" + script.Replace("\"", "\"\"") + "\"";
+        var taskCommand = "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " + quoted;
+        var psi = new ProcessStartInfo("schtasks.exe") {
+            UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true, CreateNoWindow = true
+        };
+        foreach (var arg in new[] { "/Create", "/F", "/TN", "iBOS-ERP-Watchdog", "/SC", "MINUTE", "/MO", "1", "/RU", "SYSTEM", "/RL", "HIGHEST", "/TR", taskCommand }) psi.ArgumentList.Add(arg);
+        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start schtasks.");
+        var stdout = await proc.StandardOutput.ReadToEndAsync();
+        var stderr = await proc.StandardError.ReadToEndAsync();
+        await proc.WaitForExitAsync();
+        if (proc.ExitCode != 0) return Results.Problem("Watchdog task registration failed: " + stderr, statusCode: 500);
+        return Results.Ok(new { saved = true, task = "iBOS-ERP-Watchdog", id, healthUrl = uri.AbsoluteUri });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
+app.MapPost("/api/installations/{id}/control/{action}", async (string id, string action, OrchestratorService orchestrator, CancellationToken ct) =>
+{
+    try { return Results.Ok(await orchestrator.ControlAsync(id, action, ct)); }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
+
 app.MapGet("/api/runtime-health", async (OrchestratorService orchestrator, CancellationToken ct) =>
 {
     var installations = await orchestrator.ListInstallationsAsync(ct);
@@ -544,3 +602,5 @@ record InstallRequest(string? Product, string Channel, int? AppPort, string? Ins
 record BackupRequest(string? Reason);
 record VersionApprovalRequest(bool Approved);
 record InstallerProcessResult(int ExitCode, string Output, string Error);
+
+record WatchdogSettings(bool Enabled, string HealthUrl, int IntervalMinutes = 2, int AfterRestartDelayMinutes = 4, int TimeoutSeconds = 10, bool RestartOnFailure = true);
