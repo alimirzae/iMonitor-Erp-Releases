@@ -98,9 +98,27 @@ public sealed class OrchestratorService
         catch { return Array.Empty<VersionHealthRecord>(); }
     }
 
+    public IDisposable AcquireMaintenance(string id)
+    {
+        RequireManifest(id);
+        var dir = Path.Combine(_stateRoot, "maintenance");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, id + ".lock");
+        File.WriteAllText(path, DateTime.UtcNow.ToString("O"));
+        return new MaintenanceLease(path);
+    }
+
+    private sealed class MaintenanceLease : IDisposable
+    {
+        private readonly string _path;
+        public MaintenanceLease(string path) => _path = path;
+        public void Dispose() { try { File.Delete(_path); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+    }
+
     public async Task<VersionOperationResult> InstallVersionAsync(string id, string tag, CancellationToken cancellationToken = default, Action<string,int,string?>? progress = null)
     {
         var m = RequireManifest(id);
+        using var maintenance = AcquireMaintenance(id);
         ValidateReleaseTagForManifest(m, tag);
         progress?.Invoke("آماده‌سازی", 3, $"آماده‌سازی نصب {tag}");
         var backup = Directory.Exists(m.InstallPath) && File.Exists(m.ConfigPath)
