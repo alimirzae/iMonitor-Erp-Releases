@@ -390,11 +390,6 @@ app.MapPost("/api/watchdog/{id}", async (string id, WatchdogSettings request, Or
     }
     catch (Exception ex) { return Results.Problem(ex.Message); }
 });
-app.MapPost("/api/installations/{id}/control/{action}", async (string id, string action, OrchestratorService orchestrator, CancellationToken ct) =>
-{
-    try { return Results.Ok(await orchestrator.ControlAsync(id, action, ct)); }
-    catch (Exception ex) { return Results.Problem(ex.Message); }
-});
 
 app.MapGet("/api/runtime-health", async (OrchestratorService orchestrator, CancellationToken ct) =>
 {
