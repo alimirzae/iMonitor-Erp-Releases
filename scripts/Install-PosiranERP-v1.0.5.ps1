@@ -400,9 +400,12 @@ function Install-Channel($info){
     Write-Host "[PROGRESS 86] Start IIS site and application pool"
     Start-WebAppPool $info.Pool;Start-Website $info.Site
     Write-Host "[PROGRESS 90] Verify runtime health"
-    $healthUrl=if($RuntimeHealthUrl){$RuntimeHealthUrl.TrimEnd('/')}else{"http://127.0.0.1:$($info.Port)"}
+    $healthUrl="http://127.0.0.1:$($info.Port)/health"
+    if(-not [string]::IsNullOrWhiteSpace($RuntimeHealthUrl)){
+      $healthUrl=$RuntimeHealthUrl.TrimEnd('/')
+      if(!$healthUrl.EndsWith('/health')){$healthUrl+='/health'}
+    }
     if($healthUrl -notmatch '^https?://'){throw 'RuntimeHealthUrl must be HTTP(S)'}
-    if(-not $healthUrl.EndsWith('/health',[StringComparison]::OrdinalIgnoreCase)){$healthUrl+='/health'}
     $ok=$false
     for($i=1;$i -le 45;$i++){Start-Sleep 2;try{$r=Invoke-WebRequest $healthUrl -UseBasicParsing -TimeoutSec 8;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
     if(!$ok){throw "Health check failed on port $($info.Port)."}
