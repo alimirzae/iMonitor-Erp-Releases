@@ -196,6 +196,7 @@ public sealed class OrchestratorService
                     $". Automatic rollback is disabled. Previous files are preserved at '{rollbackDir}'.");
             }
             AppendHistory(m.Id, new VersionHealthRecord(tag, DateTime.UtcNow, "Healthy", health.Message, backup?.BackupId, actual));
+            PruneOldBackups(m.Id);
             progress?.Invoke("تکمیل", 100, health.Message);
             return new VersionOperationResult(tag, true, "Healthy", health.Message, backup?.BackupId);
         }
@@ -652,6 +653,34 @@ public sealed class OrchestratorService
             catch { }
         }
         return result;
+    }
+
+    /// <summary>Retain ten newest complete backups and those linked to ten latest healthy versions.</summary>
+    public int PruneOldBackups(string id, int retain = 10)
+    {
+        var m = RequireManifest(id);
+        retain = Math.Clamp(retain, 10, 100);
+        var root = Path.Combine(m.InstallRoot, m.InstallFolderName, "backups");
+        if (!Directory.Exists(root)) return 0;
+        var protectedIds = GetVersionHistory(id)
+            .Where(x => string.Equals(x.Status, "Healthy", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(x => x.CheckedAtUtc).Take(retain)
+            .Select(x => x.BackupId).Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var complete = Directory.EnumerateDirectories(root)
+            .Where(dir => File.Exists(Path.Combine(dir, "backup.json")) &&
+                          !File.Exists(Path.Combine(dir, "FAILED.txt")))
+            .OrderByDescending(Directory.GetCreationTimeUtc).ToList();
+        var removed = 0;
+        foreach (var dir in complete.Skip(retain))
+        {
+            if (protectedIds.Contains(Path.GetFileName(dir))) continue;
+            if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(dir)), Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase)) continue;
+            try { Directory.Delete(dir, recursive: true); removed++; }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+        return removed;
     }
 
     private IEnumerable<InstallationManifest> LoadManifests()
