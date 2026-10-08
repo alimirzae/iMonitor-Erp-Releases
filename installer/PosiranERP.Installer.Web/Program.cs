@@ -145,6 +145,7 @@ app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorSer
             manifest.Channel == "Test" ? "-TestFolderName" : "-ProductionFolderName",manifest.InstallFolderName,
             "-Force"
         };
+        if (!string.IsNullOrWhiteSpace(manifest.RuntimeUrl)) { args.Add("-RuntimeHealthUrl"); args.Add(manifest.RuntimeUrl); }
         if (!isIMonitor && !manifest.AutoUpdate) args.Add("-DisableAutoUpdate");
         logs.Progress(op.Id, "اجرای ارتقا", 10, $"اجرای ارتقا روی {manifest.RuntimeUrl ?? $"http://127.0.0.1:{manifest.Port}"}");
         var run = await RunPowerShellAsync(args, 30 * 60 * 1000, logs, op.Id, ct);
@@ -271,6 +272,10 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
         isTest ? "-TestPort" : "-ProductionPort",appPort.ToString(),
         isTest ? "-TestFolderName" : "-ProductionFolderName",installFolderName
     };
+    var installId = (isIMonitor ? "imonitor-" : "posiran-") + channel.ToLowerInvariant();
+    var installManifest = orchestrator.RequireManifest(installId);
+    using var maintenance = orchestrator.AcquireMaintenance(installId);
+    if (!string.IsNullOrWhiteSpace(installManifest.RuntimeUrl)) { args.Add("-RuntimeHealthUrl"); args.Add(installManifest.RuntimeUrl); }
     if (!isIMonitor && !isTest) args.Add("-DisableAutoUpdate");
     if (request.Force) args.Add("-Force");
     logs.Progress(op.Id,"استقرار",10,"اجرای Installer؛ خروجی به‌صورت زنده نمایش داده می‌شود");
