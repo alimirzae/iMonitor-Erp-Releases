@@ -149,7 +149,7 @@ app.MapPost("/api/installations/{id}/upgrade", (string id, OrchestratorService o
                 return;
             }
 
-            logs.Progress(op.Id, "تکمیل", 100, $"نسخه {active.InstalledRelease ?? "جدید"} سالم و در دسترس است.");
+            logs.Progress(op.Id, "تکمیل", 100, $"نسخه {active.InstalledVersion ?? "جدید"} سالم و در دسترس است.");
             logs.Complete(op.Id, true,
                 $"ارتقا با موفقیت انجام شد. Backup: {backup.BackupId}. HTTP و دیتابیس سالم هستند.");
         }
