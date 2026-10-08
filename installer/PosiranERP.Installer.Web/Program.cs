@@ -346,6 +346,22 @@ app.MapPost("/api/installations/{id}/prune-backups", (string id, OrchestratorSer
     catch (Exception ex) { return Results.Problem(ex.Message); }
 });
 
+app.MapGet("/api/watchdog/{id}/history", (string id, OrchestratorService orchestrator) =>
+{
+    try
+    {
+        if (!Regex.IsMatch(id, @"^[a-zA-Z0-9_-]+$")) return Results.BadRequest();
+        orchestrator.RequireManifest(id);
+        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "iMonitor", "ERPDeploymentManager");
+        var path = Path.Combine(root, "watchdog-logs", id + ".jsonl");
+        var records = new List<JsonNode?>();
+        if (File.Exists(path))
+            foreach (var line in File.ReadLines(path).TakeLast(80))
+                try { records.Add(JsonNode.Parse(line)); } catch { }
+        return Results.Ok(new { records = records.AsEnumerable().Reverse().ToArray(), checkedAtUtc = DateTime.UtcNow });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
 app.MapGet("/api/watchdog/{id}", (string id) =>
 {
     if (!Regex.IsMatch(id, @"^[a-zA-Z0-9_-]+$")) return Results.BadRequest();
