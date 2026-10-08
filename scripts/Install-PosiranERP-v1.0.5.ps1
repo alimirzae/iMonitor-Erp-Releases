@@ -421,21 +421,3 @@ function Install-Channel($info){
   }finally{Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue}
 }
 $selected=@();if($Channel -in @('Both','Test')){$selected+=Get-ChannelInfo 'Test'};if($Channel -in @('Both','Production')){$selected+=Get-ChannelInfo 'Production'};foreach($i in $selected){Install-Channel $i}
-){$healthUrl+='/health'}
-    $ok=$false;for($i=1;$i -le 45;$i++){Start-Sleep 2;try{$r=Invoke-WebRequest $healthUrl -UseBasicParsing -TimeoutSec 8;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
-    if(!$ok){throw "Health check failed on port $($info.Port)."}
-    if(Test-Path $backup){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
-    Write-Host "[PROGRESS 100] Installation and health verification succeeded"
-    Copy-Item (Join-Path $info.Root 'Install-PosiranERP.ps1') $stableInstaller -Force
-    Set-Content $info.State $rel.Tag -Encoding ASCII;Write-Host "[OK] $($rel.Tag) -> http://127.0.0.1:$($info.Port)/ ; DB=$($info.Database) ; Folder=$($info.Folder)" -ForegroundColor Green;Register-Updater $info
-  }catch{
-    $failure=$_
-    if($backup -and (Test-Path $backup)){
-      Write-Warning "Deployment failed for $($info.Name). Automatic rollback is disabled. Previous files are preserved at $backup for an explicit administrator rollback."
-    }else{
-      Write-Warning "Deployment failed for $($info.Name). Automatic rollback is disabled."
-    }
-    throw $failure
-  }finally{Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue}
-}
-$selected=@();if($Channel -in @('Both','Test')){$selected+=Get-ChannelInfo 'Test'};if($Channel -in @('Both','Production')){$selected+=Get-ChannelInfo 'Production'};foreach($i in $selected){Install-Channel $i}
