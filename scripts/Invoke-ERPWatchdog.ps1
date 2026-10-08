@@ -27,6 +27,12 @@ try {
             $log = Join-Path $logDir ($id+'.jsonl')
             $status = Join-Path $logDir ($id+'.state.json')
             $now = [DateTime]::UtcNow
+            $maintenance = Join-Path (Join-Path $StateRoot 'maintenance') ($id + '.lock')
+            if (Test-Path $maintenance) {
+                $age = $now - (Get-Item $maintenance).LastWriteTimeUtc
+                if ($age.TotalMinutes -lt 45) { continue }
+                # A crash must not disable health checks forever.
+            }
             $prior = $null
             if (Test-Path $status) { try { $prior=Get-Content $status -Raw | ConvertFrom-Json } catch {} }
             $next = if($prior -and $prior.NextCheckUtc) { [datetime]$prior.NextCheckUtc } else { [datetime]::MinValue }
