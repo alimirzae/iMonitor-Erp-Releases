@@ -402,7 +402,9 @@ function Install-Channel($info){
     Write-Host "[PROGRESS 90] Verify runtime health"
     $healthUrl=if($RuntimeHealthUrl){$RuntimeHealthUrl.TrimEnd('/')}else{"http://127.0.0.1:$($info.Port)"}
     if($healthUrl -notmatch '^https?://'){throw 'RuntimeHealthUrl must be HTTP(S)'}
-    if($healthUrl -notmatch '/health
+    if(-not $healthUrl.EndsWith('/health',[StringComparison]::OrdinalIgnoreCase)){$healthUrl+='/health'}
+    $ok=$false
+    for($i=1;$i -le 45;$i++){Start-Sleep 2;try{$r=Invoke-WebRequest $healthUrl -UseBasicParsing -TimeoutSec 8;if($r.StatusCode -eq 200){$ok=$true;break}}catch{}}
     if(!$ok){throw "Health check failed on port $($info.Port)."}
     if(Test-Path $backup){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
     Write-Host "[PROGRESS 100] Installation and health verification succeeded"
