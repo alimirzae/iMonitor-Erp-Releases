@@ -346,6 +346,24 @@ app.MapPost("/api/installations/{id}/prune-backups", (string id, OrchestratorSer
     catch (Exception ex) { return Results.Problem(ex.Message); }
 });
 
+app.MapGet("/api/watchdog/task-status", async () =>
+{
+    if (!OperatingSystem.IsWindows()) return Results.Ok(new { installed = false, details = "Windows only" });
+    try
+    {
+        var psi = new ProcessStartInfo("schtasks.exe") {
+            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true
+        };
+        foreach (var arg in new[] { "/Query", "/TN", "iBOS-ERP-Watchdog", "/FO", "LIST", "/V" })
+            psi.ArgumentList.Add(arg);
+        using var process = Process.Start(psi) ?? throw new InvalidOperationException("schtasks unavailable");
+        var output = await process.StandardOutput.ReadToEndAsync();
+        var error = await process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        return Results.Ok(new { installed = process.ExitCode == 0, details = process.ExitCode == 0 ? output : error });
+    }
+    catch (Exception ex) { return Results.Ok(new { installed = false, details = ex.Message }); }
+});
 app.MapGet("/api/watchdog/{id}/history", (string id, OrchestratorService orchestrator) =>
 {
     try
