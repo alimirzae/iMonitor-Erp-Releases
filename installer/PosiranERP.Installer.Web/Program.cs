@@ -312,6 +312,33 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
 });
 
 
+app.MapPost("/api/installations/{id}/runtime-url", async (string id, RuntimeUrlUpdate request, OrchestratorService orchestrator, CancellationToken ct) =>
+{
+    try
+    {
+        var check = await orchestrator.TestRuntimeUrlAsync(request.RuntimeUrl, ct);
+        if (!check.Ok) return Results.BadRequest(new { error = check.Message, saved = false });
+        var updated = orchestrator.UpdateRuntimeUrl(id, request.RuntimeUrl);
+        return Results.Ok(new { saved = true, runtimeUrl = updated.RuntimeUrl, health = check.Message });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
+app.MapPost("/api/installations/{id}/test-health-url", async (string id, RuntimeUrlUpdate request, OrchestratorService orchestrator, CancellationToken ct) =>
+{
+    try
+    {
+        orchestrator.RequireManifest(id);
+        var result = await orchestrator.TestRuntimeUrlAsync(request.RuntimeUrl, ct);
+        return Results.Ok(result);
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
+app.MapPost("/api/installations/{id}/prune-backups", (string id, OrchestratorService orchestrator) =>
+{
+    try { return Results.Ok(new { removed = orchestrator.PruneOldBackups(id) }); }
+    catch (Exception ex) { return Results.Problem(ex.Message); }
+});
+
 app.MapGet("/api/watchdog/{id}", (string id) =>
 {
     if (!Regex.IsMatch(id, @"^[a-zA-Z0-9_-]+$")) return Results.BadRequest();
@@ -604,3 +631,5 @@ record VersionApprovalRequest(bool Approved);
 record InstallerProcessResult(int ExitCode, string Output, string Error);
 
 record WatchdogSettings(bool Enabled, string HealthUrl, int IntervalMinutes = 2, int AfterRestartDelayMinutes = 4, int TimeoutSeconds = 10, bool RestartOnFailure = true);
+
+record RuntimeUrlUpdate(string RuntimeUrl);
