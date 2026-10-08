@@ -8,6 +8,7 @@ param(
   [string]$ProductionFolderName='production',
   [int]$TestPort=8081,
   [int]$ProductionPort=8080,
+  [string]$RuntimeHealthUrl='',
   [string]$TestHostHeader='',
   [string]$ProductionHostHeader='',
   [string]$TestPhysicalPath='',
@@ -534,6 +535,78 @@ function Install-Channel($info){
     }
     $headers=@{};if($info.HostHeader){$headers.Host=$info.HostHeader}
     $healthUrls=New-Object System.Collections.Generic.List[string]
+    if($RuntimeHealthUrl){
+      $explicit=$RuntimeHealthUrl.TrimEnd('/')
+      if($explicit -notmatch '/health
+    if($bindingPort -ne $info.Port){[void]$healthUrls.Add("http://127.0.0.1:$($info.Port)/health")}
+    if($info.HostHeader){[void]$healthUrls.Add("http://$($info.HostHeader)/health")}
+    }
+    Write-Host "[PROGRESS 90] Verify runtime health"
+    $lastHealthError=''
+    $ok=$false
+    for($i=1;$i -le 60 -and !$ok;$i++){
+      Start-Sleep 2
+      foreach($healthUrl in ($healthUrls|Select-Object -Unique)){
+        try{
+          $r=Invoke-WebRequest $healthUrl -Headers $headers -UseBasicParsing -TimeoutSec 8
+          if($r.StatusCode -eq 200){$ok=$true;break}
+          $lastHealthError="HTTP $($r.StatusCode) from $healthUrl"
+        }catch{
+          # Internal ERP bindings are HTTP. Never reinterpret a loopback HTTP failure
+          # as HTTPS: doing so caused healthy IIS sites on ports 8080/8081 to be rolled
+          # back with "underlying connection was closed" even though the app was up.
+          $lastHealthError="$healthUrl -> $($_.Exception.Message)"
+        }
+      }
+    }
+    if(!$ok){
+      $siteState='unknown';$poolState='unknown'
+      try{$siteState=(Get-WebsiteState -Name $info.Site).Value}catch{}
+      try{$poolState=(Get-WebAppPoolState -Name $info.Pool).Value}catch{}
+      $eventHint=''
+      try{
+        $events=Get-WinEvent -FilterHashtable @{LogName='Application';StartTime=(Get-Date).AddMinutes(-10)} -ErrorAction SilentlyContinue |
+          Where-Object{$_.ProviderName -match 'IIS AspNetCore Module V2|IIS AspNetCore Module|Application Error|.NET Runtime'} |
+          Where-Object{$_.Message -match [regex]::Escape($info.Root) -or $_.Message -match [regex]::Escape($info.Site)} |
+          Select-Object -First 3
+        if($events){$eventHint=($events|ForEach-Object{"[$($_.TimeCreated)] $($_.ProviderName): $($_.Message -replace '[\r\n]+',' ')"}) -join ' | '}
+      }catch{}
+      throw "Health check failed for $($info.Name) after deployment. Site=$siteState Pool=$poolState Port=$bindingPort Host='$($info.HostHeader)' LastError='$lastHealthError' EventLog='$eventHint'. Check $($info.Root)\logs and IIS logs."
+    }
+    # Keep one last-known-good rollback for Test. The scheduled updater checks health on every invocation
+    # and can restore it if the newly activated application later becomes unhealthy.
+    if($info.Name -ne 'Test' -and (Test-Path $backup)){Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue}
+    Write-Host "[PROGRESS 100] Installation and health verification succeeded"
+    Copy-Item (Join-Path $info.Root 'Install-iMonitorERP.ps1') $stableInstaller -Force
+    Configure-UpdateTask $info
+    Set-Content $info.State $rel.Tag -Encoding ASCII;Write-Host "[OK] $($rel.Tag) -> http://127.0.0.1:$($info.Port)/ ; DB=$($info.Database) ; Folder=$($info.Folder)" -ForegroundColor Green
+  }catch{
+    $failure=$_
+    if($backup -and (Test-Path $backup)){
+      Write-Warning "Deployment failed for $($info.Name). Automatic rollback is disabled. Previous files are preserved at $backup for an explicit administrator rollback."
+    }else{
+      Write-Warning "Deployment failed for $($info.Name). Automatic rollback is disabled."
+    }
+    throw $failure
+  }finally{Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue}
+}
+try{
+  Ensure-IisPrerequisites
+  $selected=@();if($Channel -in @('Both','Test')){$selected+=Get-ChannelInfo 'Test'};if($Channel -in @('Both','Production')){$selected+=Get-ChannelInfo 'Production'}
+  $channelErrors=@()
+  foreach($i in $selected){
+    try{Install-Channel $i}
+    catch{
+      $channelErrors += "$($i.Name): $($_.Exception.Message)"
+      Write-Warning "$($i.Name) channel failed: $($_.Exception.Message)"
+    }
+  }
+  if($channelErrors.Count -gt 0){throw ("One or more channels failed:" + [Environment]::NewLine + ($channelErrors -join [Environment]::NewLine))}
+}
+finally{if($installMutex){$installMutex.ReleaseMutex();$installMutex.Dispose()}}){$explicit+='/health'}
+      if($explicit -notmatch '^https?://'){throw 'RuntimeHealthUrl must be HTTP(S)'}
+      [void]$healthUrls.Add($explicit)
+    }else{
     [void]$healthUrls.Add("http://127.0.0.1:$bindingPort/health")
     if($bindingPort -ne $info.Port){[void]$healthUrls.Add("http://127.0.0.1:$($info.Port)/health")}
     if($info.HostHeader){[void]$healthUrls.Add("http://$($info.HostHeader)/health")}
