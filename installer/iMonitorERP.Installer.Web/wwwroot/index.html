@@ -94,5 +94,35 @@ async function installNow(){
 function openErp(){for(const u of erpUrls)window.open(u,'_blank')}
 syncDefaults();loadStatus();
 </script>
+<div class="wrap" style="margin-top:0;padding-top:0">
+  <div class="card"><div class="body">
+    <h3>ابزار صدای فارسی: FFmpeg (اختیاری)</h3>
+    <p class="hint">بدون FFmpeg نیز گوینده گنجی با WAV کار می‌کند. این ابزار فقط برای خروجی MP3 است.</p>
+    <div id="ffmpegState" class="status">در حال بررسی FFmpeg...</div>
+    <button type="button" class="secondary" onclick="checkFfmpeg()">بررسی وضعیت</button>
+    <button type="button" class="primary" onclick="installFfmpeg()">نصب FFmpeg روی سرور</button>
+  </div></div>
+</div>
+<script>
+async function checkFfmpeg(){
+  const el=document.getElementById('ffmpegState');
+  try{
+    const r=await fetch('/api/tools/ffmpeg');
+    const x=await r.json();
+    el.textContent=x.installed?'FFmpeg نصب شده است: '+x.path:'FFmpeg نصب نیست؛ Piper با WAV کار می‌کند.';
+  }catch(e){el.textContent='بررسی FFmpeg ناموفق: '+e.message}
+}
+async function installFfmpeg(){
+  const el=document.getElementById('ffmpegState');
+  el.textContent='در حال نصب FFmpeg با Windows Package Manager...';
+  try{
+    const r=await fetch('/api/tools/ffmpeg/install',{method:'POST'});
+    const x=await r.json();
+    if(!r.ok)throw new Error(x.detail||x.error||'نصب انجام نشد');
+    el.textContent='FFmpeg نصب شد: '+x.path+'؛ برای اعمال تغییرات، سرویس ERP را مجدداً راه‌اندازی کنید.';
+  }catch(e){el.textContent='خطا: '+e.message+' — در این وضعیت پخش WAV همچنان فعال است.'}
+}
+checkFfmpeg();
+</script>
 </body>
 </html>
