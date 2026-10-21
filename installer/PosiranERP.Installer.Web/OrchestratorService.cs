@@ -329,6 +329,12 @@ public sealed class OrchestratorService
             }
         }
 
+        // Encoding is performed outside SignalR by a persistent FFmpeg executable.
+        // Install once and reuse on every subsequent upgrade.
+        string? ffmpegPath = null;
+        try { ffmpegPath = await EnsureTtsFfmpegAsync(cancellationToken); }
+        catch (Exception ex) { progress?.Invoke("کدک MP3", 59, "FFmpeg unavailable: " + ex.Message); }
+
         try
         {
             // Saved config is copied to each new release, so persist there too.
@@ -343,6 +349,7 @@ public sealed class OrchestratorService
                 if (tts is null) { tts = new System.Text.Json.Nodes.JsonObject(); node["Tts"] = tts; }
                 if (tts["PersianModelDirectory"]?.GetValue<string>() == root) continue;
                 tts["PersianModelDirectory"] = root;
+                if (ffmpegPath is not null) tts["FfmpegPath"] = ffmpegPath;
                 var tmp = path + ".tts-new";
                 await File.WriteAllTextAsync(tmp, node.ToJsonString(new System.Text.Json.JsonSerializerOptions
                     { WriteIndented = true }), cancellationToken);
@@ -354,6 +361,42 @@ public sealed class OrchestratorService
         {
             progress?.Invoke("صدای فارسی", 59, "تنظیم مسیر مدل نیازمند بررسی است: " + ex.Message);
         }
+    }
+
+    private async Task<string> EnsureTtsFfmpegAsync(CancellationToken cancellationToken)
+    {
+        var toolsRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "AiBOS", "Tools", "FFmpeg");
+        var executable = Path.Combine(toolsRoot, "ffmpeg.exe");
+        if (File.Exists(executable) && new FileInfo(executable).Length > 1000000) return executable;
+
+        Directory.CreateDirectory(toolsRoot);
+        var work = Path.Combine(Path.GetTempPath(), "aibos-ffmpeg-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(work);
+        try
+        {
+            const string url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+            var archive = Path.Combine(work, "ffmpeg.zip");
+            var client = _clients.CreateClient();
+            client.Timeout = TimeSpan.FromMinutes(10);
+            using (var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+            {
+                response.EnsureSuccessStatusCode();
+                await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
+                await using var output = File.Create(archive);
+                await input.CopyToAsync(output, cancellationToken);
+            }
+            var extracted = Path.Combine(work, "extracted");
+            System.IO.Compression.ZipFile.ExtractToDirectory(archive, extracted);
+            var file = Directory.EnumerateFiles(extracted, "ffmpeg.exe", SearchOption.AllDirectories)
+                .FirstOrDefault();
+            if (file is null || new FileInfo(file).Length < 1000000)
+                throw new InvalidOperationException("Downloaded FFmpeg package does not contain a valid executable.");
+            File.Copy(file, executable + ".partial", true);
+            File.Move(executable + ".partial", executable, true);
+            return executable;
+        }
+        finally { try { Directory.Delete(work, true); } catch { } }
     }
 
     private static void CopyDirectory(string source, string destination)
