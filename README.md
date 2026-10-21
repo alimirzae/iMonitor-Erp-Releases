@@ -353,3 +353,10 @@ The same deployment contract applies to iMonitor ERP and Posiran ERP:
 - HTTP application health + database reachability are authoritative. IIS state is diagnostic when discovery returns Unknown/Unsupported.
 - Rollback restores application files and the matching installed-release state.
 - Historical releases are blacklisted only after an actual post-activation health failure; transport, file-lock, IIS-discovery and other infrastructure failures do not poison release history.
+
+
+## AiBOS Persian TTS — automatic installation (2026-10-21)
+
+The Windows installer `scripts/Install-iMonitorERP-v2.1.6.ps1` now invokes `Ensure-AiBosPersianTts` on first installation, updates, and the already-current release path. The model is kept outside replaceable application folders at `%ProgramData%\\AiBOS\\Models\\TTS\\Persian` and `Tts:PersianModelDirectory` is written into the active/staged appsettings.json. Existing model assets are reused, and a failed download emits a warning without preventing ERP startup. The installer still requires network access the first time the model is fetched; a disconnected server must be preseeded with model files.
+
+Source artifact: Sherpa-ONNX Piper Persian `vits-piper-fa_IR-ganji-medium`; deployment requires validating `fa_IR-ganji-medium.onnx`, `tokens.txt`, and `espeak-ng-data`. Test build, publication of the installer asset, successful installation, and runtime speech synthesis are separate validation checkpoints. The `deploy-test.yml` workflow in Ecomm is intentionally disabled: the standalone ERP Deployment Manager owns machine installation and upgrades. Do not treat a commit as evidence that already-installed managers picked up the new bootstrap script.
