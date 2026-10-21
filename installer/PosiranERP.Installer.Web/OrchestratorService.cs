@@ -186,6 +186,7 @@ public sealed class OrchestratorService
             // silently served the wrong database or could not connect at all.
             if (!File.Exists(m.ConfigPath)) throw new FileNotFoundException("Saved instance configuration was not found; refusing to activate the package defaults.", m.ConfigPath);
             File.Copy(m.ConfigPath, Path.Combine(stage, "appsettings.json"), overwrite: true);
+            await TryEnsurePersianTtsAsync(m, stage, cancellationToken, progress);
             progress?.Invoke("تنظیم پیکربندی", 60, "appsettings محیط اعمال شد");
 
             progress?.Invoke("توقف IIS", 64, $"{m.IisSite} / {m.AppPool}");
@@ -248,6 +249,7 @@ public sealed class OrchestratorService
                 // Self-heal historical disk growth even if there is no newer release.
                 PruneOldBackups(m.Id);
                 PruneOldPackages(m.Id);
+                await TryEnsurePersianTtsAsync(m, m.InstallPath, cancellationToken);
                 var releases = await ListReleasesAsync(m.Product, m.Channel, cancellationToken);
                 var latest = releases.FirstOrDefault(x => x.Eligible);
                 if (latest is null) continue;
@@ -257,6 +259,110 @@ public sealed class OrchestratorService
             }
             catch { }
         }
+    }
+
+    /// <summary>
+    /// Install once into persistent ProgramData, and persist model path in both installer
+    /// config and deployed appsettings. Safe to call on install, upgrade, or every test
+    /// auto-update cycle. A failed optional voice download must not block ERP upgrades.
+    /// </summary>
+    private async Task TryEnsurePersianTtsAsync(
+        InstallationManifest manifest, string applicationFolder,
+        CancellationToken cancellationToken, Action<string, int, string?>? progress = null)
+    {
+        // Supports AiBOS in both iMonitor and Posiran editions.
+        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "AiBOS", "Models", "TTS", "Persian");
+        var model = Path.Combine(root, "fa_IR-ganji-medium.onnx");
+        var tokens = Path.Combine(root, "tokens.txt");
+        var phonemizer = Path.Combine(root, "espeak-ng-data");
+        var ready = File.Exists(model) && new FileInfo(model).Length > 1000000
+            && File.Exists(tokens) && Directory.Exists(phonemizer);
+
+        if (!ready)
+        {
+            var work = Path.Combine(Path.GetTempPath(), "aibos-persian-tts-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(work);
+            try
+            {
+                progress?.Invoke("صدای فارسی", 58, "دریافت مدل آفلاین فارسی (یک‌بار)");
+                var url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-fa_IR-ganji-medium.tar.bz2";
+                var archive = Path.Combine(work, "persian-tts.tar.bz2");
+                var http = _clients.CreateClient();
+                http.Timeout = TimeSpan.FromMinutes(4);
+                using (var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+                {
+                    response.EnsureSuccessStatusCode();
+                    await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
+                    await using var output = File.Create(archive);
+                    await input.CopyToAsync(output, cancellationToken);
+                }
+                var extraction = RunProcess("tar.exe", new[] { "-xjf", archive, "-C", work }, 180000);
+                if (extraction.ExitCode != 0)
+                    throw new InvalidOperationException("Could not extract Piper model: " + extraction.StdErr);
+                var source = Directory.EnumerateFiles(work, "fa_IR-ganji-medium.onnx", SearchOption.AllDirectories)
+                    .FirstOrDefault();
+                var foundTokens = Directory.EnumerateFiles(work, "tokens.txt", SearchOption.AllDirectories)
+                    .FirstOrDefault();
+                var espeak = Directory.EnumerateDirectories(work, "espeak-ng-data", SearchOption.AllDirectories)
+                    .FirstOrDefault();
+                if (source is null || foundTokens is null || espeak is null)
+                    throw new InvalidOperationException("Piper archive is missing model/tokens/espeak-ng-data.");
+
+                Directory.CreateDirectory(root);
+                // Copy model last via temporary file so an interrupted install won't be treated as ready.
+                File.Copy(foundTokens, tokens, true);
+                if (Directory.Exists(phonemizer)) Directory.Delete(phonemizer, true);
+                CopyDirectory(espeak, phonemizer);
+                File.Copy(source, model + ".partial", true);
+                File.Move(model + ".partial", model, true);
+                progress?.Invoke("صدای فارسی", 59, "مدل فارسی نصب شد");
+            }
+            catch (Exception ex)
+            {
+                progress?.Invoke("صدای فارسی", 59, "نصب اختیاری مدل ناموفق بود: " + ex.Message);
+                return;
+            }
+            finally
+            {
+                try { Directory.Delete(work, true); } catch { }
+            }
+        }
+
+        try
+        {
+            // Saved config is copied to each new release, so persist there too.
+            foreach (var path in new[] { manifest.ConfigPath, Path.Combine(applicationFolder, "appsettings.json") }
+                .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!File.Exists(path)) continue;
+                var node = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(path, cancellationToken))
+                    as System.Text.Json.Nodes.JsonObject;
+                if (node is null) continue;
+                var tts = node["Tts"] as System.Text.Json.Nodes.JsonObject;
+                if (tts is null) { tts = new System.Text.Json.Nodes.JsonObject(); node["Tts"] = tts; }
+                if (tts["PersianModelDirectory"]?.GetValue<string>() == root) continue;
+                tts["PersianModelDirectory"] = root;
+                var tmp = path + ".tts-new";
+                await File.WriteAllTextAsync(tmp, node.ToJsonString(new System.Text.Json.JsonSerializerOptions
+                    { WriteIndented = true }), cancellationToken);
+                File.Move(tmp, path, true);
+            }
+            progress?.Invoke("صدای فارسی", 59, "مدل فارسی و مسیر پیکربندی آماده‌اند");
+        }
+        catch (Exception ex)
+        {
+            progress?.Invoke("صدای فارسی", 59, "تنظیم مسیر مدل نیازمند بررسی است: " + ex.Message);
+        }
+    }
+
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.EnumerateFiles(source))
+            File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
+        foreach (var dir in Directory.EnumerateDirectories(source))
+            CopyDirectory(dir, Path.Combine(destination, Path.GetFileName(dir)));
     }
 
     public IReadOnlyDictionary<string, bool> GetVersionApprovals(string id)
