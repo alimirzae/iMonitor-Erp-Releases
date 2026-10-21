@@ -369,8 +369,24 @@ public sealed class OrchestratorService
         var toolsRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             "AiBOS", "Tools", "FFmpeg");
         var executable = Path.Combine(toolsRoot, "ffmpeg.exe");
-        if (File.Exists(executable) && new FileInfo(executable).Length > 1000000) return executable;
+        static bool IsWorking(string path)
+        {
+            if (!File.Exists(path) || new FileInfo(path).Length < 1000000) return false;
+            try
+            {
+                var process = new ProcessStartInfo(path)
+                {
+                    RedirectStandardOutput = true, RedirectStandardError = true,
+                    CreateNoWindow = true, UseShellExecute = false
+                };
+                process.ArgumentList.Add("-version");
+                using var ffmpeg = Process.Start(process);
+                return ffmpeg is not null && ffmpeg.WaitForExit(12000) && ffmpeg.ExitCode == 0;
+            }
+            catch { return false; }
+        }
 
+        if (IsWorking(executable)) return executable;
         Directory.CreateDirectory(toolsRoot);
         var work = Path.Combine(Path.GetTempPath(), "aibos-ffmpeg-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(work);
@@ -389,12 +405,15 @@ public sealed class OrchestratorService
             }
             var extracted = Path.Combine(work, "extracted");
             System.IO.Compression.ZipFile.ExtractToDirectory(archive, extracted);
-            var file = Directory.EnumerateFiles(extracted, "ffmpeg.exe", SearchOption.AllDirectories)
-                .FirstOrDefault();
-            if (file is null || new FileInfo(file).Length < 1000000)
-                throw new InvalidOperationException("Downloaded FFmpeg package does not contain a valid executable.");
-            File.Copy(file, executable + ".partial", true);
-            File.Move(executable + ".partial", executable, true);
+            var source = Directory.EnumerateFiles(extracted, "ffmpeg.exe", SearchOption.AllDirectories).FirstOrDefault();
+            if (source is null || !IsWorking(source))
+                throw new InvalidOperationException("FFmpeg package does not include a runnable ffmpeg.exe.");
+
+            // Replace only after the downloaded binary has been executed successfully.
+            var staged = executable + ".partial";
+            File.Copy(source, staged, true);
+            if (!IsWorking(staged)) throw new InvalidOperationException("Staged FFmpeg failed the -version probe.");
+            File.Move(staged, executable, true);
             return executable;
         }
         finally { try { Directory.Delete(work, true); } catch { } }
