@@ -347,7 +347,8 @@ public sealed class OrchestratorService
                 if (node is null) continue;
                 var tts = node["Tts"] as System.Text.Json.Nodes.JsonObject;
                 if (tts is null) { tts = new System.Text.Json.Nodes.JsonObject(); node["Tts"] = tts; }
-                if (tts["PersianModelDirectory"]?.GetValue<string>() == root) continue;
+                if (tts["PersianModelDirectory"]?.GetValue<string>() == root &&
+                    (ffmpegPath is null || tts["FfmpegPath"]?.GetValue<string>() == ffmpegPath)) continue;
                 tts["PersianModelDirectory"] = root;
                 if (ffmpegPath is not null) tts["FfmpegPath"] = ffmpegPath;
                 var tmp = path + ".tts-new";
