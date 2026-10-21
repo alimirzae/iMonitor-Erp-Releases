@@ -72,7 +72,7 @@ app.MapPost("/api/tools/ffmpeg/install", async (HttpContext context) =>
     var psi = new ProcessStartInfo(winget)
     {
         UseShellExecute = false, CreateNoWindow = true,
-        RedirectStandardOutput = true, RedirectStandardError = true
+        RedirectStandardOutput = false, RedirectStandardError = false
     };
     foreach (var arg in new[] { "install", "--id", "Gyan.FFmpeg", "--exact",
                                 "--accept-source-agreements", "--accept-package-agreements",
