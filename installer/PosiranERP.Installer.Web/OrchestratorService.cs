@@ -245,6 +245,9 @@ public sealed class OrchestratorService
         {
             try
             {
+                // Self-heal historical disk growth even if there is no newer release.
+                PruneOldBackups(m.Id);
+                PruneOldPackages(m.Id);
                 var releases = await ListReleasesAsync(m.Product, m.Channel, cancellationToken);
                 var latest = releases.FirstOrDefault(x => x.Eligible);
                 if (latest is null) continue;
