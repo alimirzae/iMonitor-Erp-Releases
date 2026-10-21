@@ -410,7 +410,7 @@ public sealed class OrchestratorService
                 throw new InvalidOperationException("FFmpeg package does not include a runnable ffmpeg.exe.");
 
             // Replace only after the downloaded binary has been executed successfully.
-            var staged = executable + ".partial";
+            var staged = Path.Combine(toolsRoot, "ffmpeg-check.exe");
             File.Copy(source, staged, true);
             if (!IsWorking(staged)) throw new InvalidOperationException("Staged FFmpeg failed the -version probe.");
             File.Move(staged, executable, true);
