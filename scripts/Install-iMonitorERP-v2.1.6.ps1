@@ -506,7 +506,7 @@ function Ensure-AiBosPersianTts($info, [string]$stage){
     if(Test-Path $configFile){
       try{
         $settings=Get-Content $configFile -Raw|ConvertFrom-Json
-        if(!$settings.Tts){$settings|Add-Member -NotePropertyName Tts -NotePropertyValue ([pscustomobject]@{})}
+        if(-not $settings.PSObject.Properties["Tts"]){$settings|Add-Member -NotePropertyName Tts -NotePropertyValue ([pscustomobject]@{})}
         $settings.Tts|Add-Member -NotePropertyName PersianModelDirectory -NotePropertyValue $modelRoot -Force
         $settings|ConvertTo-Json -Depth 70|Set-Content $configFile -Encoding UTF8
         Write-Host "[TTS] Configured persistent model path for $($info.Name)."
@@ -527,7 +527,7 @@ function Install-Channel($info){
   $rel=Get-LatestRelease $info;$installed=if(Test-Path $info.State){(Get-Content $info.State -Raw).Trim()}else{''}
   if(!$Force -and $installed -eq $rel.Tag){
     Write-Host "Already current: $($rel.Tag)"
-    Ensure-AiBosPersianTts $info $null
+    Ensure-AiBosPersianTts $info $info.Root
     return
   }
   $work=Join-Path $workRoot ('imonitor-'+$info.Key+'-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Force -Path $work,(Split-Path $info.State -Parent)|Out-Null
