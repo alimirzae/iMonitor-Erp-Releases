@@ -468,6 +468,53 @@ function Find-CachedPackage([string]$Tag,[string]$ExpectedHash){
   return $null
 }
 
+
+function Ensure-AiBosPersianTts($info, [string]$stage){
+  $modelRoot=Join-Path $env:ProgramData 'AiBOS\Models\TTS\Persian'
+  $modelFile=Join-Path $modelRoot 'fa_IR-ganji-medium.onnx'
+  $tokens=Join-Path $modelRoot 'tokens.txt'
+  $phonemes=Join-Path $modelRoot 'espeak-ng-data'
+  $ready=(Test-Path $modelFile) -and (Test-Path $tokens) -and (Test-Path $phonemes -PathType Container)
+  if(-not $ready){
+    Write-Host '[TTS] Installing Persian Piper model in persistent ProgramData path...'
+    $temp=Join-Path $env:TEMP ('aibos-model-'+[guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Force $temp,$modelRoot | Out-Null
+    try{
+      $archive=Join-Path $temp 'piper-fa.tar.bz2'
+      $url='https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-fa_IR-ganji-medium.tar.bz2'
+      Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $archive -TimeoutSec 180
+      & tar.exe -xjf $archive -C $temp
+      if($LASTEXITCODE -ne 0){throw 'Model archive extraction failed.'}
+      $found=Get-ChildItem $temp -Recurse -File -Filter 'fa_IR-ganji-medium.onnx'|Select-Object -First 1
+      if(!$found){throw 'Piper ONNX model missing in download.'}
+      $source=$found.Directory.FullName
+      foreach($name in @('fa_IR-ganji-medium.onnx','tokens.txt')){
+        $src=Join-Path $source $name
+        if(!(Test-Path $src)){throw "Required Piper file missing: $name"}
+        Copy-Item $src (Join-Path $modelRoot $name) -Force
+      }
+      $espeak=Get-ChildItem $temp -Recurse -Directory -Filter 'espeak-ng-data'|Select-Object -First 1
+      if(!$espeak){throw 'Piper phonemizer data missing in download.'}
+      Copy-Item $espeak.FullName $phonemes -Recurse -Force
+      Write-Host '[TTS] Persian model installed.'
+    }catch{
+      Write-Warning "[TTS] Optional Persian model unavailable: $($_.Exception.Message). ERP upgrade continues; browser speech remains available."
+    }finally{Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue}
+  }else{Write-Host '[TTS] Reusing previously installed model.'}
+  if($stage){
+    $configFile=Join-Path $stage 'appsettings.json'
+    if(Test-Path $configFile){
+      try{
+        $settings=Get-Content $configFile -Raw|ConvertFrom-Json
+        if(!$settings.Tts){$settings|Add-Member -NotePropertyName Tts -NotePropertyValue ([pscustomobject]@{})}
+        $settings.Tts|Add-Member -NotePropertyName PersianModelDirectory -NotePropertyValue $modelRoot -Force
+        $settings|ConvertTo-Json -Depth 70|Set-Content $configFile -Encoding UTF8
+        Write-Host "[TTS] Configured persistent model path for $($info.Name)."
+      }catch{Write-Warning "[TTS] Could not inject model path into staged config: $($_.Exception.Message)"}
+    }
+  }
+}
+
 function Install-Channel($info){
   $backup=$null
   Write-Host "=== iMonitor iBOS $($info.Name) ===" -ForegroundColor Cyan
@@ -478,7 +525,11 @@ function Install-Channel($info){
   if(!$SkipMySqlProvisioning -and ![string]::IsNullOrWhiteSpace($MySqlPassword)){Ensure-MySqlDatabase $info}else{Write-Host '[DB] Existing MySQL is validated by application startup and /health.' -ForegroundColor DarkGray}
   Reset-TestDatabase $info
   $rel=Get-LatestRelease $info;$installed=if(Test-Path $info.State){(Get-Content $info.State -Raw).Trim()}else{''}
-  if(!$Force -and $installed -eq $rel.Tag){Write-Host "Already current: $($rel.Tag)";return}
+  if(!$Force -and $installed -eq $rel.Tag){
+    Write-Host "Already current: $($rel.Tag)"
+    Ensure-AiBosPersianTts $info $null
+    return
+  }
   $work=Join-Path $workRoot ('imonitor-'+$info.Key+'-'+[guid]::NewGuid().ToString('N'));New-Item -ItemType Directory -Force -Path $work,(Split-Path $info.State -Parent)|Out-Null
   $zip=Join-Path $work $asset;$shaFile=$zip+'.sha256'
   try{
@@ -499,6 +550,7 @@ function Install-Channel($info){
     Write-Host "[PROGRESS 55] Package extraction completed"
     if(!(Test-Path (Join-Path $stage 'Ecomm.dll')) -or !(Test-Path (Join-Path $stage 'web.config'))){throw 'Release package is incomplete (Ecomm.dll/web.config missing).'}
     Copy-Item $info.Config (Join-Path $stage 'appsettings.json') -Force
+    Ensure-AiBosPersianTts $info $stage
     Set-Content (Join-Path $stage 'release-tag.txt') $rel.Tag -Encoding ASCII
     $packagedInstaller=Join-Path $stage 'Install-iMonitorERP.ps1'
     if(!(Test-Path $packagedInstaller)){Copy-Item $stableInstaller $packagedInstaller -Force}
