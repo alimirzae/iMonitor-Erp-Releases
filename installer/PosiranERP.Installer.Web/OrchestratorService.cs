@@ -674,45 +674,60 @@ public sealed class OrchestratorService
         return result;
     }
 
-    /// <summary>Retain ten newest complete backups and those linked to ten latest healthy versions.</summary>
-    public int PruneOldBackups(string id, int retain = 10)
+    /// <summary>
+    /// Retain at most five completed automatic pre-version backups per instance.
+    /// Manual backups are intentionally excluded from automatic deletion.
+    /// Failed/incomplete backups older than 48h are removed when safe.
+    /// </summary>
+    public int PruneOldBackups(string id, int retain = 5)
     {
         var m = RequireManifest(id);
-        retain = Math.Clamp(retain, 10, 100);
-        var root = Path.Combine(m.InstallRoot, m.InstallFolderName, "backups");
+        retain = Math.Clamp(retain, 1, 5);
+        var root = Path.GetFullPath(Path.Combine(m.InstallRoot, m.InstallFolderName, "backups"));
         if (!Directory.Exists(root)) return 0;
-        var protectedIds = GetVersionHistory(id)
-            .Where(x => string.Equals(x.Status, "Healthy", StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(x => x.CheckedAtUtc).Take(retain)
-            .Select(x => x.BackupId).Where(x => !string.IsNullOrWhiteSpace(x))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var complete = Directory.EnumerateDirectories(root)
-            .Where(dir => File.Exists(Path.Combine(dir, "backup.json")) &&
-                          !File.Exists(Path.Combine(dir, "FAILED.txt")))
-            .OrderByDescending(Directory.GetCreationTimeUtc).ToList();
-        var removed = 0;
-        foreach (var dir in complete.Skip(retain))
+
+        var automatic = new List<(string Dir, DateTime Created)>();
+        var failed = new List<string>();
+        foreach (var dir in Directory.EnumerateDirectories(root))
         {
-            if (protectedIds.Contains(Path.GetFileName(dir))) continue;
-            if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(dir)), Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase)) continue;
-            try { Directory.Delete(dir, recursive: true); removed++; }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(dir)), root, StringComparison.OrdinalIgnoreCase)) continue;
+            if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0) continue;
+            var metadataPath = Path.Combine(dir, "backup.json");
+            if (File.Exists(Path.Combine(dir, "FAILED.txt")))
+            {
+                if (Directory.GetLastWriteTimeUtc(dir) < DateTime.UtcNow.AddHours(-48))
+                    failed.Add(dir);
+                continue;
+            }
+            if (!File.Exists(metadataPath)) continue; // Unknown/in-progress backup: never delete.
+            try
+            {
+                var meta = JsonSerializer.Deserialize<BackupMetadata>(File.ReadAllText(metadataPath), JsonOptions);
+                if (meta is null || !string.Equals(meta.BackupId, Path.GetFileName(dir), StringComparison.OrdinalIgnoreCase)) continue;
+                if (!string.Equals(meta.Reason, "pre-version:", StringComparison.OrdinalIgnoreCase) &&
+                    !meta.Reason.StartsWith("pre-version:", StringComparison.OrdinalIgnoreCase)) continue;
+                automatic.Add((dir, meta.CreatedAtUtc));
+            }
+            catch { /* Invalid metadata: preserve for manual inspection. */ }
+        }
+
+        var removed = 0;
+        foreach (var old in automatic.OrderByDescending(x => x.Created).Skip(retain).Select(x => x.Dir).Concat(failed))
+        {
+            try { Directory.Delete(old, recursive: true); removed++; }
+            catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
         return removed;
     }
 
-    /// <summary>
-    /// Preserve the latest ten healthy package archives for each product/channel,
-    /// plus any package currently installed on another local instance. Never remove
-    /// partial or manually staged packages that have not passed checksum validation.
-    /// </summary>
-    public int PruneOldPackages(string id, int retain = 10)
+    /// <summary>Keep at most five known-good cached release packages per product/channel,
+    /// while preserving versions installed anywhere under the same install root.</summary>
+    public int PruneOldPackages(string id, int retain = 5)
     {
         var manifest = RequireManifest(id);
-        var packageRoot = Path.Combine(manifest.InstallRoot, "packages");
+        var packageRoot = Path.GetFullPath(Path.Combine(manifest.InstallRoot, "packages"));
         if (!Directory.Exists(packageRoot)) return 0;
-        retain = Math.Clamp(retain, 10, 100);
+        retain = Math.Clamp(retain, 1, 5);
         var prefix = manifest.Product == "Posiran"
             ? (manifest.Channel == "Test" ? "posiran-erp-test-v" : "posiran-erp-production-v")
             : (manifest.Channel == "Test" ? "imonitor-ecomerp-test-v" : "imonitor-ecomerp-master-v");
@@ -721,20 +736,20 @@ public sealed class OrchestratorService
             .GroupBy(x => x.Tag, StringComparer.OrdinalIgnoreCase)
             .Select(x => (tag: x.Key, date: x.Max(v => v.CheckedAtUtc)))
             .OrderByDescending(x => x.date).ToList();
-        var preserve = healthy.Take(retain).Select(x => x.tag)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var m in LoadManifests().Where(x => string.Equals(x.InstallRoot, manifest.InstallRoot, StringComparison.OrdinalIgnoreCase)))
+
+        var preserve = healthy.Take(retain).Select(x => x.tag).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var instance in LoadManifests().Where(x => string.Equals(x.InstallRoot, manifest.InstallRoot, StringComparison.OrdinalIgnoreCase)))
         {
-            var installed = ReadInstalledRelease(m);
+            var installed = ReadInstalledRelease(instance);
             if (!string.IsNullOrWhiteSpace(installed)) preserve.Add(installed);
         }
         var removed = 0;
-        foreach (var older in healthy.Skip(retain))
+        foreach (var old in healthy.Skip(retain))
         {
-            if (preserve.Contains(older.tag) || older.tag.Contains('/') || older.tag.Contains('\\')) continue;
-            var directory = Path.Combine(packageRoot, older.tag);
-            if (!Directory.Exists(directory)) continue;
-            if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(directory)), Path.GetFullPath(packageRoot), StringComparison.OrdinalIgnoreCase)) continue;
+            if (preserve.Contains(old.tag) || old.tag.Contains('/') || old.tag.Contains('\\')) continue;
+            var directory = Path.GetFullPath(Path.Combine(packageRoot, old.tag));
+            if (!string.Equals(Path.GetDirectoryName(directory), packageRoot, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!Directory.Exists(directory) || (File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) continue;
             if (!Directory.EnumerateFiles(directory, "*.sha256", SearchOption.TopDirectoryOnly).Any()) continue;
             try { Directory.Delete(directory, recursive: true); removed++; }
             catch (IOException) { } catch (UnauthorizedAccessException) { }
