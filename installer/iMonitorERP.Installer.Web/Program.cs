@@ -41,6 +41,69 @@ app.MapGet("/api/status", (OrchestratorService orchestrator) =>
     });
 });
 
+// Optional audio codec setup for Piper TTS; WAV fallback works without this tool.
+app.MapGet("/api/tools/ffmpeg", () =>
+{
+    var executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "AiBOS", "Tools", "FFmpeg", "ffmpeg.exe");
+    return Results.Ok(new { installed = File.Exists(executable), path = executable });
+});
+
+app.MapPost("/api/tools/ffmpeg/install", async (HttpContext context) =>
+{
+    if (!OperatingSystem.IsWindows() || !IsAdministrator())
+        return Results.BadRequest(new { error = "Windows Administrator privileges are required." });
+    if (context.Request.Headers.Origin is { Count: > 0 } origin &&
+        (!Uri.TryCreate(origin.ToString(), UriKind.Absolute, out var uri) ||
+         uri.Host != context.Request.Host.Host || uri.Port != context.Request.Host.Port))
+        return Results.StatusCode(403);
+
+    var destination = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "AiBOS", "Tools", "FFmpeg", "ffmpeg.exe");
+    if (File.Exists(destination)) return Results.Ok(new { installed = true, path = destination });
+
+    // winget is the controlled installer provider; arbitrary client URLs or commands are forbidden.
+    // Windows Server without winget must use a manually provisioned vetted FFmpeg executable.
+    var winget = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Microsoft", "WindowsApps", "winget.exe");
+    if (!File.Exists(winget))
+        return Results.Problem("Windows Package Manager (winget) is not installed. Use the managed FFmpeg provisioning option.",
+            statusCode: 409);
+    var psi = new ProcessStartInfo(winget)
+    {
+        UseShellExecute = false, CreateNoWindow = true,
+        RedirectStandardOutput = true, RedirectStandardError = true
+    };
+    foreach (var arg in new[] { "install", "--id", "Gyan.FFmpeg", "--exact",
+                                "--accept-source-agreements", "--accept-package-agreements",
+                                "--silent", "--disable-interactivity" })
+        psi.ArgumentList.Add(arg);
+    using var process = Process.Start(psi);
+    if (process is null) return Results.Problem("Could not start winget.", statusCode: 500);
+    using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+    try { await process.WaitForExitAsync(timeout.Token); }
+    catch (OperationCanceledException)
+    {
+        try { process.Kill(entireProcessTree: true); } catch { }
+        return Results.Problem("FFmpeg installation timed out.", statusCode: 504);
+    }
+    if (process.ExitCode != 0)
+        return Results.Problem("FFmpeg package installation failed with code " + process.ExitCode, statusCode: 500);
+
+    // Winget normally installs a versioned folder; copy the executable to the stable AiBOS path.
+    var packages = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Microsoft", "WinGet", "Packages");
+    var candidate = Directory.Exists(packages)
+        ? Directory.EnumerateFiles(packages, "ffmpeg.exe", SearchOption.AllDirectories)
+            .FirstOrDefault(p => p.Contains("Gyan.FFmpeg", StringComparison.OrdinalIgnoreCase))
+        : null;
+    if (candidate is null)
+        return Results.Problem("FFmpeg installed but its executable was not located. Configure Tts:FfmpegPath.", statusCode: 409);
+    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+    File.Copy(candidate, destination, overwrite: true);
+    return Results.Ok(new { installed = true, path = destination, restartRecommended = true });
+});
+
 app.MapGet("/api/installations", async (OrchestratorService orchestrator, CancellationToken ct) =>
     Results.Ok(await orchestrator.ListInstallationsAsync(ct)));
 
