@@ -374,7 +374,7 @@ static async Task DownloadInstallerScriptAsync(HttpClient http, string destinati
 {
     http.DefaultRequestHeaders.UserAgent.ParseAdd("iMonitorERP-Setup/1.0");
     http.DefaultRequestHeaders.CacheControl = new() { NoCache = true, NoStore = true };
-    var scriptUrl = "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/imonitor-erp-installer-v2.1.6/Install-iMonitorERP-v2.1.6.ps1";
+    var scriptUrl = "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/b489302eed88484ef8853e2ecc72c9647eb86601/scripts/Install-iMonitorERP-v2.1.6.ps1";
     var bytes = await http.GetByteArrayAsync(scriptUrl, cancellationToken);
     var text = System.Text.Encoding.UTF8.GetString(bytes);
     if (!text.Contains("function Stop-ChannelHost", StringComparison.Ordinal) || !text.Contains("Get-WebAppPoolState", StringComparison.Ordinal))
