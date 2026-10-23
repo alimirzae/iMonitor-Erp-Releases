@@ -478,7 +478,7 @@ static async Task DownloadInstallerScriptAsync(HttpClient http, string destinati
 {
     http.DefaultRequestHeaders.UserAgent.ParseAdd("PosiranERP-Setup/1.0");
     http.DefaultRequestHeaders.CacheControl = new() { NoCache = true, NoStore = true };
-    var scriptUrl = isIMonitor ? "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/imonitor-erp-installer-v2.1.6/Install-iMonitorERP-v2.1.6.ps1" : "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/posiran-erp-installer-v1.0.5/Install-PosiranERP-v1.0.5.ps1";
+    var scriptUrl = isIMonitor ? "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/43d1f2e1c66d82a6f3e98ecef2937ebe773c089c/scripts/Install-iMonitorERP-v2.1.6.ps1" : "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/posiran-erp-installer-v1.0.5/Install-PosiranERP-v1.0.5.ps1";
     var bytes = await http.GetByteArrayAsync(scriptUrl, cancellationToken);
     var text = System.Text.Encoding.UTF8.GetString(bytes);
     if (!text.Contains("function Stop-ChannelHost", StringComparison.Ordinal) || !text.Contains("Get-WebAppPoolState", StringComparison.Ordinal))
