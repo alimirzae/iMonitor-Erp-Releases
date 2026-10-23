@@ -233,7 +233,7 @@ app.MapPost("/api/installations/{id}/upgrade", (string id, OrchestratorService o
 });
 
 // Load persisted per-channel form values after service restarts; never return database credentials.
-app.MapGet("/api/configuration", () =>
+app.MapGet("/api/configuration", (OrchestratorService orchestrator) =>
 {
     var result = new Dictionary<string, object>();
     foreach (var channel in new[] { "Test", "Production" })
@@ -245,8 +245,13 @@ app.MapGet("/api/configuration", () =>
             using var doc = JsonDocument.Parse(File.ReadAllText(path));
             var root = doc.RootElement;
             var mysql = root.GetProperty("Database").GetProperty("MySql");
+            var manifest = orchestrator.RequireManifest(channel.ToLowerInvariant());
             result[channel] = new
             {
+                appPort = manifest.Port,
+                installFolderName = manifest.InstallFolderName,
+                databaseName = manifest.DatabaseName,
+                autoUpdate = manifest.AutoUpdate,
                 databaseServer = mysql.GetProperty("Server").GetString(),
                 databasePort = mysql.GetProperty("Port").GetInt32(),
                 databaseUser = mysql.GetProperty("UserId").GetString(),
