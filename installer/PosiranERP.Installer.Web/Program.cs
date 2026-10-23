@@ -45,6 +45,31 @@ app.MapGet("/api/status", (OrchestratorService orchestrator) =>
     });
 });
 
+// Persist all four installation cards independently of deployment, including runtime URLs.
+var installerFormPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+    "AiBOS", "DeploymentManager", "form-settings.json");
+app.MapGet("/api/installer-form", () =>
+{
+    if (!File.Exists(installerFormPath)) return Results.Ok(new Dictionary<string, JsonElement>());
+    try { return Results.Text(File.ReadAllText(installerFormPath), "application/json"); }
+    catch { return Results.Problem("Could not read saved installer form.", statusCode: 500); }
+});
+app.MapPost("/api/installer-form", (JsonElement form, HttpContext context) =>
+{
+    if (!OperatingSystem.IsWindows() || !IsAdministrator()) return Results.StatusCode(403);
+    if (context.Request.Headers.Origin is { Count: > 0 } origin &&
+        (!Uri.TryCreate(origin.ToString(), UriKind.Absolute, out var source) ||
+         !string.Equals(source.Host, context.Request.Host.Host, StringComparison.OrdinalIgnoreCase) ||
+         source.Port != context.Request.Host.Port)) return Results.StatusCode(403);
+    if (form.ValueKind != JsonValueKind.Object || form.GetRawText().Length > 16384)
+        return Results.BadRequest(new { error = "Invalid settings payload." });
+    Directory.CreateDirectory(Path.GetDirectoryName(installerFormPath)!);
+    var tmp = installerFormPath + ".tmp";
+    File.WriteAllText(tmp, form.GetRawText());
+    File.Move(tmp, installerFormPath, true);
+    return Results.Ok(new { saved = true });
+});
+
 app.MapGet("/api/installations", async (OrchestratorService orchestrator, CancellationToken ct) =>
     Results.Ok(await orchestrator.ListInstallationsAsync(ct)));
 app.MapGet("/api/releases/{product}/{channel}", async (string product, string channel, OrchestratorService orchestrator, CancellationToken ct) =>
