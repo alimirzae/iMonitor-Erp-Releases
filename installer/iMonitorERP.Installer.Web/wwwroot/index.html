@@ -66,9 +66,10 @@ async function restoreConfig(){
     if(!r.ok)throw new Error('HTTP '+r.status);
     const x=await r.json();
     const test=x.Test, prod=x.Production, source=test||prod;
-    if(test){el('testDbName').value=test.databaseName||el('testDbName').value;}
-    if(prod){el('productionDbName').value=prod.databaseName||el('productionDbName').value;}
+    if(test){el('testDbName').value=test.databaseName||el('testDbName').value;el('testPort').value=test.appPort||8081;el('testFolder').value=test.installFolderName||'test';}
+    if(prod){el('productionDbName').value=prod.databaseName||el('productionDbName').value;el('productionPort').value=prod.appPort||8080;el('productionFolder').value=prod.installFolderName||'production';}
     if(source){
+      el('autoUpdate').checked=source.autoUpdate!==false;
       el('dbServer').value=source.databaseServer||'127.0.0.1';
       el('dbPort').value=source.databasePort||3306;
       el('dbUser').value=source.databaseUser||'root';
