@@ -580,6 +580,24 @@ function Install-Channel($info){
       foreach($setting in @(@('managedRuntimeVersion',''),@('enable32BitAppOnWin64',$false),@('startMode','AlwaysRunning'),@('processModel.loadUserProfile',$true))){try{Set-ItemProperty "IIS:\AppPools\$($info.Pool)" -Name $setting[0] -Value $setting[1] -ErrorAction Stop}catch{Write-Warning "Optional AppPool setting $($setting[0]) skipped: $($_.Exception.Message)"}}
       $bindingPort=if([string]::IsNullOrWhiteSpace($info.HostHeader)){$info.Port}else{80}
       if(!(Test-Path "IIS:\Sites\$($info.Site)")){New-Website -Name $info.Site -PhysicalPath $info.Root -Port $bindingPort -HostHeader $info.HostHeader -ApplicationPool $info.Pool|Out-Null}else{Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name physicalPath -Value $info.Root;Set-ItemProperty "IIS:\Sites\$($info.Site)" -Name applicationPool -Value $info.Pool;Write-Host '[IIS] Existing bindings preserved; port/host header are configured on first site creation only.'}
+      # Domain and LAN access are independent: preserve public HTTPS and add a dedicated
+      # hostless HTTP binding on the configured channel port for offline LAN access.
+      $lanBinding = Get-WebBinding -Name $info.Site -Protocol 'http' -ErrorAction SilentlyContinue |
+        Where-Object { $_.bindingInformation -eq "*:$($info.Port):" -or $_.bindingInformation -eq "0.0.0.0:$($info.Port):" }
+      if(-not $lanBinding){
+        $conflict = Get-WebBinding -Protocol 'http' -ErrorAction SilentlyContinue |
+          Where-Object { $_.bindingInformation -eq "*:$($info.Port):" -or $_.bindingInformation -eq "0.0.0.0:$($info.Port):" }
+        if($conflict){ throw "LAN port $($info.Port) is already bound by another IIS site. Check IIS bindings before installation." }
+        New-WebBinding -Name $info.Site -Protocol 'http' -IPAddress '*' -Port $info.Port -HostHeader '' | Out-Null
+        Write-Host "[IIS] Added LAN binding *:$($info.Port): to $($info.Site)"
+      }
+      # Permit LAN clients through Windows Defender Firewall; do not touch HTTPS bindings.
+      if(Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue){
+        $ruleName="AiBOS-ERP-LAN-$($info.Port)"
+        if(-not (Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue)){
+          New-NetFirewallRule -Name $ruleName -DisplayName "AiBOS ERP LAN port $($info.Port)" -Direction Inbound -Protocol TCP -LocalPort $info.Port -Action Allow -Profile Domain,Private | Out-Null
+        }
+      }
       Write-Host "[PROGRESS 86] Start IIS site and application pool"
       Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue
       break
