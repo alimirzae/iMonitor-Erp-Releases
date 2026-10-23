@@ -35,7 +35,7 @@
         <div><label>نسخه MySQL</label><input id="mysqlVersion" value="8.0.0"></div>
         <div class="full checkrow"><input id="autoUpdate" type="checkbox" checked><label for="autoUpdate">به‌روزرسانی خودکار فعال باشد</label></div>
       </div>
-      <div class="actions"><button class="primary" onclick="saveConfig()">بررسی و ذخیره تنظیمات</button></div>
+      <div class="actions"><button class="primary" onclick="saveConfig()">ذخیره تنظیمات و ادامه نصب</button><button class="secondary" onclick="restoreConfig()">بارگذاری تنظیمات ذخیره‌شده</button></div>
     </section>
 
     <section id="page2" class="hidden">
@@ -60,6 +60,25 @@ function syncDefaults(){
   el('productionFields').classList.toggle('hidden',ch==='Test');
 }
 function setStatus(text,kind=''){el('status').textContent=text;el('status').className='status '+kind}
+async function restoreConfig(){
+  try{
+    const r=await fetch('/api/configuration',{cache:'no-store'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const x=await r.json();
+    const test=x.Test, prod=x.Production, source=test||prod;
+    if(test){el('testDbName').value=test.databaseName||el('testDbName').value;}
+    if(prod){el('productionDbName').value=prod.databaseName||el('productionDbName').value;}
+    if(source){
+      el('dbServer').value=source.databaseServer||'127.0.0.1';
+      el('dbPort').value=source.databasePort||3306;
+      el('dbUser').value=source.databaseUser||'root';
+      el('mysqlVersion').value=source.mysqlVersion||'8.0.0';
+      el('dbPassword').value='';
+      el('dbPassword').placeholder=source.hasSavedPassword?'رمز ذخیره شده است؛ برای حفظ آن خالی بگذارید':'رمز MySQL';
+      setStatus('تنظیمات موجود از روی سرور بازیابی شد. رمز ذخیره‌شده نمایش داده نمی‌شود.','ok');
+    }
+  }catch(e){setStatus('بازیابی تنظیمات ناموفق: '+e.message,'warn')}
+}
 async function loadStatus(){try{const r=await fetch('/api/status');const x=await r.json();let text=`Windows: ${x.isWindows?'✓':'✗'}   Administrator: ${x.isAdministrator?'✓':'✗'}   IIS: ${x.prerequisites.iis?'✓':'✗'}   MySQL: ${x.prerequisites.mysqlServiceDetected?'✓':'تشخیص داده نشد'}`;setStatus(text,x.isWindows&&x.isAdministrator?'ok':'warn')}catch(e){setStatus('خطا در دریافت وضعیت Installer: '+e,'warn')}}
 function targets(){
   const ch=el('channel').value, result=[];
@@ -92,7 +111,7 @@ async function installNow(){
   }catch(e){setStatus('نصب ناموفق: '+e.message,'warn')}
 }
 function openErp(){for(const u of erpUrls)window.open(u,'_blank')}
-syncDefaults();loadStatus();
+syncDefaults();loadStatus().then(restoreConfig);
 </script>
 <div class="wrap" style="margin-top:0;padding-top:0">
   <div class="card"><div class="body">
