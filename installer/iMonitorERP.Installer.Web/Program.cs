@@ -233,6 +233,32 @@ app.MapPost("/api/installations/{id}/upgrade", (string id, OrchestratorService o
 });
 
 // Load persisted per-channel form values after service restarts; never return database credentials.
+// Installer-only, non-secret UI preferences, including external health URLs.
+var preferencesPath = Path.Combine(defaultConfigRoot, "installer-preferences.json");
+app.MapGet("/api/preferences", () =>
+{
+    if (!File.Exists(preferencesPath)) return Results.Ok(new InstallerPreferences("", "", ""));
+    try { return Results.Ok(JsonSerializer.Deserialize<InstallerPreferences>(File.ReadAllText(preferencesPath)) ?? new("", "", "")); }
+    catch { return Results.Problem("Saved installer preferences could not be read.", statusCode: 500); }
+});
+app.MapPost("/api/preferences", (InstallerPreferences preferences, HttpContext context) =>
+{
+    if (!OperatingSystem.IsWindows() || !IsAdministrator()) return Results.StatusCode(403);
+    if (context.Request.Headers.Origin is { Count: > 0 } origin &&
+        (!Uri.TryCreate(origin.ToString(), UriKind.Absolute, out var source) ||
+         !string.Equals(source.Host, context.Request.Host.Host, StringComparison.OrdinalIgnoreCase) ||
+         source.Port != context.Request.Host.Port)) return Results.StatusCode(403);
+    foreach (var url in new[] { preferences.TestUrl, preferences.ProductionUrl })
+        if (!string.IsNullOrWhiteSpace(url) && (!Uri.TryCreate(url, UriKind.Absolute, out var parsed) ||
+            (parsed.Scheme != "http" && parsed.Scheme != "https") || !string.IsNullOrEmpty(parsed.UserInfo)))
+            return Results.BadRequest(new { error = "URL must be a valid HTTP or HTTPS address." });
+    Directory.CreateDirectory(defaultConfigRoot);
+    var temp = preferencesPath + ".tmp";
+    File.WriteAllText(temp, JsonSerializer.Serialize(preferences));
+    File.Move(temp, preferencesPath, overwrite: true);
+    return Results.Ok(new { saved = true });
+});
+
 app.MapGet("/api/configuration", (OrchestratorService orchestrator) =>
 {
     var result = new Dictionary<string, object>();
@@ -572,3 +598,5 @@ record SetupRequest(string Channel, string DatabaseServer, int DatabasePort, str
 record InstallRequest(string Channel, int? AppPort, string? InstallFolderName, bool AutoUpdate = true, bool Force = false, bool RefreshInstaller = true);
 record BackupRequest(string? Reason);
 record InstallerProcessResult(int ExitCode, string Output, string Error);
+
+record InstallerPreferences(string TestUrl, string ProductionUrl, string LanIp);
