@@ -28,6 +28,9 @@
           <div><label>نام پوشه Production</label><input id="productionFolder" value="production"><div class="hint">C:\PosiranERP\production\current</div></div>
           <div><label>دیتابیس Production</label><input id="productionDbName" value="ecomm" dir="ltr"></div>
         </div>
+        <div><label>آدرس دامنه Test / Health URL</label><input id="testUrl" dir="ltr" placeholder="https://testerp.pouyatools.ir"></div>
+        <div><label>آدرس دامنه Production / Health URL</label><input id="productionUrl" dir="ltr" placeholder="https://erp.pouyatools.ir"></div>
+        <div><label>IP سرور در شبکه داخلی</label><input id="lanIp" dir="ltr" placeholder="192.168.1.180"></div>
         <div><label>آدرس سرور MySQL</label><input id="dbServer" value="127.0.0.1"></div>
         <div><label>پورت MySQL</label><input id="dbPort" type="number" value="3306"></div>
         <div><label>نام کاربری MySQL</label><input id="dbUser" value="root" autocomplete="username"></div>
@@ -35,7 +38,7 @@
         <div><label>نسخه MySQL</label><input id="mysqlVersion" value="8.0.0"></div>
         <div class="full checkrow"><input id="autoUpdate" type="checkbox" checked><label for="autoUpdate">به‌روزرسانی خودکار فعال باشد</label></div>
       </div>
-      <div class="actions"><button class="primary" onclick="saveConfig()">ذخیره تنظیمات و ادامه نصب</button><button class="secondary" onclick="restoreConfig()">بارگذاری تنظیمات ذخیره‌شده</button></div>
+      <div class="actions"><button class="secondary" onclick="savePreferences()">ذخیره تنظیمات آدرس‌ها</button><button class="primary" onclick="saveConfig()">ذخیره تنظیمات و ادامه نصب</button><button class="secondary" onclick="restoreConfig()">بارگذاری تنظیمات ذخیره‌شده</button></div>
     </section>
 
     <section id="page2" class="hidden">
@@ -60,6 +63,24 @@ function syncDefaults(){
   el('productionFields').classList.toggle('hidden',ch==='Test');
 }
 function setStatus(text,kind=''){el('status').textContent=text;el('status').className='status '+kind}
+async function savePreferences(){
+  try{
+    const body={testUrl:el('testUrl').value.trim(),productionUrl:el('productionUrl').value.trim(),lanIp:el('lanIp').value.trim()};
+    const r=await fetch('/api/preferences',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!r.ok)throw new Error((await r.text()).slice(0,250));
+    setStatus('آدرس‌ها روی سرور ذخیره شدند و با راه‌اندازی مجدد نصاب بازیابی خواهند شد.','ok');
+  }catch(e){setStatus('ذخیره آدرس‌ها ناموفق بود: '+e.message,'warn');throw e}
+}
+async function loadPreferences(){
+  try{
+    const r=await fetch('/api/preferences',{cache:'no-store'});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const x=await r.json();
+    el('testUrl').value=x.testUrl||'';
+    el('productionUrl').value=x.productionUrl||'';
+    el('lanIp').value=x.lanIp||'';
+  }catch(e){setStatus('بازیابی URL ناموفق: '+e.message,'warn')}
+}
 async function restoreConfig(){
   try{
     const r=await fetch('/api/configuration',{cache:'no-store'});
@@ -92,6 +113,7 @@ async function saveOne(t){
   const r=await fetch('/api/configure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const x=await r.json();if(!r.ok)throw new Error(x.error||x.detail||'Configuration failed');return x;
 }
 async function saveConfig(){
+  try{await savePreferences()}catch{return}
   setStatus('در حال ذخیره تنظیمات...');saved=[];
   try{for(const t of targets()){setStatus(`در حال آماده‌سازی ${t.channel}...`);saved.push(await saveOne(t))}
     el('summary').innerHTML=saved.map(x=>`کانال: <b>${x.channel}</b> — دیتابیس: <b>${x.database}</b> — پورت: <b>${x.appPort}</b><br>پوشه: <span dir="ltr">${x.installPath}</span><br>Config: <span dir="ltr">${x.configPath}</span>`).join('<hr>');
@@ -112,7 +134,7 @@ async function installNow(){
   }catch(e){setStatus('نصب ناموفق: '+e.message,'warn')}
 }
 function openErp(){for(const u of erpUrls)window.open(u,'_blank')}
-syncDefaults();loadStatus().then(restoreConfig);
+syncDefaults();loadStatus().then(async()=>{await restoreConfig();await loadPreferences()});
 </script>
 <div class="wrap" style="margin-top:0;padding-top:0">
   <div class="card"><div class="body">
