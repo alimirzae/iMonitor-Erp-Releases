@@ -232,6 +232,33 @@ app.MapPost("/api/installations/{id}/upgrade", (string id, OrchestratorService o
     });
 });
 
+// Load persisted per-channel form values after service restarts; never return database credentials.
+app.MapGet("/api/configuration", () =>
+{
+    var result = new Dictionary<string, object>();
+    foreach (var channel in new[] { "Test", "Production" })
+    {
+        var path = Path.Combine(defaultConfigRoot, channel, "appsettings.json");
+        if (!File.Exists(path)) continue;
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            var root = doc.RootElement;
+            var mysql = root.GetProperty("Database").GetProperty("MySql");
+            result[channel] = new
+            {
+                databaseServer = mysql.GetProperty("Server").GetString(),
+                databasePort = mysql.GetProperty("Port").GetInt32(),
+                databaseUser = mysql.GetProperty("UserId").GetString(),
+                mysqlVersion = mysql.GetProperty("Version").GetString(),
+                hasSavedPassword = !string.IsNullOrEmpty(mysql.GetProperty("Password").GetString())
+            };
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"Cannot restore {channel} installer settings: {ex.Message}"); }
+    }
+    return Results.Ok(result);
+});
+
 app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchestrator) =>
 {
     if (!OperatingSystem.IsWindows()) return Results.BadRequest(new { error = "This installer currently supports Windows only." });
@@ -253,6 +280,19 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
     var configPath = Path.Combine(configDirectory, "appsettings.json");
     Directory.CreateDirectory(configDirectory);
 
+    // Blank password means keep the existing secret when editing previously saved settings.
+    var databasePassword = request.DatabasePassword;
+    if (string.IsNullOrEmpty(databasePassword) && File.Exists(configPath))
+    {
+        try
+        {
+            using var previous = JsonDocument.Parse(File.ReadAllText(configPath));
+            databasePassword = previous.RootElement.GetProperty("Database").GetProperty("MySql")
+                .GetProperty("Password").GetString() ?? "";
+        }
+        catch (Exception ex) { return Results.BadRequest(new { error = "Cannot read saved database credentials: " + ex.Message }); }
+    }
+    request = request with { DatabasePassword = databasePassword };
     var connectionString = $"Server={request.DatabaseServer};Port={request.DatabasePort};Database={database};User={request.DatabaseUser};Password={request.DatabasePassword};Charset=utf8mb4;";
     var config = BuildAppSettings(isTest, request, connectionString);
     File.WriteAllText(configPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
