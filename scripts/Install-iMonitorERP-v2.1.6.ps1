@@ -598,6 +598,14 @@ function Install-Channel($info){
           New-NetFirewallRule -Name $ruleName -DisplayName "AiBOS ERP LAN port $($info.Port)" -Direction Inbound -Protocol TCP -LocalPort $info.Port -Action Allow -Profile Domain,Private | Out-Null
         }
       }
+      # Do not force HTTP to HTTPS at IIS site level. Public HTTPS is handled by
+      # ASP.NET Core for domain hosts; private-IP HTTP stays available offline.
+      try {
+        Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Location $info.Site -Filter 'system.webServer/httpRedirect' -Name 'enabled' -Value $false -ErrorAction Stop
+        Write-Host "[IIS] Disabled site-wide HTTP Redirect for $($info.Site)"
+      } catch {
+        Write-Warning "Could not clear IIS httpRedirect for $($info.Site): $($_.Exception.Message)"
+      }
       Write-Host "[PROGRESS 86] Start IIS site and application pool"
       Start-WebAppPool $info.Pool -ErrorAction SilentlyContinue;Start-Website $info.Site -ErrorAction SilentlyContinue
       break
