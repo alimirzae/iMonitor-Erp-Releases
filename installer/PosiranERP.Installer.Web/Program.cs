@@ -159,6 +159,132 @@ app.MapPost("/api/tools/playwright/install", async (HttpContext context) =>
     finally { playwrightInstallGate.Release(); }
 });
 
+
+var managedBrowserSettings = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AiBOS", "BrowserHost", "browser-settings.json");
+string SelectedBrowser()
+{
+    try
+    {
+        if (File.Exists(managedBrowserSettings))
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(managedBrowserSettings));
+            return doc.RootElement.GetProperty("BrowserHost").GetProperty("ExecutablePath").GetString() ?? "";
+        }
+    }
+    catch (Exception ex) { Console.Error.WriteLine("Browser config: " + ex.Message); }
+    return "";
+}
+bool ValidChrome(string path) => Path.IsPathFullyQualified(path) &&
+    string.Equals(Path.GetFileName(path), "chrome.exe", StringComparison.OrdinalIgnoreCase) &&
+    File.Exists(path);
+bool LocalOrigin(HttpContext ctx)
+{
+    var origin = ctx.Request.Headers.Origin.ToString();
+    return string.IsNullOrEmpty(origin) || (Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
+        uri.IsLoopback && uri.Port == ctx.Request.Host.Port);
+}
+app.MapGet("/api/tools/chromium", () =>
+{
+    var configured = SelectedBrowser();
+    var suggested = Path.Combine(browserCache, "Chromium", "Application", "chrome.exe");
+    var candidate = !string.IsNullOrWhiteSpace(configured) ? configured : suggested;
+    return Results.Ok(new { executablePath = candidate, configured = !string.IsNullOrWhiteSpace(configured),
+        found = ValidChrome(candidate), settingsFile = managedBrowserSettings,
+        browserCache, launchTestRequired = true });
+});
+app.MapPost("/api/tools/chromium/configure", (ChromiumPathRequest request, HttpContext ctx) =>
+{
+    if (!IsAdministrator() || !LocalOrigin(ctx)) return Results.StatusCode(403);
+    var p = request.ExecutablePath?.Trim() ?? "";
+    if (!ValidChrome(p)) return Results.BadRequest(new { error = "Select an existing absolute chrome.exe path." });
+    // Refuse UNC and remote shares; browser binaries must reside on the server.
+    if (p.StartsWith(@"\\", StringComparison.Ordinal)) return Results.BadRequest(new { error = "Network share is not allowed." });
+    Directory.CreateDirectory(Path.GetDirectoryName(managedBrowserSettings)!);
+    var settings = JsonSerializer.Serialize(new { BrowserHost = new { ExecutablePath = p } });
+    var temp = managedBrowserSettings + ".tmp";
+    File.WriteAllText(temp, settings);
+    File.Move(temp, managedBrowserSettings, true);
+    return Results.Ok(new { saved = true, executablePath = p, restartBrowserHostRecommended = true });
+});
+app.MapPost("/api/tools/chromium/test", async (HttpContext ctx) =>
+{
+    if (!IsAdministrator() || !LocalOrigin(ctx)) return Results.StatusCode(403);
+    var chrome = SelectedBrowser();
+    if (!ValidChrome(chrome)) return Results.Problem("Save a valid Chromium path first.", statusCode: 409);
+    var work = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AiBOS", "BrowserHost", "Temp", "ChromiumTests", Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(work);
+    try
+    {
+        var html = Path.Combine(work, "page.html");
+        var shot = Path.Combine(work, "shot.png");
+        var stdout = Path.Combine(work, "stdout.txt");
+        var stderr = Path.Combine(work, "stderr.txt");
+        await File.WriteAllTextAsync(html, "<html><body><h1>AiBOS Chromium Headless OK</h1></body></html>");
+        var psi = new ProcessStartInfo(chrome) { UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardError = true, RedirectStandardOutput = true, WorkingDirectory = work };
+        foreach (var arg in new[] { "--headless", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+            "--disable-extensions", "--user-data-dir=" + Path.Combine(work, "profile"),
+            "--screenshot=" + shot, "--window-size=1280,720", new Uri(html).AbsoluteUri }) psi.ArgumentList.Add(arg);
+        using var process = Process.Start(psi) ?? throw new InvalidOperationException("Chromium could not start.");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
+        var outTask = process.StandardOutput.ReadToEndAsync();
+        var errTask = process.StandardError.ReadToEndAsync();
+        try { await process.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(true); } catch { }
+            return Results.Problem("Chromium timed out.", statusCode: 504);
+        }
+        var output = await outTask;
+        var error = await errTask;
+        await File.WriteAllTextAsync(stdout, output);
+        await File.WriteAllTextAsync(stderr, error);
+        var ok = process.ExitCode == 0 && File.Exists(shot) && new FileInfo(shot).Length > 100;
+        return Results.Ok(new { success = ok, exitCode = process.ExitCode,
+            screenshotBytes = File.Exists(shot) ? new FileInfo(shot).Length : 0,
+            screenshotBase64 = ok ? Convert.ToBase64String(await File.ReadAllBytesAsync(shot)) : null,
+            error = error.Length > 1000 ? error[..1000] : error,
+            note = "Local HTML headless test from deployment manager; Playwright BrowserHost startup still requires separate validation." });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+    finally { try { Directory.Delete(work, true); } catch { } }
+});
+app.MapPost("/api/tools/chromium/permissions", async (HttpContext ctx) =>
+{
+    if (!IsAdministrator() || !LocalOrigin(ctx)) return Results.StatusCode(403);
+    var chrome = SelectedBrowser();
+    if (!ValidChrome(chrome)) return Results.Problem("Configure Chromium first.", statusCode: 409);
+    var principals = new[] { "IIS AppPool\\iMonitorERP-Test", "IIS AppPool\\iMonitorERP-Production",
+        "IIS AppPool\\PosiranERP-Test", "IIS AppPool\\PosiranERP-Production" };
+    var dataRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AiBOS", "BrowserHost");
+    var changes = new List<string>();
+    async Task Grant(string folder, string principal, string rights)
+    {
+        var psi = new ProcessStartInfo("icacls.exe") { UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true };
+        psi.ArgumentList.Add(folder); psi.ArgumentList.Add("/grant"); psi.ArgumentList.Add(principal + ":(OI)(CI)(" + rights + ")");
+        using var p = Process.Start(psi) ?? throw new InvalidOperationException("Cannot start icacls");
+        var output = await p.StandardOutput.ReadToEndAsync();
+        var error = await p.StandardError.ReadToEndAsync();
+        await p.WaitForExitAsync();
+        if (p.ExitCode != 0) throw new InvalidOperationException("icacls failed for " + principal + ": " + error);
+        changes.Add(principal + " " + rights + " " + folder);
+    }
+    try
+    {
+        // Executables read/execute only; writable profile data is separate.
+        foreach (var principal in principals) await Grant(browserCache, principal, "RX");
+        foreach (var name in new[] { "Sessions", "Profiles", "Logs", "Temp" })
+        {
+            var dir = Path.Combine(dataRoot, name);
+            Directory.CreateDirectory(dir);
+            foreach (var principal in principals) await Grant(dir, principal, "M");
+        }
+        return Results.Ok(new { success = true, changes, note = "Dedicated BrowserHost service identities must be granted separately." });
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+});
+
 // Persist all four installation cards independently of deployment, including runtime URLs.
 var installerFormPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
     "AiBOS", "DeploymentManager", "form-settings.json");
@@ -808,3 +934,5 @@ record InstallerProcessResult(int ExitCode, string Output, string Error);
 record WatchdogSettings(bool Enabled, string HealthUrl, int IntervalMinutes = 2, int AfterRestartDelayMinutes = 4, int TimeoutSeconds = 10, bool RestartOnFailure = true);
 
 record RuntimeUrlUpdate(string RuntimeUrl);
+
+record ChromiumPathRequest(string ExecutablePath);
