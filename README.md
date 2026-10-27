@@ -415,3 +415,11 @@ The same deployment contract applies to iMonitor ERP and Posiran ERP:
 The Windows installer `scripts/Install-iMonitorERP-v2.1.6.ps1` now invokes `Ensure-AiBosPersianTts` on first installation, updates, and the already-current release path. The model is kept outside replaceable application folders at `%ProgramData%\\AiBOS\\Models\\TTS\\Persian` and `Tts:PersianModelDirectory` is written into the active/staged appsettings.json. Existing model assets are reused, and a failed download emits a warning without preventing ERP startup. The installer still requires network access the first time the model is fetched; a disconnected server must be preseeded with model files.
 
 Source artifact: Sherpa-ONNX Piper Persian `vits-piper-fa_IR-ganji-medium`; deployment requires validating `fa_IR-ganji-medium.onnx`, `tokens.txt`, and `espeak-ng-data`. Test build, publication of the installer asset, successful installation, and runtime speech synthesis are separate validation checkpoints. The `deploy-test.yml` workflow in Ecomm is intentionally disabled: the standalone ERP Deployment Manager owns machine installation and upgrades. Do not treat a commit as evidence that already-installed managers picked up the new bootstrap script.
+
+
+### تب Chromium در Deployment Manager (پورت 8099)
+
+در نسخه جدید برنامه مدیریت نصب، تب **Chromium** مستقل از «نصب و ارتقا» و «Watchdog» اضافه شده است. از همان تب مسیر کامل `chrome.exe` را وارد کنید (برای مثال `C:\ProgramData\AiBOS\ms-playwright\Chromium\Application\chrome.exe`)، «ذخیره مسیر» را بزنید، سپس «تست Headless» را اجرا کنید. نتیجه Exit Code و تصویر ساخته‌شده نمایش داده می‌شود. دکمه «تنظیم دسترسی IIS» برای چهار App Pool شناخته‌شده به فایل‌های Chromium فقط RX و به پوشه‌های Sessions/Profiles/Logs/Temp مجوز Modify می‌دهد. **اگر BrowserHost با حساب سرویس جدا اجرا می‌شود، مجوز همان حساب باید جداگانه تنظیم شود.** این عملیات فایل‌های نسخه‌های ERP را تغییر نمی‌دهد.
+
+مسیر ذخیره تنظیمات: `C:\ProgramData\AiBOS\BrowserHost\browser-settings.json`. نسخه BrowserHost شاخه `test` تنظیم `BrowserHost:ExecutablePath` را از همین فایل می‌خواند. پس از انتشار BrowserHost، سرویس را راه‌اندازی مجدد و علاوه بر آزمون Headless در پنل، باز شدن صفحه توسط Playwright در خود BrowserHost را نیز بررسی کنید؛ تست پنل به‌تنهایی به معنی صحت سازگاری نسخه Chromium با Playwright نیست.
+
