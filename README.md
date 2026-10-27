@@ -423,3 +423,15 @@ Source artifact: Sherpa-ONNX Piper Persian `vits-piper-fa_IR-ganji-medium`; depl
 
 مسیر ذخیره تنظیمات: `C:\ProgramData\AiBOS\BrowserHost\browser-settings.json`. نسخه BrowserHost شاخه `test` تنظیم `BrowserHost:ExecutablePath` را از همین فایل می‌خواند. پس از انتشار BrowserHost، سرویس را راه‌اندازی مجدد و علاوه بر آزمون Headless در پنل، باز شدن صفحه توسط Playwright در خود BrowserHost را نیز بررسی کنید؛ تست پنل به‌تنهایی به معنی صحت سازگاری نسخه Chromium با Playwright نیست.
 
+
+## نصب مستقل BrowserHost روی Windows Server
+
+اسکریپت آماده: [Install-AiBOSBrowserHost-Standalone.ps1](scripts/Install-AiBOSBrowserHost-Standalone.ps1). این اسکریپت سورس عمومی شاخه `test` مخزن `alimirzae/Ecomm` را دریافت، پروژه `AiBOS.BrowserHost` را با .NET 8 SDK منتشر، کلید مشترک داخلی را در تنظیمات محافظت‌شده ذخیره و Windows Service `AiBOSBrowserHost` را روی localhost:5187 نصب می‌کند. اجرای آن نیازمند دسترسی Administrator و دسترسی اینترنت به GitHub/NuGet یا منابع آفلاین جایگزین است.
+
+```powershell
+New-Item -ItemType Directory -Force D:\erp_ins | Out-Null
+Invoke-WebRequest 'https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-AiBOSBrowserHost-Standalone.ps1' -OutFile 'D:\erp_ins\Install-AiBOSBrowserHost-Standalone.ps1'
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'D:\erp_ins\Install-AiBOSBrowserHost-Standalone.ps1' -CompanyIds 123
+```
+
+عدد `123` باید با شناسه شرکت واقعی جایگزین شود؛ هیچ شرکتی به‌صورت پیش‌فرض مجاز نمی‌شود. قبل از اجرا محتوای اسکریپت دانلودشده را بررسی کنید. برای ری‌استارت اجباری IIS (با احتمال قطع موقت سرویس) پارامتر `-RestartIis` را اضافه کنید؛ این کار پیش‌فرض نیست. نصب سرویس به تنهایی به معنی تأیید Build کامل ERP یا سازگاری Playwright با Chromium نیست.
