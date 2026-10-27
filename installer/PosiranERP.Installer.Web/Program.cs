@@ -45,6 +45,86 @@ app.MapGet("/api/status", (OrchestratorService orchestrator) =>
     });
 });
 
+// Independent host prerequisite management; does not mutate ERP release packages.
+var browserCache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AiBOS", "ms-playwright");
+string? FindPlaywrightCli()
+{
+    foreach (var root in new[] { @"C:\ecomm", defaultInstallRoot })
+    {
+        foreach (var channel in new[] { "test", "production" })
+        {
+            var current = Path.Combine(root, channel, "current");
+            if (!Directory.Exists(current)) continue;
+            try
+            {
+                var path = Directory.EnumerateFiles(current, "playwright.ps1", SearchOption.AllDirectories).FirstOrDefault();
+                if (path is not null) return path;
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+    return null;
+}
+object PlaywrightStatus()
+{
+    var pwsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PowerShell", "7", "pwsh.exe");
+    var browsers = Directory.Exists(browserCache) ?
+        Directory.EnumerateDirectories(browserCache, "chromium-*", SearchOption.TopDirectoryOnly).ToArray() : Array.Empty<string>();
+    return new { installed = browsers.Length > 0, chromiumDirectories = browsers.Select(Path.GetFileName).ToArray(),
+        cachePath = browserCache, powerShell7Installed = File.Exists(pwsh),
+        playwrightCli = FindPlaywrightCli(), installationReady = File.Exists(pwsh) && FindPlaywrightCli() is not null,
+        message = browsers.Length > 0 ? "Chromium found; functional launch test still required." :
+            "Chromium not found in AiBOS managed cache." };
+}
+app.MapGet("/api/tools/playwright", () => Results.Ok(PlaywrightStatus()));
+
+var playwrightInstallGate = new SemaphoreSlim(1, 1);
+app.MapPost("/api/tools/playwright/install", async (HttpContext context) =>
+{
+    if (!OperatingSystem.IsWindows() || !IsAdministrator())
+        return Results.Problem("Windows Administrator privileges are required.", statusCode: 403);
+    if (context.Request.Headers.Origin is { Count: > 0 } origin &&
+        (!Uri.TryCreate(origin.ToString(), UriKind.Absolute, out var uri) ||
+         uri.Host != context.Request.Host.Host || uri.Port != context.Request.Host.Port))
+        return Results.StatusCode(403);
+    if (!await playwrightInstallGate.WaitAsync(0)) return Results.Problem("Playwright installation already running.", statusCode: 409);
+    try
+    {
+        var pwsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PowerShell", "7", "pwsh.exe");
+        if (!File.Exists(pwsh)) return Results.Problem(
+            "PowerShell 7 is required. Install the signed Microsoft PowerShell 7 MSI, then retry.", statusCode: 409);
+        var cli = FindPlaywrightCli();
+        if (cli is null) return Results.Problem(
+            "playwright.ps1 is absent from the installed ERP package. A compatible Playwright CLI is required; no ERP release is modified.", statusCode: 409);
+        Directory.CreateDirectory(browserCache);
+        var psi = new ProcessStartInfo(pwsh) { UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true };
+        psi.Environment["PLAYWRIGHT_BROWSERS_PATH"] = browserCache;
+        foreach (var part in new[] { "-NoProfile", "-File", cli, "install", "chromium" }) psi.ArgumentList.Add(part);
+        using var process = Process.Start(psi);
+        if (process is null) return Results.Problem("Playwright installer failed to start.", statusCode: 500);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(12));
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        try { await process.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            return Results.Problem("Playwright installation timed out.", statusCode: 504);
+        }
+        var output = await stdout;
+        var error = await stderr;
+        if (process.ExitCode != 0) return Results.Problem(
+            "Playwright installation failed (exit " + process.ExitCode + "): " + error[..Math.Min(700, error.Length)], statusCode: 500);
+        // Machine-level environment for IIS workers; recycle needed for existing pools.
+        Environment.SetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", browserCache, EnvironmentVariableTarget.Machine);
+        return Results.Ok(new { success = true, status = PlaywrightStatus(),
+            restartIisPoolsRecommended = true, output = output[..Math.Min(1000, output.Length)] });
+    }
+    finally { playwrightInstallGate.Release(); }
+});
+
 // Persist all four installation cards independently of deployment, including runtime URLs.
 var installerFormPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
     "AiBOS", "DeploymentManager", "form-settings.json");
