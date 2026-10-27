@@ -114,6 +114,61 @@ Setup پس از ذخیره Config:
 
 ---
 
+
+## نصب مستقل PowerShell 7 و Playwright Chromium برای AiBOS (Windows)
+
+این ابزار صرفاً پیش‌نیازهای مرورگر هوشمند را نصب می‌کند و به بسته‌های انتشار، دیتابیس یا نسخه‌های ERP دست نمی‌زند. در Windows PowerShell با **Run as Administrator** اجرا کنید. مسیر پیش‌فرض CLI برابر `C:\ecomm\test\current\playwright.ps1` و مسیر مرورگر برابر `C:\ProgramData\AiBOS\ms-playwright` است.
+
+### اجرای مستقیم (دانلود اسکریپت از GitHub)
+
+```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$p = Join-Path $env:TEMP 'Install-AiBOSBrowserPrerequisites.ps1'
+Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-AiBOSBrowserPrerequisites.ps1' -OutFile $p
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p
+```
+
+در صورت مسدود بودن CDN رسمی Playwright با خطای `403 AccessDenied / not available in your location` از پراکسی **واقعی و مورد اعتماد خودتان** استفاده کنید (آدرس نمونه را جایگزین کنید):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -ProxyUrl 'http://proxy.example:8080'
+```
+
+در صورت داشتن آینه سازمانی مورد اعتماد برای باینری Playwright (مسیر و نسخه باید سازگار باشند):
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -DownloadHost 'https://your-trusted-playwright-mirror.example'
+```
+
+### نصب آفلاین در شبکه‌های محدود
+
+روی **یک ویندوز دیگر با دسترسی دانلود**، با همان فایل `playwright.ps1` و نسخه کتابخانه Playwright نصب‌شده در AiBOS، Chromium را نصب کنید. سپس پوشه کش را بسته‌بندی کنید؛ نسخه متفاوت Playwright ممکن است Chromium ناسازگار تولید کند.
+
+```powershell
+$env:PLAYWRIGHT_BROWSERS_PATH = 'C:\ProgramData\AiBOS\ms-playwright'
+& 'C:\ecomm\test\current\playwright.ps1' install chromium
+Compress-Archive -Path 'C:\ProgramData\AiBOS\ms-playwright\*' -DestinationPath 'C:\temp\aibos-ms-playwright.zip' -Force
+(Get-FileHash 'C:\temp\aibos-ms-playwright.zip' -Algorithm SHA256).Hash
+```
+
+فایل ZIP را به سرور مقصد انتقال دهید، SHA256 را مطابقت دهید و روی سرور اجرا کنید:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -OfflineBrowserZip 'C:\temp\aibos-ms-playwright.zip' -ExpectedBrowserZipSha256 'SHA256_FROM_SOURCE'
+```
+
+اگر PowerShell 7 نیز به علت فیلترینگ دانلود نمی‌شود، فایل **MSI رسمی امضاشده Microsoft** را از سیستم دیگر منتقل کنید و به اسکریپت بدهید:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $p -PowerShellMsi 'C:\temp\PowerShell-7.x-win-x64.msi' -OfflineBrowserZip 'C:\temp\aibos-ms-playwright.zip' -ExpectedBrowserZipSha256 'SHA256_FROM_SOURCE'
+```
+
+اسکریپت امضای Microsoft روی MSI را بررسی می‌کند. در سرورهای Windows Service نصب Store/MSIX در پروفایل شخصی جایگزین نصب سراسری MSI نیست. مسیرهای تنظیم‌شده و نسخه مرورگر باید با هویت سرویس اجراکننده قابل‌دسترسی باشند. پس از نصب، BrowserHost و در صورت لزوم IIS App Pool را راه‌اندازی مجدد و **باز شدن یک صفحه واقعی توسط BrowserHost** را تست کنید؛ مشاهده نسخه Chrome به تنهایی تست عملیاتی کامل نیست. برای مدیریت عادی از پنل محلی `http://127.0.0.1:8099` استفاده کنید.
+
+[اسکریپت مستقل نصب پیش‌نیازها](scripts/Install-AiBOSBrowserPrerequisites.ps1)
+
+---
+
 ## اجرای Setup
 
 ### Bootstrap عمومی
