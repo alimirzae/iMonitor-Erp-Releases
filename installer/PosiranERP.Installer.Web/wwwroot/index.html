@@ -6,7 +6,7 @@
 <div class="actions" style="margin:0 0 18px"><button type="button" id="navSetup" class="primary" onclick="switchSetupView('setup')">نصب و ارتقا</button><button type="button" id="navWatchdog" class="secondary" onclick="switchSetupView('watchdog')">مانیتورینگ و Watchdog</button></div><section style="margin:12px 0;padding:14px;border:1px solid #dce5ee;border-radius:12px;background:#f8fbff">
 <strong>ابزار سرور: Playwright / Chromium</strong>
 <p class="meta">این بخش مستقل از نصب و انتشار نسخه‌های ERP است.</p>
-<div class="actions"><button type="button" class="secondary" onclick="inspectBrowser()">بررسی وضعیت Playwright</button><button type="button" class="primary" onclick="repairBrowser()">نصب / تعمیر Chromium</button></div>
+<div class="actions"><button type="button" class="secondary" onclick="inspectBrowser()">بررسی وضعیت Playwright</button><button type="button" class="secondary" onclick="installPwsh()">نصب PowerShell 7</button><button type="button" class="primary" onclick="repairBrowser()">نصب / تعمیر Chromium</button></div>
 <pre id="browserDiagnostic" style="white-space:pre-wrap;direction:rtl;text-align:right;font:13px Tahoma"></pre>
 </section><div id="wdPage" class="hidden"></div><div id="setupPage"><div id="status" class="status">در حال بررسی سیستم...</div>
 <div class="products">
@@ -239,6 +239,14 @@ async function inspectBrowser(){
  '\nPowerShell 7: '+(d.powerShell7Installed?'موجود':'نصب نیست')+
  '\nPlaywright CLI: '+(d.playwrightCli||'پیدا نشد')+'\n'+d.message;
  }catch(e){box.textContent='خطا: '+e.message}
+}
+async function installPwsh(){
+ if(!confirm('PowerShell 7 رسمی مایکروسافت از طریق Windows Package Manager نصب شود؟'))return;
+ const box=el('browserDiagnostic');box.textContent='در حال نصب PowerShell 7...';
+ try{const r=await fetch('/api/tools/playwright/powershell7/install',{method:'POST'});const d=await r.json();
+ if(!r.ok)throw Error(d.detail||d.title||'HTTP '+r.status);
+ await inspectBrowser();box.textContent+='\nPowerShell 7 نصب شد. اکنون نصب Chromium را اجرا کنید.';
+ }catch(e){box.textContent='نصب PowerShell 7 انجام نشد: '+e.message}
 }
 async function repairBrowser(){
  if(!confirm('نصب/تعمیر Chromium روی همین سرور اجرا شود؟'))return;
