@@ -15,6 +15,16 @@
     <div class="steps"><div class="step on" id="s1"></div><div class="step" id="s2"></div><div class="step" id="s3"></div></div>
     <div id="status" class="status">در حال بررسی سیستم...</div>
 
+    <section aria-label="ابزار Playwright سرور" style="margin-bottom:20px;border:1px solid #dde5ee;padding:16px;border-radius:12px">
+      <strong>مرورگر هوشمند Playwright — ابزار سرور</strong>
+      <div class="hint">مستقل از نصب و ارتقای ERP. وضعیت Chromium و PowerShell 7 را بررسی کنید.</div>
+      <div class="actions" style="margin-top:12px">
+        <button class="secondary" type="button" onclick="checkPlaywright()">بررسی وضعیت</button>
+        <button class="primary" type="button" onclick="installPlaywright()">نصب / تعمیر Chromium</button>
+      </div>
+      <div class="hint" id="playwrightStatus" role="status" style="white-space:pre-wrap;margin-top:10px">برای بررسی، دکمه وضعیت را بزنید.</div>
+    </section>
+
     <section id="page1">
       <div class="grid">
         <div><label>نوع نصب</label><select id="channel" onchange="syncDefaults()"><option value="Both">هر دو (Test + Production)</option><option value="Test">فقط آزمایشی (Test)</option><option value="Production">فقط اصلی (Production)</option></select><div class="hint">در حالت هر دو، Test روی 8081 و Production روی 8080 نصب می‌شود.</div></div>
@@ -54,6 +64,31 @@
   </div>
 </div></div>
 <script>
+async function checkPlaywright(){
+  const out=el('playwrightStatus'); out.textContent='در حال بررسی...';
+  try{
+    const r=await fetch('/api/tools/playwright',{cache:'no-store'});
+    if(!r.ok)throw Error('HTTP '+r.status);
+    const s=await r.json();
+    out.textContent='Chromium: '+(s.installed?'در پوشه یافت شد':'یافت نشد')+
+      '\\nPowerShell 7: '+(s.powerShell7Installed?'نصب است':'نصب نیست')+
+      '\\nفایل Playwright: '+(s.playwrightCli||'یافت نشد')+
+      '\\n'+s.message;
+  }catch(e){out.textContent='خطا در بررسی: '+e.message}
+}
+async function installPlaywright(){
+  const out=el('playwrightStatus');
+  if(!confirm('Chromium را روی سرور بررسی و در صورت نیاز نصب یا تعمیر کنیم؟'))return;
+  out.textContent='در حال اجرای نصب/تعمیر...';
+  try{
+    const r=await fetch('/api/tools/playwright/install',{method:'POST'});
+    const body=await r.json();
+    if(!r.ok)throw Error(body.detail||body.title||'HTTP '+r.status);
+    await checkPlaywright();
+    out.textContent+='\\nنصب اجرا شد. برای IIS، راه‌اندازی مجدد App Pool ممکن است لازم باشد.';
+  }catch(e){out.textContent='نصب انجام نشد: '+e.message}
+}
+
 let saved=[], erpUrls=[];
 const el=id=>document.getElementById(id);
 function showPage(n){for(let i=1;i<=3;i++){el('page'+i).classList.toggle('hidden',i!==n);el('s'+i).classList.toggle('on',i<=n)}}
