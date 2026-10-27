@@ -119,7 +119,7 @@ async function loadInstallations(){try{const r=await fetch('/api/installations')
 let activeSetupView='setup', wdPoll=null;
 function switchSetupView(view){
   activeSetupView=view;
-  el('setupPage').classList.toggle('hidden',view==='watchdog');
+  el('setupPage').classList.toggle('hidden',view!=='setup');
   el('wdPage').classList.toggle('hidden',view!=='watchdog');el('chromiumPage').classList.toggle('hidden',view!=='chromium');el('navChromium').className=view==='chromium'?'primary':'secondary';
   el('navSetup').className=view==='setup'?'primary':'secondary';
   el('navWatchdog').className=view==='watchdog'?'primary':'secondary';
