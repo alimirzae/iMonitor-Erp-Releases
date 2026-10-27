@@ -79,6 +79,40 @@ object PlaywrightStatus()
 }
 app.MapGet("/api/tools/playwright", () => Results.Ok(PlaywrightStatus()));
 
+app.MapPost("/api/tools/playwright/powershell7/install", async (HttpContext context) =>
+{
+    if (!OperatingSystem.IsWindows() || !IsAdministrator())
+        return Results.Problem("Windows Administrator privileges required.", statusCode: 403);
+    if (context.Request.Headers.Origin is { Count: > 0 } origin &&
+        (!Uri.TryCreate(origin.ToString(), UriKind.Absolute, out var uri) ||
+         uri.Host != context.Request.Host.Host || uri.Port != context.Request.Host.Port))
+        return Results.StatusCode(403);
+    var pwsh = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "PowerShell", "7", "pwsh.exe");
+    if (File.Exists(pwsh)) return Results.Ok(new { installed = true, alreadyPresent = true, path = pwsh });
+    var winget = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Microsoft", "WindowsApps", "winget.exe");
+    if (!File.Exists(winget))
+        return Results.Problem("winget unavailable. Install official signed PowerShell 7 MSI from Microsoft manually.", statusCode: 409);
+    var psi = new ProcessStartInfo(winget) { UseShellExecute = false, CreateNoWindow = true };
+    foreach (var arg in new[] { "install", "--id", "Microsoft.PowerShell", "--exact",
+        "--source", "winget", "--scope", "machine", "--silent",
+        "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity" })
+        psi.ArgumentList.Add(arg);
+    using var process = Process.Start(psi);
+    if (process is null) return Results.Problem("Could not launch winget.", statusCode: 500);
+    using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(8));
+    try { await process.WaitForExitAsync(timeout.Token); }
+    catch (OperationCanceledException)
+    {
+        try { process.Kill(entireProcessTree: true); } catch { }
+        return Results.Problem("PowerShell 7 installation timed out.", statusCode: 504);
+    }
+    if (process.ExitCode != 0 || !File.Exists(pwsh))
+        return Results.Problem("PowerShell 7 setup failed or executable not found (winget exit " + process.ExitCode + ").", statusCode: 500);
+    return Results.Ok(new { installed = true, path = pwsh });
+});
+
+
 var playwrightInstallGate = new SemaphoreSlim(1, 1);
 app.MapPost("/api/tools/playwright/install", async (HttpContext context) =>
 {
