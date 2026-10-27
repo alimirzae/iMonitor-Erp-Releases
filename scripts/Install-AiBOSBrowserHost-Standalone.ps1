@@ -6,6 +6,7 @@ param(
  [string]$ChromiumExe = 'C:\ProgramData\AiBOS\ms-playwright\Chromium\Application\chrome.exe',
  [int[]]$CompanyIds = @(),
  [string[]]$AllowedHosts = @('www.digikala.com','digikala.com'),
+ [string]$LocalSourceRoot = '',
  [switch]$RestartIis
 )
 $ErrorActionPreference = 'Stop'
@@ -18,13 +19,24 @@ $staging = Join-Path $WorkRoot 'publish'
 $browserConfig = 'C:\ProgramData\AiBOS\BrowserHost\browser-settings.json'
 if (-not (Test-Path $ChromiumExe)) { throw "Chromium missing: $ChromiumExe" }
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw 'Install .NET 8 SDK (not just runtime) before running.' }
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Write-Host 'Git is not required; using branch ZIP.' }
+
 New-Item -ItemType Directory -Force $WorkRoot | Out-Null
-Write-Host 'Downloading Ecomm test source (public GitHub ZIP)...'
-Invoke-WebRequest -Uri $download -OutFile $zip -UseBasicParsing
-if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
-Expand-Archive -LiteralPath $zip -DestinationPath $extract
-$project = Get-ChildItem $extract -Recurse -Filter AiBOS.BrowserHost.csproj | Select-Object -First 1 -ExpandProperty FullName
+# Private repositories commonly return HTTP 404 to anonymous ZIP requests.
+if ($LocalSourceRoot) {
+ $project = Join-Path $LocalSourceRoot 'tools\AiBOS.BrowserHost\AiBOS.BrowserHost.csproj'
+ if (-not (Test-Path $project)) { throw "Project missing under LocalSourceRoot: $project" }
+} else {
+ $gh = Get-Command gh -ErrorAction SilentlyContinue
+ if (-not $gh) { throw 'Private Ecomm repository: install GitHub CLI (gh), run gh auth login, or pass -LocalSourceRoot pointing to a test-branch checkout.' }
+ & gh auth status 2>&1 | Out-Null
+ if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI is not authenticated. Run gh auth login (with Ecomm access).' }
+ Write-Host 'Downloading authenticated test branch archive via GitHub CLI...'
+ & gh api 'repos/alimirzae/Ecomm/zipball/test' --header 'Accept: application/vnd.github+json' > $zip
+ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 10000) { throw 'Authenticated GitHub download failed. Verify account access to alimirzae/Ecomm.' }
+ if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
+ Expand-Archive -LiteralPath $zip -DestinationPath $extract
+ $project = Get-ChildItem $extract -Recurse -Filter AiBOS.BrowserHost.csproj | Select-Object -First 1 -ExpandProperty FullName
+}
 if (-not $project) { throw 'BrowserHost project not found in source ZIP.' }
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 Write-Host 'Publishing BrowserHost...'
