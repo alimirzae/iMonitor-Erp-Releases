@@ -547,6 +547,15 @@ function Install-Channel($info){
     Write-Host "[PROGRESS 45] Extract package"
     $stage=Join-Path $work 'stage';Expand-Archive $zip -DestinationPath $stage -Force
     Ensure-BehpardakhtPosPcDriver $stage
+    # Attempt browser provisioning before IIS activation; never interrupt existing ERP upgrades
+    # when a legacy release ZIP has no Playwright assets yet.
+    try {
+      $playwrightHelper=Join-Path $stableDir 'Ensure-AiBOSPlaywright.ps1'
+      $helperUrl='https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Ensure-AiBOSPlaywright.ps1'
+      Invoke-WebRequest -UseBasicParsing -Uri $helperUrl -OutFile $playwrightHelper -TimeoutSec 60
+      & $playwrightHelper -PublishPath $stage -PoolName $info.Pool
+    } catch { Write-Warning "[AiBOS Playwright] Prerequisite setup skipped: $($_.Exception.Message)" }
+
     Write-Host "[PROGRESS 55] Package extraction completed"
     if(!(Test-Path (Join-Path $stage 'Ecomm.dll')) -or !(Test-Path (Join-Path $stage 'web.config'))){throw 'Release package is incomplete (Ecomm.dll/web.config missing).'}
     Copy-Item $info.Config (Join-Path $stage 'appsettings.json') -Force
