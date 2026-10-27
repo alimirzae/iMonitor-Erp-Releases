@@ -30,12 +30,12 @@ if ($LocalSourceRoot) {
  if (-not $gh) { throw 'Private Ecomm repository: install GitHub CLI (gh), run gh auth login, or pass -LocalSourceRoot pointing to a test-branch checkout.' }
  & gh auth status 2>&1 | Out-Null
  if ($LASTEXITCODE -ne 0) { throw 'GitHub CLI is not authenticated. Run gh auth login (with Ecomm access).' }
- Write-Host 'Downloading authenticated test branch archive via GitHub CLI...'
- & gh api 'repos/alimirzae/Ecomm/zipball/test' --header 'Accept: application/vnd.github+json' > $zip
- if ($LASTEXITCODE -ne 0 -or -not (Test-Path $zip) -or (Get-Item $zip).Length -lt 10000) { throw 'Authenticated GitHub download failed. Verify account access to alimirzae/Ecomm.' }
+ Write-Host 'Cloning authenticated test branch with GitHub CLI...'
  if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
- Expand-Archive -LiteralPath $zip -DestinationPath $extract
- $project = Get-ChildItem $extract -Recurse -Filter AiBOS.BrowserHost.csproj | Select-Object -First 1 -ExpandProperty FullName
+ & gh repo clone 'alimirzae/Ecomm' $extract -- --branch test --single-branch --depth 1
+ if ($LASTEXITCODE -ne 0) { throw 'Authenticated GitHub clone failed. Verify gh auth status and Ecomm repo access.' }
+ $project = Join-Path $extract 'tools\AiBOS.BrowserHost\AiBOS.BrowserHost.csproj'
+
 }
 if (-not $project) { throw 'BrowserHost project not found in source ZIP.' }
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
