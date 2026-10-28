@@ -1,14 +1,14 @@
 {
     "channel":  "preview",
     "published":  true,
-    "version":  "0.4.2",
-    "versionName":  "0.4.2",
-    "versionCode":  10,
-    "publishedAt":  "2026-08-19T10:43:18Z",
+    "version":  "0.5.1",
+    "versionName":  "0.5.1",
+    "versionCode":  13,
+    "publishedAt":  "2026-10-28T17:33:59Z",
     "url":  "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-edge-preview-latest/iMonitor-Android-Edge-preview.apk",
-    "archiveUrl":  "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-edge-preview-v0.4.2-10-f9b1eb9ed9b1/iMonitor-Android-Edge-preview.apk",
-    "sha256":  "00c5c087d5613a47d4e072cf63c489f656c075118906cf3b94f2b1d3d1e5e04e",
-    "certificateSha256":  "e7944326fcb78d1b7d34f5e18aded02c79ddd68b6d9854de3608bded0fa59230",
-    "signedOnRunner":  "LAPTOP",
-    "sourceSha":  "f9b1eb9ed9b11f29297c421a899105a560fc035e"
+    "archiveUrl":  "https://github.com/alimirzae/iMonitor-Erp-Releases/releases/download/android-edge-preview-v0.5.1-7ba25cf0a4bf/iMonitor-Android-Edge-preview.apk",
+    "sha256":  "83c833ca44a792a6c6d957c550d46d486d1e01f9d5edd6fed9cd4c5ee370e68d",
+    "certificateSha256":  "93a048bc663149c5cc08488cf51b35b6c6e66a2651a6b5606aa3c5c5e8e56bc1",
+    "signedOnRunner":  "Ali_Laptop",
+    "sourceSha":  "7ba25cf0a4bf06a04303cc13b0c6f51ea96de2e4"
 }
