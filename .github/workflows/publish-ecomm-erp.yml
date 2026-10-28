@@ -206,6 +206,35 @@ jobs:
           "version=$version" | Add-Content $env:GITHUB_STEP_SUMMARY
           "source=$env:SOURCE_REPO@$env:SOURCE_SHA" | Add-Content $env:GITHUB_STEP_SUMMARY
 
+      # Android Edge is a companion download, not a dependency of the .NET ERP release.
+      # Copy the already-signed preview APK into BOTH test and master release assets.
+      - name: Attach Android Edge APK (optional)
+        continue-on-error: true
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $channel = if ($env:SOURCE_BRANCH -eq 'master') { 'master' } else { 'test' }
+          $tag = "imonitor-ecomerp-$channel-v2.0.$env:SOURCE_RUN_NUMBER"
+          $apkName = 'AiBOS-Edge-0.5.1.apk'
+          $targetDir = Join-Path $env:RUNNER_TEMP 'aibos-edge-companion'
+          New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+          try {
+            & gh release download android-edge-preview-latest --repo $env:GITHUB_REPOSITORY --pattern 'iMonitor-Android-Edge-preview.apk' --dir $targetDir --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Android Edge APK unavailable" }
+            $downloaded = Join-Path $targetDir 'iMonitor-Android-Edge-preview.apk'
+            if (!(Test-Path $downloaded)) { throw 'Android Edge APK missing after download' }
+            $apk = Join-Path $targetDir $apkName
+            Move-Item $downloaded $apk -Force
+            & gh release upload $tag $apk --clobber --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE -ne 0) { throw "Could not attach Android Edge" }
+            "Android Edge 0.5.1 attached: $apkName" | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+          catch {
+            Write-Warning "Optional Android Edge attachment skipped: $_"
+            "Android Edge optional APK not attached; Windows ERP release remains valid." | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+
       - name: Publish API-free channel manifest
         env:
           GH_TOKEN: ${{ github.token }}
