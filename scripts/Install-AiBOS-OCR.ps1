@@ -30,7 +30,7 @@ if($Status) {
 if($TestImage) {
   $exe=Assert-Ready
   if(!(Test-Path -LiteralPath $TestImage -PathType Leaf)){throw 'Test image not found'}
-  $env:TESSDATA_PREFIX=$Root
+  $env:TESSDATA_PREFIX=$models
   & $exe $TestImage stdout -l fas+eng --psm 6 tsv
   if($LASTEXITCODE -ne 0){throw "OCR test failed: $LASTEXITCODE"}
   exit 0
@@ -112,7 +112,7 @@ foreach($lang in @('fas','eng')){
   Move-Item -Force $tmp $dest
 }
 Write-Output 'OCR_STAGE:92|Health check|Verifying engine and language models'
-$env:TESSDATA_PREFIX=$Root
+$env:TESSDATA_PREFIX=$models
 & $exe --list-langs | Out-Null
 if($LASTEXITCODE -ne 0){throw 'Tesseract health check failed'}
 [pscustomobject]@{installed=$true;executable=$exe;tessdata=$models;languages=@('fas','eng')}|ConvertTo-Json -Compress
