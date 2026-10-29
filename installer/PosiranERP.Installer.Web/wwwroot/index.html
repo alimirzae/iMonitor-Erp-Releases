@@ -270,6 +270,53 @@ function showOcrResult(tsv,img){
  el('ocrSummary').textContent='تست انجام شد — '+words.length+' کلمه شناسایی شد | میانگین اطمینان: '+mean.toFixed(1)+'٪. روی کادرها حرکت کنید تا متن هر بخش را ببینید.';
  el('ocrSummary').className='status '+(words.length?'ok':'warn');
 }
+async function prepareOcrImage(file){
+ const image=await createImageBitmap(file);
+ try {
+  const sample=document.createElement('canvas');sample.width=image.width;sample.height=image.height;
+  const sc=sample.getContext('2d',{willReadFrequently:true});sc.drawImage(image,0,0);
+  const pixels=sc.getImageData(0,0,image.width,image.height), data=pixels.data;
+  // Find light receipt area on darker photograph, ignoring tiny light artifacts.
+  const step=Math.max(2,Math.floor(Math.max(image.width,image.height)/700));
+  const grid=[], width=image.width,height=image.height;
+  for(let y=0;y<height;y+=step){
+   let first=-1,last=-1,count=0;
+   for(let x=0;x<width;x+=step){
+    const i=(y*width+x)*4,l=.2126*data[i]+.7152*data[i+1]+.0722*data[i+2];
+    if(l>132 && Math.max(data[i],data[i+1],data[i+2])-Math.min(data[i],data[i+1],data[i+2])<65){
+     if(first<0)first=x;last=x;count++;
+    }
+   }
+   if(count>Math.max(8,width/step*.08))grid.push({y,first,last});
+  }
+  let box={x:0,y:0,w:width,h:height};
+  if(grid.length>=8){
+   const left=Math.min(...grid.map(p=>p.first)),right=Math.max(...grid.map(p=>p.last)),top=grid[0].y,bottom=grid[grid.length-1].y;
+   const margin=Math.round(Math.min(width,height)*.02);
+   if((right-left)*(bottom-top)>width*height*.04){
+    box={x:Math.max(0,left-margin),y:Math.max(0,top-margin),
+     w:Math.min(width-Math.max(0,left-margin),right-left+2*margin),
+     h:Math.min(height-Math.max(0,top-margin),bottom-top+2*margin)};
+   }
+  }
+  const scale=Math.min(3,Math.max(1.5,1800/Math.max(box.w,1)));
+  const out=document.createElement('canvas');
+  out.width=Math.min(3600,Math.round(box.w*scale));out.height=Math.min(5500,Math.round(box.h*scale));
+  const ctx=out.getContext('2d',{willReadFrequently:true});
+  ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+  ctx.drawImage(image,box.x,box.y,box.w,box.h,0,0,out.width,out.height);
+  const id=ctx.getImageData(0,0,out.width,out.height);
+  for(let i=0;i<id.data.length;i+=4){
+    const lum=.2126*id.data[i]+.7152*id.data[i+1]+.0722*id.data[i+2];
+    const enhanced=Math.max(0,Math.min(255,(lum-128)*1.65+145));
+    id.data[i]=id.data[i+1]=id.data[i+2]=enhanced;
+  }
+  ctx.putImageData(id,0,0);
+  const blob=await new Promise(resolve=>out.toBlob(resolve,'image/png'));
+  if(!blob)throw Error('پردازش تصویر ناموفق بود');
+  return {blob,preview:out.toDataURL('image/png'),cropped:box.w<width*.9||box.h<height*.9};
+ }finally{image.close()}
+}
 async function ocrAction(mode){
  const o=el('ocrOutput'), summary=el('ocrSummary');
  summary.textContent=mode==='install'?'در حال نصب موتور OCR...':mode==='test'?'در حال پردازش تصویر...':'در حال بررسی وضعیت...';
@@ -278,7 +325,7 @@ async function ocrAction(mode){
   if(mode==='install'){if(!confirm('موتور OCR مشترک روی سرور نصب یا تعمیر شود؟'))return;options.method='POST';url+='/install';}
   if(mode==='test'){const file=el('ocrImage').files[0];if(!file)throw Error('ابتدا تصویر انتخاب کنید');
    if(file.size>8*1024*1024)throw Error('حجم عکس از ۸ مگابایت بیشتر است');
-   const form=new FormData();form.append('image',file);options.method='POST';options.body=form;url+='/test';
+   const processed=await prepareOcrImage(file);window.currentOcrPreview=processed.preview;const form=new FormData();form.append('image',processed.blob,'processed-receipt.png');options.method='POST';options.body=form;url+='/test';
   }
   const r=await fetch(url,options);const raw=await r.text();let result;try{result=JSON.parse(raw)}catch{result={detail:raw}}
   if(!r.ok)throw Error(result.detail||result.error||('HTTP '+r.status));
@@ -309,10 +356,12 @@ async function ocrAction(mode){
   }
   if(mode==='test'){
     o.textContent=result.tsv||'';
-    const file=el('ocrImage').files[0], image=el('ocrPhoto');
-    const u=URL.createObjectURL(file);
+    const image=el('ocrPhoto');
+    const u=window.currentOcrPreview;
     await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=u});
-    showOcrResult(result.tsv||'',image);URL.revokeObjectURL(u);
+    showOcrResult(result.tsv||'',image);
+    el('ocrSummary').textContent+=' | حالت OCR: '+result.psm+' | پیش‌پردازش: اصلاح کنتراست و بزرگ‌نمایی';
+    o.textContent+='\n\nDiagnostics: '+JSON.stringify(result.diagnostics||[]);
   }else if(mode==='status'){
     const status=result.status||result;
     summary.textContent=status.installed?'موتور OCR آماده است.':result.activeOperationId?'موتور هنوز آماده نیست؛ نصب در حال اجرا است. برای دیدن لاگ دکمه نصب / تعمیر را بزنید.':'موتور OCR هنوز آماده نیست.';
