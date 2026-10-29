@@ -358,7 +358,8 @@ function initOcrCrop(){
 }
 async function selectedOcrCrop(file){
  if(!ocrCropSelection)return null;
- const bitmap=await createImageBitmap(file);
+ const source=window.currentOcrPreview ? await (await fetch(window.currentOcrPreview)).blob() : file;
+ const bitmap=await createImageBitmap(source);
  try {
   const r=ocrCropSelection,x=Math.floor(bitmap.width*r.x),y=Math.floor(bitmap.height*r.y),
    w=Math.max(1,Math.floor(bitmap.width*r.w)),h=Math.max(1,Math.floor(bitmap.height*r.h));
