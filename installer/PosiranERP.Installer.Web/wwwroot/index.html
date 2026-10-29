@@ -384,6 +384,12 @@ async function ocrAction(mode){
       }
     }
     o.textContent=result.tsv||'';
+    if((result.detectedWords||0)===0) {
+      el('ocrInstallLog').textContent='OCR diagnostic (zero words):\n'+JSON.stringify({
+        tsvChars:result.tsvChars,tsvHeader:result.tsvHeader,
+        diagnostics:result.diagnostics,plainText:result.plainText
+      },null,2);
+    }
     const image=el('ocrPhoto');
     const u=window.currentOcrPreview;
     await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=u});
