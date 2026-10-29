@@ -117,6 +117,14 @@ foreach($lang in @('fas','eng')){
   if((Get-Item $tmp).Length -lt 100000){throw "Downloaded $lang model is unexpectedly small"}
   Move-Item -Force $tmp $dest
 }
+# The shared tessdata directory also needs renderer configuration files.
+$configDir=Join-Path $models 'configs'
+New-Item -ItemType Directory -Path $configDir -Force | Out-Null
+$tsvConfig=Join-Path $configDir 'tsv'
+if(!(Test-Path -LiteralPath $tsvConfig -PathType Leaf)){
+  [System.IO.File]::WriteAllText($tsvConfig,"tessedit_create_tsv 1"+[Environment]::NewLine,[System.Text.Encoding]::ASCII)
+}
+Write-Output 'OCR_STAGE:90|Renderer configuration|TSV output configuration ready'
 Write-Output 'OCR_STAGE:92|Health check|Verifying engine and language models'
 [void](Assert-Ready)
 Write-Output 'OCR_STAGE:97|Health check|Persian and English models loaded successfully'
