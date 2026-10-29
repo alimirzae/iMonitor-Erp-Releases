@@ -284,6 +284,7 @@ async function ocrAction(mode){
   if(!r.ok)throw Error(result.detail||result.error||('HTTP '+r.status));
   if(mode==='install' && result.operationId){
     const operationId=result.operationId;
+    if(result.alreadyRunning) summary.textContent='نصب قبلی هنوز فعال است؛ نمایش لاگ همان عملیات...';
     const poll=async()=>{
       const response=await fetch('/api/operations/'+encodeURIComponent(operationId),{cache:'no-store'});
       if(!response.ok)throw Error('لاگ نصب قابل دریافت نیست');
@@ -312,7 +313,12 @@ async function ocrAction(mode){
     const u=URL.createObjectURL(file);
     await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=u});
     showOcrResult(result.tsv||'',image);URL.revokeObjectURL(u);
-  }else{summary.textContent=mode==='status'?(result.installed?'موتور OCR نصب شده است.':'موتور OCR هنوز آماده نیست.'):'عملیات نصب تمام شد؛ وضعیت را بررسی کنید.';summary.className='status '+(result.installed?'ok':'warn');o.textContent=JSON.stringify(result,null,2);}
+  }else if(mode==='status'){
+    const status=result.status||result;
+    summary.textContent=status.installed?'موتور OCR آماده است.':result.activeOperationId?'موتور هنوز آماده نیست؛ نصب در حال اجرا است. برای دیدن لاگ دکمه نصب / تعمیر را بزنید.':'موتور OCR هنوز آماده نیست.';
+    summary.className='status '+(status.installed?'ok':'warn');
+    o.textContent=JSON.stringify(result,null,2);
+  }else{summary.textContent='عملیات انجام شد.';o.textContent=JSON.stringify(result,null,2);}
  }catch(e){summary.textContent='خطا: '+e.message;summary.className='status warn';o.textContent=e.stack||String(e)}
 }
 async function inspectBrowser(){
