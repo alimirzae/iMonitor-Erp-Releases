@@ -350,7 +350,18 @@ async function ocrAction(mode){
       o.textContent=(state.lines||[]).map(x=>'['+x.level+'] '+x.message).join('\\n');
       o.scrollTop=o.scrollHeight;
       if(state.status==='Running'){setTimeout(()=>poll().catch(e=>{summary.textContent=e.message}),1200);}
-      else {summary.className='status '+(state.status==='Succeeded'?'ok':'warn');}
+      else {
+        summary.className='status '+(state.status==='Succeeded'?'ok':'warn');
+        if(state.status!=='Succeeded'){
+          const errors=lines.filter(x=>x.level==='error' && x.message && !x.message.startsWith('OCR install failed'));
+          const failure=errors.slice(-6).map(x=>x.message).join(' | ') ||
+            [...lines].reverse().find(x=>x.level==='error')?.message ||
+            'علت خطا در لاگ ثبت نشده است';
+          summary.textContent='نصب OCR ناموفق: '+failure;
+          o.textContent='شناسه عملیات: '+operationId+'\\n\\n'+o.textContent;
+          o.scrollTop=o.scrollHeight;
+        }
+      }
     };
     await poll();return;
   }
