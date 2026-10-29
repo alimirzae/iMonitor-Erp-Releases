@@ -93,6 +93,21 @@ app.MapPost("/api/tools/ocr/install", (HttpContext ctx, IHttpClientFactory clien
                 while ((line = await reader.ReadLineAsync()) is not null)
                 {
                     logs.Add(op.Id, level, line);
+                    if (line.StartsWith("OCR_DOWNLOAD:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var d = line["OCR_DOWNLOAD:".Length..].Split('|');
+                        if (d.Length == 6 && int.TryParse(d[0], out var baseStage)
+                            && int.TryParse(d[2], out var downloadPct)
+                            && long.TryParse(d[3], out var bytes)
+                            && long.TryParse(d[4], out var total))
+                        {
+                            var globalPct = downloadPct >= 0 ? Math.Clamp(baseStage + (int)Math.Round(downloadPct * 0.20), 15, 95) : baseStage;
+                            var totalDisplay = total > 0 ? (total / 1048576.0).ToString("F1") + " MB" : "unknown";
+                            var receivedDisplay = (bytes / 1048576.0).ToString("F1") + " MB";
+                            logs.Progress(op.Id, "دانلود " + d[1], globalPct,
+                                (downloadPct >= 0 ? downloadPct + "%" : "size unknown") + " (" + receivedDisplay + " / " + totalDisplay + ") speed " + d[5] + " MB/s");
+                        }
+                    }
                     if (line.StartsWith("OCR_STAGE:", StringComparison.OrdinalIgnoreCase))
                     {
                         var data = line["OCR_STAGE:".Length..].Split('|', 3);
