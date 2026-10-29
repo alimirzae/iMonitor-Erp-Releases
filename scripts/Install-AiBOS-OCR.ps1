@@ -7,7 +7,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 $models=Join-Path $Root 'tessdata'
-$exeCandidates=@((Join-Path $Root 'tesseract.exe'),"$env:ProgramFiles\Tesseract-OCR\tesseract.exe","$env:ProgramFiles(x86)\Tesseract-OCR\tesseract.exe")
+$exeCandidates=@((Join-Path $Root 'tesseract.exe'),"$env:ProgramFiles\Tesseract-OCR\tesseract.exe","${env:ProgramFiles(x86)}\Tesseract-OCR\tesseract.exe")
 function Get-OcrExe {
   foreach($p in $exeCandidates) { if($p -and (Test-Path $p)){return $p} }
   $cmd=Get-Command tesseract.exe -ErrorAction SilentlyContinue
