@@ -66,7 +66,7 @@ object OcrStatus()
 app.MapGet("/api/tools/ocr", () => Results.Ok(OcrStatus()));
 app.MapPost("/api/tools/ocr/install", async (HttpContext ctx, IHttpClientFactory clients) =>
 {
-    if (!IsAdministrator() || ctx.Connection.RemoteIpAddress?.IsLoopback() != true) return Results.StatusCode(403);
+    if (!IsAdministrator() || (ctx.Connection.RemoteIpAddress is null || !System.Net.IPAddress.IsLoopback(ctx.Connection.RemoteIpAddress))) return Results.StatusCode(403);
     if (!await ocrGate.WaitAsync(0)) return Results.Conflict(new { error = "OCR install already running" });
     try
     {
@@ -97,7 +97,7 @@ app.MapPost("/api/tools/ocr/install", async (HttpContext ctx, IHttpClientFactory
 });
 app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
 {
-    if (ctx.Connection.RemoteIpAddress?.IsLoopback() != true) return Results.StatusCode(403);
+    if ((ctx.Connection.RemoteIpAddress is null || !System.Net.IPAddress.IsLoopback(ctx.Connection.RemoteIpAddress))) return Results.StatusCode(403);
     if (!ctx.Request.HasFormContentType) return Results.BadRequest(new { error = "Upload multipart/form-data image" });
     var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
     var image = form.Files.GetFile("image");
