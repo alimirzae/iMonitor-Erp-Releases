@@ -176,21 +176,50 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
     try
     {
         await using (var target = File.Create(file)) await image.CopyToAsync(target, ctx.RequestAborted);
-        var psi = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true,
-            UseShellExecute = false, CreateNoWindow = true };
-        psi.Environment["TESSDATA_PREFIX"] = Path.Combine(ocrRoot, "tessdata");
-        foreach (var arg in new[] { file, "stdout", "-l", "fas+eng", "--psm", "6", "tsv" }) psi.ArgumentList.Add(arg);
-        using var process = Process.Start(psi);
-        if (process is null) return Results.Problem("OCR engine failed to start", statusCode: 500);
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
-        timeout.CancelAfter(TimeSpan.FromSeconds(35));
-        try { await process.WaitForExitAsync(timeout.Token); }
-        catch (OperationCanceledException) { try { process.Kill(true); } catch { } return Results.Problem("OCR test timed out", statusCode: 504); }
-        var tsv = await stdout; var error = await stderr;
-        return process.ExitCode == 0 ? Results.Ok(new { success = true, tsv, format = "tsv", coordinates = true })
-            : Results.Problem(error[..Math.Min(error.Length, 1000)], statusCode: 500);
+        async Task<(string tsv, string error, int exit)> TryMode(int psm)
+        {
+            var psi = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding = System.Text.Encoding.UTF8 };
+            psi.Environment["TESSDATA_PREFIX"] = Path.Combine(ocrRoot, "tessdata");
+            foreach (var arg in new[] { file, "stdout", "-l", "fas+eng", "--psm", psm.ToString(), "tsv" }) psi.ArgumentList.Add(arg);
+            using var process = Process.Start(psi) ?? throw new InvalidOperationException("OCR engine failed to start");
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
+            timeout.CancelAfter(TimeSpan.FromSeconds(45));
+            try { await process.WaitForExitAsync(timeout.Token); }
+            catch (OperationCanceledException) { try { process.Kill(true); } catch { } throw new TimeoutException("OCR mode " + psm + " timed out"); }
+            return (await stdout, await stderr, process.ExitCode);
+        }
+        // Sparse-text and automatic segmentation modes work better on receipt photos than PSM 6.
+        var candidateModes = new[] { 11, 3, 6 };
+        string? bestTsv = null;
+        var bestScore = -1;
+        var bestMode = 0;
+        var diagnostics = new List<object>();
+        foreach (var mode in candidateModes)
+        {
+            var result = await TryMode(mode);
+            if (result.exit != 0)
+            {
+                diagnostics.Add(new { psm = mode, error = result.error, exitCode = result.exit });
+                continue;
+            }
+            var rows = result.tsv.Split('\n');
+            var words = rows.Skip(1).Count(row =>
+            {
+                var cols = row.TrimEnd('\r').Split('\t');
+                return cols.Length >= 12 && double.TryParse(cols[10],
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var confidence)
+                    && confidence >= 15 && !string.IsNullOrWhiteSpace(cols[11]);
+            });
+            diagnostics.Add(new { psm = mode, detectedWords = words });
+            if (words > bestScore) { bestScore = words; bestTsv = result.tsv; bestMode = mode; }
+            if (bestScore >= 12) break;
+        }
+        if (bestTsv is null) return Results.Problem("All OCR modes failed. Check language packs and image format.", statusCode: 500);
+        return Results.Ok(new { success = true, tsv = bestTsv, format = "tsv",
+            coordinates = true, psm = bestMode, detectedWords = bestScore, diagnostics });
     }
     finally { try { File.Delete(file); } catch { } }
 });
