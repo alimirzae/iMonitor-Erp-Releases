@@ -35,6 +35,7 @@ if($TestImage) {
   if($LASTEXITCODE -ne 0){throw "OCR test failed: $LASTEXITCODE"}
   exit 0
 }
+Write-Output 'OCR_STAGE:20|آماده‌سازی|بررسی پوشه‌ها و موتور نصب‌شده'
 New-Item -ItemType Directory -Force -Path $models | Out-Null
 $exe=Get-OcrExe
 if(!$exe){
@@ -47,6 +48,7 @@ if(!$exe){
   $package=Join-Path $cache "tesseract-ocr-w64-setup-$version.exe"
   $valid=(Test-Path $package) -and ((Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash -eq $expectedHash)
   if(!$valid){
+    Write-Output 'OCR_STAGE:30|دانلود Tesseract|دریافت فایل نصب؛ این مرحله ممکن است طولانی باشد'
     $temp="$package.download"
     try{
       Invoke-WebRequest -Uri $url -OutFile $temp -UseBasicParsing -TimeoutSec 300
@@ -55,6 +57,7 @@ if(!$exe){
       Move-Item -LiteralPath $temp -Destination $package -Force
     }finally{Remove-Item -LiteralPath $temp -ErrorAction SilentlyContinue}
   }
+  Write-Output 'OCR_STAGE:55|نصب Tesseract|اجرای نصاب بی‌صدا'
   Write-Host "Installing verified Tesseract package $version without winget..."
   $process=Start-Process -FilePath $package -ArgumentList '/S' -PassThru -Wait
   if($process.ExitCode -ne 0){throw "Tesseract installer exit code: $($process.ExitCode)"}
@@ -63,6 +66,7 @@ if(!$exe){
 }
 
 foreach($lang in @('fas','eng')){
+  Write-Output "OCR_STAGE:75|دریافت مدل‌ها|بررسی مدل زبان $lang"
   $dest=Join-Path $models "$lang.traineddata"
   if((Test-Path $dest) -and (Get-Item $dest).Length -gt 100000){continue}
   $url="https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/$lang.traineddata"
@@ -71,6 +75,7 @@ foreach($lang in @('fas','eng')){
   if((Get-Item $tmp).Length -lt 100000){throw "Downloaded $lang model is unexpectedly small"}
   Move-Item -Force $tmp $dest
 }
+Write-Output 'OCR_STAGE:92|سلامت‌سنجی|بررسی اجرا و مدل‌های OCR'
 $env:TESSDATA_PREFIX=$Root
 & $exe --list-langs | Out-Null
 if($LASTEXITCODE -ne 0){throw 'Tesseract health check failed'}
