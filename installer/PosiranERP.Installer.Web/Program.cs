@@ -82,7 +82,8 @@ app.MapPost("/api/tools/ocr/install", (HttpContext ctx, IHttpClientFactory clien
             var code = await clients.CreateClient().GetStringAsync(
                 "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-AiBOS-OCR.ps1");
             var temp = ocrScript + ".tmp";
-            await File.WriteAllTextAsync(temp, code);
+            // Windows PowerShell 5.1 requires a UTF-8 BOM to reliably parse Persian text.
+            await File.WriteAllTextAsync(temp, code, new System.Text.UTF8Encoding(true));
             File.Move(temp, ocrScript, true);
             var psi = new ProcessStartInfo("powershell.exe") { RedirectStandardOutput = true,
                 RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
