@@ -45,6 +45,88 @@ app.MapGet("/api/status", (OrchestratorService orchestrator) =>
     });
 });
 
+// Shared, optional OCR prerequisite for all ERP instances on this Windows host.
+// Install once in ProgramData; no per-tenant OCR processes or additional listening port.
+var ocrRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AiBOS", "OCR");
+var ocrScript = Path.Combine(ocrRoot, "Install-AiBOS-OCR.ps1");
+var ocrGate = new SemaphoreSlim(1, 1);
+string? FindOcrExecutable()
+{
+    var candidates = new[] { Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Tesseract-OCR", "tesseract.exe"),
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Tesseract-OCR", "tesseract.exe") };
+    return candidates.FirstOrDefault(File.Exists);
+}
+object OcrStatus()
+{
+    var exe = FindOcrExecutable();
+    return new { installed = exe is not null && File.Exists(Path.Combine(ocrRoot, "tessdata", "fas.traineddata"))
+        && File.Exists(Path.Combine(ocrRoot, "tessdata", "eng.traineddata")),
+        executable = exe, modelsPath = Path.Combine(ocrRoot, "tessdata"), languages = new[] { "fas", "eng" }, shared = true };
+}
+app.MapGet("/api/tools/ocr", () => Results.Ok(OcrStatus()));
+app.MapPost("/api/tools/ocr/install", async (HttpContext ctx, IHttpClientFactory clients) =>
+{
+    if (!IsAdministrator() || ctx.Connection.RemoteIpAddress?.IsLoopback() != true) return Results.StatusCode(403);
+    if (!await ocrGate.WaitAsync(0)) return Results.Conflict(new { error = "OCR install already running" });
+    try
+    {
+        Directory.CreateDirectory(ocrRoot);
+        var url = "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-AiBOS-OCR.ps1";
+        var code = await clients.CreateClient().GetStringAsync(url, ctx.RequestAborted);
+        // Pin install code to trusted repository; release publication should checksum/pin this script for production.
+        var temp = ocrScript + ".tmp";
+        await File.WriteAllTextAsync(temp, code, ctx.RequestAborted);
+        File.Move(temp, ocrScript, true);
+        var psi = new ProcessStartInfo("powershell.exe") { RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false, CreateNoWindow = true };
+        foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ocrScript }) psi.ArgumentList.Add(arg);
+        using var process = Process.Start(psi);
+        if (process is null) return Results.Problem("OCR installer could not start", statusCode: 500);
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
+        timeout.CancelAfter(TimeSpan.FromMinutes(8));
+        try { await process.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException) { try { process.Kill(true); } catch { } return Results.Problem("OCR installer timed out", statusCode: 504); }
+        var output = await outputTask; var error = await errorTask;
+        return process.ExitCode == 0 ? Results.Ok(new { installed = true, output, status = OcrStatus() })
+            : Results.Problem("OCR installation failed: " + error[..Math.Min(error.Length, 1000)], statusCode: 500);
+    }
+    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
+    finally { ocrGate.Release(); }
+});
+app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
+{
+    if (ctx.Connection.RemoteIpAddress?.IsLoopback() != true) return Results.StatusCode(403);
+    if (!ctx.Request.HasFormContentType) return Results.BadRequest(new { error = "Upload multipart/form-data image" });
+    var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
+    var image = form.Files.GetFile("image");
+    if (image is null || image.Length == 0 || image.Length > 8 * 1024 * 1024) return Results.BadRequest(new { error = "Image size must be 1 byte to 8 MB" });
+    var exe = FindOcrExecutable();
+    if (exe is null || !File.Exists(Path.Combine(ocrRoot, "tessdata", "fas.traineddata"))) return Results.Problem("OCR is not installed", statusCode: 409);
+    var file = Path.Combine(Path.GetTempPath(), "aibos-ocr-" + Guid.NewGuid().ToString("N") + ".png");
+    try
+    {
+        await using (var target = File.Create(file)) await image.CopyToAsync(target, ctx.RequestAborted);
+        var psi = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false, CreateNoWindow = true };
+        psi.Environment["TESSDATA_PREFIX"] = ocrRoot;
+        foreach (var arg in new[] { file, "stdout", "-l", "fas+eng", "--psm", "6", "tsv" }) psi.ArgumentList.Add(arg);
+        using var process = Process.Start(psi);
+        if (process is null) return Results.Problem("OCR engine failed to start", statusCode: 500);
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
+        timeout.CancelAfter(TimeSpan.FromSeconds(35));
+        try { await process.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException) { try { process.Kill(true); } catch { } return Results.Problem("OCR test timed out", statusCode: 504); }
+        var tsv = await stdout; var error = await stderr;
+        return process.ExitCode == 0 ? Results.Ok(new { success = true, tsv, format = "tsv", coordinates = true })
+            : Results.Problem(error[..Math.Min(error.Length, 1000)], statusCode: 500);
+    }
+    finally { try { File.Delete(file); } catch { } }
+});
+
 // Independent host prerequisite management; does not mutate ERP release packages.
 var browserCache = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AiBOS", "ms-playwright");
 string? FindPlaywrightCli()
