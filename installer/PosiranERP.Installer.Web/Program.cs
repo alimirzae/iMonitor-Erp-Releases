@@ -203,12 +203,12 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
     try
     {
         await using (var target = File.Create(file)) await image.CopyToAsync(target, ctx.RequestAborted);
-        async Task<(string tsv, string error, int exit)> TryMode(int psm, string format = "tsv")
+        async Task<(string tsv, string error, int exit)> TryMode(int psm, string format = "tsv", string languages = "fas+eng")
         {
             var psi = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true,
                 UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding = System.Text.Encoding.UTF8 };
             psi.Environment["TESSDATA_PREFIX"] = Path.Combine(ocrRoot, "tessdata");
-            foreach (var arg in new[] { file, "stdout", "--tessdata-dir", Path.Combine(ocrRoot, "tessdata"), "-l", "fas+eng", "--psm", psm.ToString(), format }) psi.ArgumentList.Add(arg);
+            foreach (var arg in new[] { file, "stdout", "--tessdata-dir", Path.Combine(ocrRoot, "tessdata"), "-l", languages, "--psm", psm.ToString(), format }) psi.ArgumentList.Add(arg);
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("OCR engine failed to start");
             var stdout = process.StandardOutput.ReadToEndAsync();
             var stderr = process.StandardError.ReadToEndAsync();
@@ -219,7 +219,7 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
             return (await stdout, await stderr, process.ExitCode);
         }
         // Sparse-text and automatic segmentation modes work better on receipt photos than PSM 6.
-        var candidateModes = new[] { 4, 6, 11, 3 };
+        var candidateModes = new[] { 6, 3, 11, 4 };
         string? bestTsv = null;
         var bestScore = -1;
         var bestMode = 0;
@@ -244,11 +244,28 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
             if (words > bestScore) { bestScore = words; bestTsv = result.tsv; bestMode = mode; }
             if (bestScore >= 12) break;
         }
+        // Language isolation: a broken combined model must not mask functional English OCR.
+        if (bestScore < 1)
+        {
+            foreach (var lang in new[] { "eng", "fas" })
+            {
+                var isolated = await TryMode(6, "tsv", lang);
+                var count = isolated.tsv.Split('\n').Skip(1).Count(row => {
+                    var cols = row.TrimEnd('\r').Split('\t');
+                    return cols.Length >= 12 && !string.IsNullOrWhiteSpace(cols[11]);
+                });
+                diagnostics.Add(new { language = lang, psm = 6, detectedWords = count,
+                    exitCode = isolated.exit, tsvChars = isolated.tsv.Length,
+                    stderr = isolated.error[..Math.Min(300, isolated.error.Length)] });
+                if (isolated.exit == 0 && count > bestScore)
+                { bestScore = count; bestTsv = isolated.tsv; bestMode = 6; }
+            }
+        }
         if (bestTsv is null) return Results.Problem("All OCR modes failed. Check language packs and image format.", statusCode: 500);
         string? plainText = null;
         if (bestScore == 0)
         {
-            var fallback = await TryMode(6, "txt");
+            var fallback = await TryMode(6, "txt", "eng");
             plainText = fallback.exit == 0 ? fallback.tsv : null;
             diagnostics.Add(new { format = "txt", exitCode = fallback.exit,
                 textChars = plainText?.Length ?? 0, stderr = fallback.error[..Math.Min(250, fallback.error.Length)] });
