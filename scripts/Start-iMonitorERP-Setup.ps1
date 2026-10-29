@@ -76,7 +76,7 @@ $verified=$false
 for($attempt=1;$attempt -le 5;$attempt++){
   Write-Host "Checking coherent Setup release asset pair (attempt $attempt/5)..." -ForegroundColor Cyan
   Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip.sha256' $sha 60
-  $expected=((Get-Content $sha -Raw).Trim() -split '\\s+')[0].ToLowerInvariant()
+  $expected=((Get-Content $sha -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
   if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
   $useCached=$false
   if(Test-Path $zip){
