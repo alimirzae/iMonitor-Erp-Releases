@@ -325,7 +325,11 @@ async function ocrAction(mode){
   if(mode==='install'){if(!confirm('موتور OCR مشترک روی سرور نصب یا تعمیر شود؟'))return;options.method='POST';url+='/install';}
   if(mode==='test'){const file=el('ocrImage').files[0];if(!file)throw Error('ابتدا تصویر انتخاب کنید');
    if(file.size>8*1024*1024)throw Error('حجم عکس از ۸ مگابایت بیشتر است');
-   const processed=await prepareOcrImage(file);window.currentOcrPreview=processed.preview;const form=new FormData();form.append('image',processed.blob,'processed-receipt.png');options.method='POST';options.body=form;url+='/test';
+   const processed=await prepareOcrImage(file);
+   window.currentOcrPreview=processed.preview;
+   window.currentOcrOriginal=file;
+   const form=new FormData();form.append('image',processed.blob,'processed-receipt.png');
+   options.method='POST';options.body=form;url+='/test';
   }
   const r=await fetch(url,options);const raw=await r.text();let result;try{result=JSON.parse(raw)}catch{result={detail:raw}}
   if(!r.ok)throw Error(result.detail||result.error||('HTTP '+r.status));
@@ -368,6 +372,17 @@ async function ocrAction(mode){
     await poll();return;
   }
   if(mode==='test'){
+    // Never accept a zero-word enhanced image without trying the untouched source.
+    if((result.detectedWords||0)===0 && window.currentOcrOriginal){
+      const fallback=new FormData();fallback.append('image',window.currentOcrOriginal);
+      const response=await fetch('/api/tools/ocr/test',{method:'POST',body:fallback});
+      if(response.ok){
+        const original=await response.json();
+        if((original.detectedWords||0)>(result.detectedWords||0)){
+          result=original;window.currentOcrPreview=URL.createObjectURL(window.currentOcrOriginal);
+        }
+      }
+    }
     o.textContent=result.tsv||'';
     const image=el('ocrPhoto');
     const u=window.currentOcrPreview;
