@@ -203,12 +203,20 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
     try
     {
         await using (var target = File.Create(file)) await image.CopyToAsync(target, ctx.RequestAborted);
+        // Tesseract output renderers are config files, not traineddata models.
+        var sharedConfigs = Path.Combine(ocrRoot, "tessdata", "configs");
+        Directory.CreateDirectory(sharedConfigs);
+        var tsvRenderer = Path.Combine(sharedConfigs, "tsv");
+        if (!File.Exists(tsvRenderer))
+            await File.WriteAllTextAsync(tsvRenderer, "tessedit_create_tsv 1\n", System.Text.Encoding.ASCII, ctx.RequestAborted);
         async Task<(string tsv, string error, int exit)> TryMode(int psm, string format = "tsv", string languages = "fas+eng")
         {
             var psi = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true,
                 UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding = System.Text.Encoding.UTF8 };
             psi.Environment["TESSDATA_PREFIX"] = Path.Combine(ocrRoot, "tessdata");
-            foreach (var arg in new[] { file, "stdout", "--tessdata-dir", Path.Combine(ocrRoot, "tessdata"), "-l", languages, "--psm", psm.ToString(), format }) psi.ArgumentList.Add(arg);
+            foreach (var arg in new[] { file, "stdout", "--tessdata-dir", Path.Combine(ocrRoot, "tessdata"), "-l", languages, "--psm", psm.ToString() }) psi.ArgumentList.Add(arg);
+            // Plain text is the default renderer; only TSV requires a config.
+            if (format == "tsv") psi.ArgumentList.Add("tsv");
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("OCR engine failed to start");
             var stdout = process.StandardOutput.ReadToEndAsync();
             var stderr = process.StandardError.ReadToEndAsync();
