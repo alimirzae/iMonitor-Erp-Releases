@@ -50,6 +50,7 @@ app.MapGet("/api/status", (OrchestratorService orchestrator) =>
 var ocrRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AiBOS", "OCR");
 var ocrScript = Path.Combine(ocrRoot, "Install-AiBOS-OCR.ps1");
 var ocrGate = new SemaphoreSlim(1, 1);
+string? activeOcrOperationId = null;
 string? FindOcrExecutable()
 {
     var candidates = new[] { Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Tesseract-OCR", "tesseract.exe"),
@@ -63,13 +64,15 @@ object OcrStatus()
         && File.Exists(Path.Combine(ocrRoot, "tessdata", "eng.traineddata")),
         executable = exe, modelsPath = Path.Combine(ocrRoot, "tessdata"), languages = new[] { "fas", "eng" }, shared = true };
 }
-app.MapGet("/api/tools/ocr", () => Results.Ok(OcrStatus()));
+app.MapGet("/api/tools/ocr", (OperationLogStore logs) => Results.Ok(new { status = OcrStatus(), activeOperationId = activeOcrOperationId, operation = activeOcrOperationId is null ? null : logs.Get(activeOcrOperationId) }));
 app.MapPost("/api/tools/ocr/install", (HttpContext ctx, IHttpClientFactory clients, OperationLogStore logs) =>
 {
     if (!IsAdministrator() || ctx.Connection.RemoteIpAddress is null ||
         !System.Net.IPAddress.IsLoopback(ctx.Connection.RemoteIpAddress)) return Results.StatusCode(403);
-    if (!ocrGate.Wait(0)) return Results.Conflict(new { error = "OCR install already running" });
+    if (!ocrGate.Wait(0)) return Results.Accepted(activeOcrOperationId is null ? "/api/tools/ocr" : "/api/operations/" + activeOcrOperationId,
+        new { operationId = activeOcrOperationId, alreadyRunning = true });
     var op = logs.Start("Install shared AiBOS OCR");
+    activeOcrOperationId = op.Id;
     _ = Task.Run(async () =>
     {
         try
@@ -128,7 +131,7 @@ app.MapPost("/api/tools/ocr/install", (HttpContext ctx, IHttpClientFactory clien
             logs.Complete(op.Id, true, "OCR نصب شد. وضعیت موتور را بررسی کنید.");
         }
         catch (Exception ex) { logs.Complete(op.Id, false, ex.Message); }
-        finally { ocrGate.Release(); }
+        finally { activeOcrOperationId = null; ocrGate.Release(); }
     });
     return Results.Accepted("/api/operations/" + op.Id, new { operationId = op.Id });
 });
