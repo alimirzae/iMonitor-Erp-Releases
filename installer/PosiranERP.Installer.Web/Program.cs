@@ -112,6 +112,28 @@ app.MapPost("/api/tools/ocr/install", (HttpContext ctx, IHttpClientFactory clien
             // Windows PowerShell 5.1 requires a UTF-8 BOM to reliably parse Persian text.
             await File.WriteAllTextAsync(temp, code, new System.Text.UTF8Encoding(true));
             File.Move(temp, ocrScript, true);
+            // Validate downloaded script using Windows PowerShell's own parser BEFORE executing it.
+            var verify = new ProcessStartInfo("powershell.exe") { RedirectStandardOutput = true,
+                RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+            verify.ArgumentList.Add("-NoProfile");
+            verify.ArgumentList.Add("-NonInteractive");
+            verify.ArgumentList.Add("-Command");
+            verify.ArgumentList.Add("$tok=$null;$err=$null;[System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$tok,[ref]$err)|Out-Null; if($err.Count){$err|ForEach-Object{[Console]::Error.WriteLine($_.ToString())};exit 21}");
+            verify.ArgumentList.Add(ocrScript);
+            using (var check = Process.Start(verify) ?? throw new InvalidOperationException("PowerShell syntax checker could not start"))
+            {
+                var checkOut = check.StandardOutput.ReadToEndAsync();
+                var checkErr = check.StandardError.ReadToEndAsync();
+                using var checkTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                try { await check.WaitForExitAsync(checkTimeout.Token); }
+                catch (OperationCanceledException) { try { check.Kill(true); } catch { }
+                    throw new InvalidOperationException("OCR installer syntax check timed out"); }
+                await checkOut;
+                var validationError = await checkErr;
+                if (check.ExitCode != 0) throw new InvalidOperationException(
+                    "Downloaded OCR installer failed PowerShell syntax validation: " + validationError[..Math.Min(2000, validationError.Length)]);
+            }
+            logs.Progress(op.Id, "بررسی صحت اسکریپت", 12, "PowerShell syntax verified");
             var psi = new ProcessStartInfo("powershell.exe") { RedirectStandardOutput = true,
                 RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
             foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ocrScript })
