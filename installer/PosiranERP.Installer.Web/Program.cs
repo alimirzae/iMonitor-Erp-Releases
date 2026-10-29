@@ -64,36 +64,58 @@ object OcrStatus()
         executable = exe, modelsPath = Path.Combine(ocrRoot, "tessdata"), languages = new[] { "fas", "eng" }, shared = true };
 }
 app.MapGet("/api/tools/ocr", () => Results.Ok(OcrStatus()));
-app.MapPost("/api/tools/ocr/install", async (HttpContext ctx, IHttpClientFactory clients) =>
+app.MapPost("/api/tools/ocr/install", (HttpContext ctx, IHttpClientFactory clients, OperationLogStore logs) =>
 {
-    if (!IsAdministrator() || (ctx.Connection.RemoteIpAddress is null || !System.Net.IPAddress.IsLoopback(ctx.Connection.RemoteIpAddress))) return Results.StatusCode(403);
-    if (!await ocrGate.WaitAsync(0)) return Results.Conflict(new { error = "OCR install already running" });
-    try
+    if (!IsAdministrator() || ctx.Connection.RemoteIpAddress is null ||
+        !System.Net.IPAddress.IsLoopback(ctx.Connection.RemoteIpAddress)) return Results.StatusCode(403);
+    if (!ocrGate.Wait(0)) return Results.Conflict(new { error = "OCR install already running" });
+    var op = logs.Start("Install shared AiBOS OCR");
+    _ = Task.Run(async () =>
     {
-        Directory.CreateDirectory(ocrRoot);
-        var url = "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-AiBOS-OCR.ps1";
-        var code = await clients.CreateClient().GetStringAsync(url, ctx.RequestAborted);
-        // Pin install code to trusted repository; release publication should checksum/pin this script for production.
-        var temp = ocrScript + ".tmp";
-        await File.WriteAllTextAsync(temp, code, ctx.RequestAborted);
-        File.Move(temp, ocrScript, true);
-        var psi = new ProcessStartInfo("powershell.exe") { RedirectStandardOutput = true, RedirectStandardError = true,
-            UseShellExecute = false, CreateNoWindow = true };
-        foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ocrScript }) psi.ArgumentList.Add(arg);
-        using var process = Process.Start(psi);
-        if (process is null) return Results.Problem("OCR installer could not start", statusCode: 500);
-        var outputTask = process.StandardOutput.ReadToEndAsync();
-        var errorTask = process.StandardError.ReadToEndAsync();
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
-        timeout.CancelAfter(TimeSpan.FromMinutes(8));
-        try { await process.WaitForExitAsync(timeout.Token); }
-        catch (OperationCanceledException) { try { process.Kill(true); } catch { } return Results.Problem("OCR installer timed out", statusCode: 504); }
-        var output = await outputTask; var error = await errorTask;
-        return process.ExitCode == 0 ? Results.Ok(new { installed = true, output, status = OcrStatus() })
-            : Results.Problem("OCR installation failed: " + error[..Math.Min(error.Length, 1000)], statusCode: 500);
-    }
-    catch (Exception ex) { return Results.Problem(ex.Message, statusCode: 500); }
-    finally { ocrGate.Release(); }
+        try
+        {
+            logs.Progress(op.Id, "دریافت اسکریپت", 5, "در حال دریافت اسکریپت نصب");
+            Directory.CreateDirectory(ocrRoot);
+            var code = await clients.CreateClient().GetStringAsync(
+                "https://raw.githubusercontent.com/alimirzae/iMonitor-Erp-Releases/main/scripts/Install-AiBOS-OCR.ps1");
+            var temp = ocrScript + ".tmp";
+            await File.WriteAllTextAsync(temp, code);
+            File.Move(temp, ocrScript, true);
+            var psi = new ProcessStartInfo("powershell.exe") { RedirectStandardOutput = true,
+                RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+            foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ocrScript })
+                psi.ArgumentList.Add(arg);
+            using var process = Process.Start(psi) ?? throw new InvalidOperationException("OCR installer failed to start");
+            logs.Progress(op.Id, "اجرای نصب", 15, "فرایند PowerShell شروع شد");
+            async Task ReadLinesAsync(StreamReader reader, string level)
+            {
+                string? line;
+                while ((line = await reader.ReadLineAsync()) is not null)
+                {
+                    logs.Add(op.Id, level, line);
+                    if (line.StartsWith("OCR_STAGE:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var data = line["OCR_STAGE:".Length..].Split('|', 3);
+                        if (data.Length >= 2 && int.TryParse(data[0], out var pct))
+                            logs.Progress(op.Id, data[1], Math.Clamp(pct, 15, 95),
+                                data.Length > 2 ? data[2] : null);
+                    }
+                }
+            }
+            var stdout = ReadLinesAsync(process.StandardOutput, "info");
+            var stderr = ReadLinesAsync(process.StandardError, "error");
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+            try { await process.WaitForExitAsync(timeout.Token); }
+            catch (OperationCanceledException) { try { process.Kill(true); } catch { }
+                throw new TimeoutException("OCR installation exceeded 15 minutes"); }
+            await Task.WhenAll(stdout, stderr);
+            if (process.ExitCode != 0) throw new InvalidOperationException("OCR install failed (exit " + process.ExitCode + "). See operation log.");
+            logs.Complete(op.Id, true, "OCR نصب شد. وضعیت موتور را بررسی کنید.");
+        }
+        catch (Exception ex) { logs.Complete(op.Id, false, ex.Message); }
+        finally { ocrGate.Release(); }
+    });
+    return Results.Accepted("/api/operations/" + op.Id, new { operationId = op.Id });
 });
 app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
 {
