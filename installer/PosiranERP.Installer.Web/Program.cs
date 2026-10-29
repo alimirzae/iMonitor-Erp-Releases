@@ -219,7 +219,7 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
             return (await stdout, await stderr, process.ExitCode);
         }
         // Sparse-text and automatic segmentation modes work better on receipt photos than PSM 6.
-        var candidateModes = new[] { 11, 3, 6 };
+        var candidateModes = new[] { 4, 6, 11, 3 };
         string? bestTsv = null;
         var bestScore = -1;
         var bestMode = 0;
@@ -240,7 +240,7 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
                     System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var confidence)
                     && confidence >= 15 && !string.IsNullOrWhiteSpace(cols[11]);
             });
-            diagnostics.Add(new { psm = mode, detectedWords = words });
+            diagnostics.Add(new { psm = mode, detectedWords = words, tsvChars = result.tsv.Length, stderr = result.error[..Math.Min(250, result.error.Length)] });
             if (words > bestScore) { bestScore = words; bestTsv = result.tsv; bestMode = mode; }
             if (bestScore >= 12) break;
         }
