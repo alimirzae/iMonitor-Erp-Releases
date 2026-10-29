@@ -203,12 +203,12 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
     try
     {
         await using (var target = File.Create(file)) await image.CopyToAsync(target, ctx.RequestAborted);
-        async Task<(string tsv, string error, int exit)> TryMode(int psm)
+        async Task<(string tsv, string error, int exit)> TryMode(int psm, string format = "tsv")
         {
             var psi = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true,
                 UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding = System.Text.Encoding.UTF8 };
             psi.Environment["TESSDATA_PREFIX"] = Path.Combine(ocrRoot, "tessdata");
-            foreach (var arg in new[] { file, "stdout", "-l", "fas+eng", "--psm", psm.ToString(), "tsv" }) psi.ArgumentList.Add(arg);
+            foreach (var arg in new[] { file, "stdout", "--tessdata-dir", Path.Combine(ocrRoot, "tessdata"), "-l", "fas+eng", "--psm", psm.ToString(), format }) psi.ArgumentList.Add(arg);
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("OCR engine failed to start");
             var stdout = process.StandardOutput.ReadToEndAsync();
             var stderr = process.StandardError.ReadToEndAsync();
@@ -245,8 +245,18 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
             if (bestScore >= 12) break;
         }
         if (bestTsv is null) return Results.Problem("All OCR modes failed. Check language packs and image format.", statusCode: 500);
+        string? plainText = null;
+        if (bestScore == 0)
+        {
+            var fallback = await TryMode(6, "txt");
+            plainText = fallback.exit == 0 ? fallback.tsv : null;
+            diagnostics.Add(new { format = "txt", exitCode = fallback.exit,
+                textChars = plainText?.Length ?? 0, stderr = fallback.error[..Math.Min(250, fallback.error.Length)] });
+        }
         return Results.Ok(new { success = true, tsv = bestTsv, format = "tsv",
-            coordinates = true, psm = bestMode, detectedWords = bestScore, diagnostics });
+            coordinates = true, psm = bestMode, detectedWords = bestScore,
+            tsvChars = bestTsv.Length, tsvHeader = bestTsv.Split('\n')[0].Trim(),
+            plainText, diagnostics });
     }
     finally { try { File.Delete(file); } catch { } }
 });
