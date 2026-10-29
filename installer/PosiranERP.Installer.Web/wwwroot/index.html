@@ -282,6 +282,20 @@ async function ocrAction(mode){
   }
   const r=await fetch(url,options);const raw=await r.text();let result;try{result=JSON.parse(raw)}catch{result={detail:raw}}
   if(!r.ok)throw Error(result.detail||result.error||('HTTP '+r.status));
+  if(mode==='install' && result.operationId){
+    const operationId=result.operationId;
+    const poll=async()=>{
+      const response=await fetch('/api/operations/'+encodeURIComponent(operationId),{cache:'no-store'});
+      if(!response.ok)throw Error('لاگ نصب قابل دریافت نیست');
+      const state=await response.json();
+      summary.textContent=(state.stage||'نصب')+' — '+(state.progressPercent||0)+'٪ — '+state.status;
+      o.textContent=(state.lines||[]).map(x=>'['+x.level+'] '+x.message).join('\\n');
+      o.scrollTop=o.scrollHeight;
+      if(state.status==='Running'){setTimeout(()=>poll().catch(e=>{summary.textContent=e.message}),1200);}
+      else {summary.className='status '+(state.status==='Succeeded'?'ok':'warn');}
+    };
+    await poll();return;
+  }
   if(mode==='test'){
     o.textContent=result.tsv||'';
     const file=el('ocrImage').files[0], image=el('ocrPhoto');
