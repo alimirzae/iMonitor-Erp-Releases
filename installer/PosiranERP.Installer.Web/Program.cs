@@ -112,26 +112,31 @@ app.MapPost("/api/tools/ocr/install", (HttpContext ctx, IHttpClientFactory clien
             // Windows PowerShell 5.1 requires a UTF-8 BOM to reliably parse Persian text.
             await File.WriteAllTextAsync(temp, code, new System.Text.UTF8Encoding(true));
             File.Move(temp, ocrScript, true);
-            // Validate downloaded script using Windows PowerShell's own parser BEFORE executing it.
+            // Parse a local PowerShell script by -File; -Command does not reliably bind $args[0].
+            var validator = Path.Combine(ocrRoot, "Validate-OcrInstaller.ps1");
+            await File.WriteAllTextAsync(validator,
+                "param([string]$ScriptPath)\n" +
+                "$tokens=$null; $errors=$null\n" +
+                "[System.Management.Automation.Language.Parser]::ParseFile($ScriptPath,[ref]$tokens,[ref]$errors)|Out-Null\n" +
+                "if($errors.Count -gt 0){$errors|ForEach-Object{[Console]::Error.WriteLine($_.ToString())};exit 21}\n" +
+                "Write-Output 'OCR installer syntax OK'\n", new System.Text.UTF8Encoding(true));
             var verify = new ProcessStartInfo("powershell.exe") { RedirectStandardOutput = true,
                 RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
-            verify.ArgumentList.Add("-NoProfile");
-            verify.ArgumentList.Add("-NonInteractive");
-            verify.ArgumentList.Add("-Command");
-            verify.ArgumentList.Add("$tok=$null;$err=$null;[System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$tok,[ref]$err)|Out-Null; if($err.Count){$err|ForEach-Object{[Console]::Error.WriteLine($_.ToString())};exit 21}");
-            verify.ArgumentList.Add(ocrScript);
+            foreach(var arg in new[]{"-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",validator,"-ScriptPath",ocrScript})
+                verify.ArgumentList.Add(arg);
             using (var check = Process.Start(verify) ?? throw new InvalidOperationException("PowerShell syntax checker could not start"))
             {
-                var checkOut = check.StandardOutput.ReadToEndAsync();
-                var checkErr = check.StandardError.ReadToEndAsync();
-                using var checkTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                var stdout = check.StandardOutput.ReadToEndAsync();
+                var stderr = check.StandardError.ReadToEndAsync();
+                using var checkTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
                 try { await check.WaitForExitAsync(checkTimeout.Token); }
                 catch (OperationCanceledException) { try { check.Kill(true); } catch { }
                     throw new InvalidOperationException("OCR installer syntax check timed out"); }
-                await checkOut;
-                var validationError = await checkErr;
+                var output = await stdout;
+                var validationError = await stderr;
                 if (check.ExitCode != 0) throw new InvalidOperationException(
-                    "Downloaded OCR installer failed PowerShell syntax validation: " + validationError[..Math.Min(2000, validationError.Length)]);
+                    "OCR installer syntax validation failed (exit " + check.ExitCode + "): " +
+                    (validationError.Length > 0 ? validationError[..Math.Min(2000, validationError.Length)] : output));
             }
             logs.Progress(op.Id, "بررسی صحت اسکریپت", 12, "PowerShell syntax verified");
             var psi = new ProcessStartInfo("powershell.exe") { RedirectStandardOutput = true,
