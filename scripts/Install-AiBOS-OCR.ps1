@@ -35,6 +35,42 @@ if($TestImage) {
   if($LASTEXITCODE -ne 0){throw "OCR test failed: $LASTEXITCODE"}
   exit 0
 }
+
+function Download-WithProgress([string]$Url,[string]$Destination,[string]$Label,[int]$Stage) {
+  Add-Type -AssemblyName System.Net.Http
+  $handler=[System.Net.Http.HttpClientHandler]::new()
+  $client=[System.Net.Http.HttpClient]::new($handler)
+  $client.Timeout=[TimeSpan]::FromMinutes(8)
+  $response=$null; $stream=$null; $file=$null
+  try {
+    Write-Output "OCR_STAGE:$Stage|$Label|اتصال به سرور دانلود"
+    $response=$client.GetAsync($Url,[System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+    $response.EnsureSuccessStatusCode()
+    $total=$response.Content.Headers.ContentLength
+    $stream=$response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+    $file=[System.IO.File]::Create($Destination)
+    $buffer=New-Object byte[] 65536
+    [long]$received=0
+    $sw=[System.Diagnostics.Stopwatch]::StartNew()
+    $last=[System.Diagnostics.Stopwatch]::StartNew()
+    while(($n=$stream.Read($buffer,0,$buffer.Length)) -gt 0) {
+      $file.Write($buffer,0,$n); $received+=$n
+      if($last.ElapsedMilliseconds -ge 750) {
+        $pct=if($total -gt 0){[int][math]::Min(100,[math]::Floor($received*100.0/$total))}else{-1}
+        $speed=[math]::Round($received/[math]::Max($sw.Elapsed.TotalSeconds,0.01)/1048576,2)
+        Write-Output "OCR_DOWNLOAD:$Stage|$Label|$pct|$received|$(if($total){$total}else{0})|$speed"
+        $last.Restart()
+      }
+    }
+    $file.Flush()
+    Write-Output "OCR_DOWNLOAD:$Stage|$Label|100|$received|$(if($total){$total}else{0})|0"
+    if($total -gt 0 -and $received -ne $total){throw "Incomplete download for $Label"}
+  }finally {
+    if($file){$file.Dispose()};if($stream){$stream.Dispose()}
+    if($response){$response.Dispose()};$client.Dispose();$handler.Dispose()
+  }
+}
+
 Write-Output 'OCR_STAGE:20|آماده‌سازی|بررسی پوشه‌ها و موتور نصب‌شده'
 New-Item -ItemType Directory -Force -Path $models | Out-Null
 $exe=Get-OcrExe
@@ -51,7 +87,7 @@ if(!$exe){
     Write-Output 'OCR_STAGE:30|دانلود Tesseract|دریافت فایل نصب؛ این مرحله ممکن است طولانی باشد'
     $temp="$package.download"
     try{
-      Invoke-WebRequest -Uri $url -OutFile $temp -UseBasicParsing -TimeoutSec 300
+      Download-WithProgress -Url $url -Destination $temp -Label 'Tesseract' -Stage 30
       $actual=(Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash
       if($actual -ne $expectedHash){throw "Tesseract installer SHA256 mismatch. Actual: $actual"}
       Move-Item -LiteralPath $temp -Destination $package -Force
@@ -71,7 +107,7 @@ foreach($lang in @('fas','eng')){
   if((Test-Path $dest) -and (Get-Item $dest).Length -gt 100000){continue}
   $url="https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/$lang.traineddata"
   $tmp="$dest.download"
-  Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing -TimeoutSec 120
+  Download-WithProgress -Url $url -Destination $tmp -Label "Model-$lang" -Stage 75
   if((Get-Item $tmp).Length -lt 100000){throw "Downloaded $lang model is unexpectedly small"}
   Move-Item -Force $tmp $dest
 }
