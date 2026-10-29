@@ -288,7 +288,17 @@ async function ocrAction(mode){
       const response=await fetch('/api/operations/'+encodeURIComponent(operationId),{cache:'no-store'});
       if(!response.ok)throw Error('لاگ نصب قابل دریافت نیست');
       const state=await response.json();
-      summary.textContent=(state.stage||'نصب')+' — '+(state.progressPercent||0)+'٪ — '+state.status;
+      const lines=state.lines||[];
+      const lastDownload=[...lines].reverse().find(x=>x.message&&x.message.startsWith('OCR_DOWNLOAD:'));
+      let downloadInfo='';
+      if(lastDownload){
+        const d=lastDownload.message.slice('OCR_DOWNLOAD:'.length).split('|');
+        if(d.length===6){
+          const mb=n=>(Number(n)/1048576).toFixed(1);
+          downloadInfo=' | '+d[1]+' '+(d[2]==='-1'?'حجم نامشخص':d[2]+'٪')+' — '+mb(d[3])+(Number(d[4])>0?'/'+mb(d[4]):'')+' MB — '+d[5]+' MB/s';
+        }
+      }
+      summary.textContent=(state.stage||'نصب')+' — پیشرفت مراحل '+(state.progressPercent||0)+'٪ — '+state.status+downloadInfo;
       o.textContent=(state.lines||[]).map(x=>'['+x.level+'] '+x.message).join('\\n');
       o.scrollTop=o.scrollHeight;
       if(state.status==='Running'){setTimeout(()=>poll().catch(e=>{summary.textContent=e.message}),1200);}
