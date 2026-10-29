@@ -151,7 +151,7 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
         await using (var target = File.Create(file)) await image.CopyToAsync(target, ctx.RequestAborted);
         var psi = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true,
             UseShellExecute = false, CreateNoWindow = true };
-        psi.Environment["TESSDATA_PREFIX"] = ocrRoot;
+        psi.Environment["TESSDATA_PREFIX"] = Path.Combine(ocrRoot, "tessdata");
         foreach (var arg in new[] { file, "stdout", "-l", "fas+eng", "--psm", "6", "tsv" }) psi.ArgumentList.Add(arg);
         using var process = Process.Start(psi);
         if (process is null) return Results.Problem("OCR engine failed to start", statusCode: 500);
