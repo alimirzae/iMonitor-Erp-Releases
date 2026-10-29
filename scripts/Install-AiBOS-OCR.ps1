@@ -38,13 +38,30 @@ if($TestImage) {
 New-Item -ItemType Directory -Force -Path $models | Out-Null
 $exe=Get-OcrExe
 if(!$exe){
-  $winget=Get-Command winget.exe -ErrorAction SilentlyContinue
-  if(!$winget){throw 'winget is unavailable. Install Tesseract OCR for Windows once and retry.'}
-  & $winget.Source install --id UB-Mannheim.TesseractOCR --exact --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
-  if($LASTEXITCODE -ne 0){throw "winget Tesseract installation failed: $LASTEXITCODE"}
+  # Pinned UB Mannheim release from Microsoft winget-pkgs; no winget executable required.
+  $version='5.4.0.20240606'
+  $expectedHash='C885FFF6998E0608BA4BB8AB51436E1C6775C2BAFC2559A19B423E18678B60C9'
+  $url="https://github.com/UB-Mannheim/tesseract/releases/download/v$version/tesseract-ocr-w64-setup-$version.exe"
+  $cache=Join-Path $Root 'packages'
+  New-Item -ItemType Directory -Force -Path $cache | Out-Null
+  $package=Join-Path $cache "tesseract-ocr-w64-setup-$version.exe"
+  $valid=(Test-Path $package) -and ((Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash -eq $expectedHash)
+  if(!$valid){
+    $temp="$package.download"
+    try{
+      Invoke-WebRequest -Uri $url -OutFile $temp -UseBasicParsing -TimeoutSec 300
+      $actual=(Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash
+      if($actual -ne $expectedHash){throw "Tesseract installer SHA256 mismatch. Actual: $actual"}
+      Move-Item -LiteralPath $temp -Destination $package -Force
+    }finally{Remove-Item -LiteralPath $temp -ErrorAction SilentlyContinue}
+  }
+  Write-Host "Installing verified Tesseract package $version without winget..."
+  $process=Start-Process -FilePath $package -ArgumentList '/S' -PassThru -Wait
+  if($process.ExitCode -ne 0){throw "Tesseract installer exit code: $($process.ExitCode)"}
   $exe=Get-OcrExe
-  if(!$exe){throw 'Tesseract was installed but executable could not be located'}
+  if(!$exe){throw 'Installer finished but tesseract.exe was not found in Program Files'}
 }
+
 foreach($lang in @('fas','eng')){
   $dest=Join-Path $models "$lang.traineddata"
   if((Test-Path $dest) -and (Get-Item $dest).Length -gt 100000){continue}
