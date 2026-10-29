@@ -246,10 +246,10 @@ if(mode==='test'&&x.screenshotBase64){el('chromiumImage').src='data:image/png;ba
 }
 
 function showOcrResult(tsv,img){
- const lines=tsv.replace(/\\r/g,'').split('\\n'), headers=lines.shift().split('\\t');
+ const lines=tsv.replace(/\r/g,'').split('\n'), headers=lines.shift().split('\t');
  const idx=n=>headers.indexOf(n), words=[], textLines=new Map();
  for(const line of lines){
-  const cells=line.split('\\t');if(cells.length<headers.length)continue;
+  const cells=line.split('\t');if(cells.length<headers.length)continue;
   const t=cells[idx('text')]?.trim()||'';const conf=Number(cells[idx('conf')]);if(!t||!Number.isFinite(conf)||conf<0)continue;
   const w={text:t,conf,left:Number(cells[idx('left')]),top:Number(cells[idx('top')]),width:Number(cells[idx('width')]),height:Number(cells[idx('height')])};
   if(![w.left,w.top,w.width,w.height].every(Number.isFinite))continue;
@@ -257,7 +257,7 @@ function showOcrResult(tsv,img){
   const k=['page_num','block_num','par_num','line_num'].map(n=>cells[idx(n)]).join('.');
   if(!textLines.has(k))textLines.set(k,[]);textLines.get(k).push(t);
  }
- el('ocrText').textContent=[...textLines.values()].map(x=>x.join(' ')).join('\\n')||'هیچ متنی تشخیص داده نشد.';
+ el('ocrText').textContent=[...textLines.values()].map(x=>x.join(' ')).join('\n')||'هیچ متنی تشخیص داده نشد.';
  const overlay=el('ocrOverlay');overlay.replaceChildren();
  for(const w of words){
   const rect=document.createElement('div');
