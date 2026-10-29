@@ -227,51 +227,54 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
             return (await stdout, await stderr, process.ExitCode);
         }
         // Sparse-text and automatic segmentation modes work better on receipt photos than PSM 6.
-        var candidateModes = new[] { 6, 3, 11, 4 };
+        // Score quality rather than raw word count: mixed models over-read noisy receipt backgrounds.
+        var candidates = new[] { (language:"fas", psm:4), (language:"fas", psm:6),
+            (language:"fas", psm:11), (language:"eng", psm:6), (language:"fas+eng", psm:6) };
         string? bestTsv = null;
-        var bestScore = -1;
+        var bestScore = double.NegativeInfinity;
+        var bestWords = 0;
         var bestMode = 0;
+        var bestLanguage = "";
         var diagnostics = new List<object>();
-        foreach (var mode in candidateModes)
+        foreach (var candidate in candidates)
         {
-            var result = await TryMode(mode);
+            var result = await TryMode(candidate.psm, "tsv", candidate.language);
             if (result.exit != 0)
             {
-                diagnostics.Add(new { psm = mode, error = result.error, exitCode = result.exit });
+                diagnostics.Add(new { psm = candidate.psm, language = candidate.language, error = result.error, exitCode = result.exit });
                 continue;
             }
             var rows = result.tsv.Split('\n');
-            var words = rows.Skip(1).Count(row =>
+            var confident = 0;
+            var numeric = 0;
+            var lowConfidence = 0;
+            var confidenceSum = 0.0;
+            foreach (var row in rows.Skip(1))
             {
                 var cols = row.TrimEnd('\r').Split('\t');
-                return cols.Length >= 12 && double.TryParse(cols[10],
-                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var confidence)
-                    && confidence >= 15 && !string.IsNullOrWhiteSpace(cols[11]);
-            });
-            diagnostics.Add(new { psm = mode, detectedWords = words, tsvChars = result.tsv.Length, stderr = result.error[..Math.Min(250, result.error.Length)] });
-            if (words > bestScore) { bestScore = words; bestTsv = result.tsv; bestMode = mode; }
-            if (bestScore >= 12) break;
-        }
-        // Language isolation: a broken combined model must not mask functional English OCR.
-        if (bestScore < 1)
-        {
-            foreach (var lang in new[] { "eng", "fas" })
+                if (cols.Length < 12 || string.IsNullOrWhiteSpace(cols[11])) continue;
+                if (!double.TryParse(cols[10], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var confidence) || confidence < 0) continue;
+                if (confidence < 35) { lowConfidence++; continue; }
+                confident++; confidenceSum += confidence;
+                if (cols[11].Any(char.IsDigit)) numeric++;
+            }
+            var avg = confident > 0 ? confidenceSum / confident : 0;
+            // Avoid preferring hundreds of spurious low-confidence bounding boxes.
+            var score = confident * Math.Min(avg, 85) / 100.0 - lowConfidence * 0.6;
+            diagnostics.Add(new { psm = candidate.psm, language = candidate.language,
+                detectedWords = confident, numericWords = numeric, lowConfidenceWords = lowConfidence,
+                meanConfidence = Math.Round(avg, 1), qualityScore = Math.Round(score, 1),
+                tsvChars = result.tsv.Length, stderr = result.error[..Math.Min(250, result.error.Length)] });
+            if (score > bestScore)
             {
-                var isolated = await TryMode(6, "tsv", lang);
-                var count = isolated.tsv.Split('\n').Skip(1).Count(row => {
-                    var cols = row.TrimEnd('\r').Split('\t');
-                    return cols.Length >= 12 && !string.IsNullOrWhiteSpace(cols[11]);
-                });
-                diagnostics.Add(new { language = lang, psm = 6, detectedWords = count,
-                    exitCode = isolated.exit, tsvChars = isolated.tsv.Length,
-                    stderr = isolated.error[..Math.Min(300, isolated.error.Length)] });
-                if (isolated.exit == 0 && count > bestScore)
-                { bestScore = count; bestTsv = isolated.tsv; bestMode = 6; }
+                bestScore = score; bestWords = confident; bestTsv = result.tsv;
+                bestMode = candidate.psm; bestLanguage = candidate.language;
             }
         }
         if (bestTsv is null) return Results.Problem("All OCR modes failed. Check language packs and image format.", statusCode: 500);
         string? plainText = null;
-        if (bestScore == 0)
+        if (bestWords == 0)
         {
             var fallback = await TryMode(6, "txt", "eng");
             plainText = fallback.exit == 0 ? fallback.tsv : null;
@@ -279,7 +282,7 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
                 textChars = plainText?.Length ?? 0, stderr = fallback.error[..Math.Min(250, fallback.error.Length)] });
         }
         return Results.Ok(new { success = true, tsv = bestTsv, format = "tsv",
-            coordinates = true, psm = bestMode, detectedWords = bestScore,
+            coordinates = true, psm = bestMode, detectedWords = bestWords, language = bestLanguage, qualityScore = Math.Round(bestScore, 1),
             tsvChars = bestTsv.Length, tsvHeader = bestTsv.Split('\n')[0].Trim(),
             plainText, diagnostics });
     }
