@@ -60,9 +60,36 @@ string? FindOcrExecutable()
 object OcrStatus()
 {
     var exe = FindOcrExecutable();
-    return new { installed = exe is not null && File.Exists(Path.Combine(ocrRoot, "tessdata", "fas.traineddata"))
-        && File.Exists(Path.Combine(ocrRoot, "tessdata", "eng.traineddata")),
-        executable = exe, modelsPath = Path.Combine(ocrRoot, "tessdata"), languages = new[] { "fas", "eng" }, shared = true };
+    var models = Path.Combine(ocrRoot, "tessdata");
+    var filesPresent = exe is not null && File.Exists(Path.Combine(models, "fas.traineddata"))
+        && File.Exists(Path.Combine(models, "eng.traineddata"));
+    var ready = false;
+    string? error = null;
+    if (filesPresent)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo(exe!) { RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false, CreateNoWindow = true };
+            psi.Environment["TESSDATA_PREFIX"] = models;
+            psi.ArgumentList.Add("--list-langs");
+            using var proc = Process.Start(psi) ?? throw new InvalidOperationException("OCR process could not start");
+            var outputTask = proc.StandardOutput.ReadToEndAsync();
+            var errorTask = proc.StandardError.ReadToEndAsync();
+            if (!proc.WaitForExit(5000)) { proc.Kill(true); error = "OCR health check timed out"; }
+            else
+            {
+                var languages = outputTask.GetAwaiter().GetResult();
+                var stderr = errorTask.GetAwaiter().GetResult();
+                var list = languages.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                ready = proc.ExitCode == 0 && list.Contains("fas") && list.Contains("eng");
+                if (!ready) error = stderr.Length > 0 ? stderr : "Required OCR languages not reported";
+            }
+        }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    return new { installed = ready, filesPresent, executable = exe, modelsPath = models,
+        languages = new[] { "fas", "eng" }, shared = true, error };
 }
 app.MapGet("/api/tools/ocr", (OperationLogStore logs) => Results.Ok(new { status = OcrStatus(), activeOperationId = activeOcrOperationId, operation = activeOcrOperationId is null ? null : logs.Get(activeOcrOperationId) }));
 app.MapPost("/api/tools/ocr/install", (HttpContext ctx, IHttpClientFactory clients, OperationLogStore logs) =>
