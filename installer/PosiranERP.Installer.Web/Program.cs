@@ -196,6 +196,9 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
     if (!ctx.Request.HasFormContentType) return Results.BadRequest(new { error = "Upload multipart/form-data image" });
     var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted);
     var image = form.Files.GetFile("image");
+    var ocrMode = form["ocrMode"].ToString();
+    var preferredLanguage = ocrMode == "english" ? "eng" : ocrMode == "mixed" ? "fas+eng" : "fas";
+    var isNumeric = ocrMode == "numeric";
     if (image is null || image.Length == 0 || image.Length > 8 * 1024 * 1024) return Results.BadRequest(new { error = "Image size must be 1 byte to 8 MB" });
     var exe = FindOcrExecutable();
     if (exe is null || !File.Exists(Path.Combine(ocrRoot, "tessdata", "fas.traineddata"))) return Results.Problem("OCR is not installed", statusCode: 409);
@@ -215,6 +218,10 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
                 UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding = System.Text.Encoding.UTF8 };
             psi.Environment["TESSDATA_PREFIX"] = Path.Combine(ocrRoot, "tessdata");
             foreach (var arg in new[] { file, "stdout", "--tessdata-dir", Path.Combine(ocrRoot, "tessdata"), "-l", languages, "--psm", psm.ToString() }) psi.ArgumentList.Add(arg);
+            if (isNumeric) {
+                psi.ArgumentList.Add("-c");
+                psi.ArgumentList.Add("tessedit_char_whitelist=0123456789۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩,.:/٫٬-");
+            }
             // Plain text is the default renderer; only TSV requires a config.
             if (format == "tsv") psi.ArgumentList.Add("tsv");
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("OCR engine failed to start");
@@ -228,8 +235,14 @@ app.MapPost("/api/tools/ocr/test", async (HttpContext ctx) =>
         }
         // Sparse-text and automatic segmentation modes work better on receipt photos than PSM 6.
         // Score quality rather than raw word count: mixed models over-read noisy receipt backgrounds.
-        var candidates = new[] { (language:"fas", psm:4), (language:"fas", psm:6),
-            (language:"fas", psm:11), (language:"eng", psm:6), (language:"fas+eng", psm:6) };
+        var candidates = isNumeric
+            ? new[] { (language:"fas", psm:6), (language:"fas", psm:7),
+                (language:"eng", psm:6), (language:"eng", psm:7) }
+            : preferredLanguage == "eng"
+                ? new[] { (language:"eng", psm:6), (language:"eng", psm:3), (language:"eng", psm:11), (language:"eng", psm:4) }
+                : preferredLanguage == "fas+eng"
+                    ? new[] { (language:"fas+eng", psm:6), (language:"fas", psm:4), (language:"fas", psm:11), (language:"eng", psm:6) }
+                    : new[] { (language:"fas", psm:4), (language:"fas", psm:6), (language:"fas", psm:11), (language:"fas+eng", psm:6) };
         string? bestTsv = null;
         var bestScore = double.NegativeInfinity;
         var bestWords = 0;
