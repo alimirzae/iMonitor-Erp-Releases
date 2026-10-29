@@ -388,8 +388,17 @@ async function ocrAction(mode){
     const u=window.currentOcrPreview;
     await new Promise((resolve,reject)=>{image.onload=resolve;image.onerror=reject;image.src=u});
     showOcrResult(result.tsv||'',image);
+    if((result.detectedWords||0)===0){
+      if(result.plainText && result.plainText.trim()){
+        el('ocrText').textContent=result.plainText;
+        el('ocrSummary').textContent='تشخیص متنی انجام شد، اما مختصات TSV تولید نشد؛ خروجی متنی جهت عیب‌یابی نمایش داده شده است.';
+      }else{
+        el('ocrSummary').textContent='OCR هیچ متنی استخراج نکرد. خروجی خام و تشخیص هر حالت را در بخش فنی بررسی کنید.';
+      }
+      el('ocrSummary').className='status warn';
+    }
     el('ocrSummary').textContent+=' | حالت OCR: '+result.psm+' | پیش‌پردازش: اصلاح کنتراست و بزرگ‌نمایی';
-    o.textContent+='\n\nDiagnostics: '+JSON.stringify(result.diagnostics||[]);
+    o.textContent+='\n\nTSV header: '+(result.tsvHeader||'')+' | TSV chars: '+(result.tsvChars||0)+'\nDiagnostics: '+JSON.stringify(result.diagnostics||[])+'\nPlain text: '+(result.plainText||'');
   }else if(mode==='status'){
     const status=result.status||result;
     summary.textContent=status.installed?'موتور OCR آماده است.':result.activeOperationId?'موتور هنوز آماده نیست؛ نصب در حال اجرا است. برای دیدن لاگ دکمه نصب / تعمیر را بزنید.':'موتور OCR هنوز آماده نیست.';
