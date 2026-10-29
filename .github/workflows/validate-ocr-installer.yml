@@ -1,0 +1,27 @@
+name: Validate OCR PowerShell Installer
+on:
+  push:
+    paths:
+      - 'scripts/Install-AiBOS-OCR.ps1'
+      - '.github/workflows/validate-ocr-installer.yml'
+  workflow_dispatch:
+jobs:
+  parse-powershell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate PowerShell 5.1 script syntax
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD 'scripts/Install-AiBOS-OCR.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.ToString() }
+            exit 1
+          }
+          Write-Host 'OCR installer syntax OK'
