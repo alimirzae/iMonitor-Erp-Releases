@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: erp-deployment-manager
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -68,3 +68,20 @@ jobs:
           files: |
             ${{ env.SETUP_ZIP }}
             ${{ env.SETUP_SHA }}
+
+      - name: Verify published release asset pair
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $check=Join-Path $env:RUNNER_TEMP 'verify-release'
+          New-Item -ItemType Directory -Force -Path $check | Out-Null
+          gh release download erp-deployment-manager --repo $env:GITHUB_REPOSITORY --dir $check --pattern 'ERP-Deployment-Manager-win-x64.zip*' --clobber
+          if($LASTEXITCODE -ne 0){throw 'Release assets could not be downloaded'}
+          $archive=Join-Path $check 'ERP-Deployment-Manager-win-x64.zip'
+          $digest=Get-Content "$archive.sha256" -Raw
+          $expected=($digest.Trim() -split '\\s+')[0].ToLowerInvariant()
+          $actual=(Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($actual -ne $expected){throw "Published release integrity mismatch: expected=$expected actual=$actual"}
+          Write-Host "Published ZIP and checksum match: $actual"
