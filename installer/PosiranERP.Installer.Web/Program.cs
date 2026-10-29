@@ -126,14 +126,14 @@ app.MapPost("/api/tools/ocr/install", (HttpContext ctx, IHttpClientFactory clien
                 verify.ArgumentList.Add(arg);
             using (var check = Process.Start(verify) ?? throw new InvalidOperationException("PowerShell syntax checker could not start"))
             {
-                var stdout = check.StandardOutput.ReadToEndAsync();
-                var stderr = check.StandardError.ReadToEndAsync();
+                var verifyStdout = check.StandardOutput.ReadToEndAsync();
+                var verifyStderr = check.StandardError.ReadToEndAsync();
                 using var checkTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
                 try { await check.WaitForExitAsync(checkTimeout.Token); }
                 catch (OperationCanceledException) { try { check.Kill(true); } catch { }
                     throw new InvalidOperationException("OCR installer syntax check timed out"); }
-                var output = await stdout;
-                var validationError = await stderr;
+                var output = await verifyStdout;
+                var validationError = await verifyStderr;
                 if (check.ExitCode != 0) throw new InvalidOperationException(
                     "OCR installer syntax validation failed (exit " + check.ExitCode + "): " +
                     (validationError.Length > 0 ? validationError[..Math.Min(2000, validationError.Length)] : output));
