@@ -71,27 +71,34 @@ function Get-DirectAsset([string]$Name,[string]$Out,[int]$TimeoutSeconds=300){
 }
 
 Write-Host 'Downloading latest iBOS Deployment Manager...' -ForegroundColor Cyan
-Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip.sha256' $sha 60
-$expected=((Get-Content $sha -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
-if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
-
-$useCached=$false
-if(Test-Path $zip){
-  try{
+# Release assets are replaced separately. Never trust a ZIP/checksum pair obtained across a release update.
+$verified=$false
+for($attempt=1;$attempt -le 5;$attempt++){
+  Write-Host "Checking coherent Setup release asset pair (attempt $attempt/5)..." -ForegroundColor Cyan
+  Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip.sha256' $sha 60
+  $expected=((Get-Content $sha -Raw).Trim() -split '\\s+')[0].ToLowerInvariant()
+  if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
+  $useCached=$false
+  if(Test-Path $zip){
     $cachedHash=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-    if($cachedHash -eq $expected){
-      $useCached=$true
-      Write-Host 'Using verified cached Setup shell. ERP Test/Production packages are checked separately inside Setup.' -ForegroundColor Green
-    }
-  }catch{}
+    if($cachedHash -eq $expected){$useCached=$true}
+  }
+  if(-not $useCached){
+    $candidate="$zip.download"
+    try{
+      Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip' $candidate 600
+      $actual=(Get-FileHash $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
+      if($expected -eq $actual){Move-Item -LiteralPath $candidate -Destination $zip -Force}
+    }finally{Remove-Item $candidate -Force -ErrorAction SilentlyContinue}
+  }else{$actual=$expected}
+  if($expected -eq $actual){$verified=$true;break}
+  Write-Warning "Setup release ZIP and SHA256 currently disagree: expected=$expected actual=$actual. Will fetch a fresh pair."
+  if($attempt -lt 5){Start-Sleep -Seconds ([math]::Min(3*$attempt,12))}
 }
-if(-not $useCached){
-  Write-Host 'Cached Setup is missing or outdated; downloading the current Setup package.' -ForegroundColor Cyan
-  Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip' $zip 600
+if(-not $verified){
+  throw 'Could not obtain a matching verified Setup ZIP/checksum after five attempts. Release may be publishing or CDN caches are inconsistent; installation was safely aborted.'
 }
-$actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-if($expected -ne $actual){ throw "SHA256 mismatch. expected=$expected actual=$actual" }
-
+Write-Host "Verified Setup package SHA256: $expected" -ForegroundColor Green
 
 $serviceName='ERPDeploymentManager'
 $managerRoot=Join-Path $env:ProgramData 'iMonitor\ERPDeploymentManager'
