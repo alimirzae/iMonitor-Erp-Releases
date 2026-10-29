@@ -69,19 +69,23 @@ jobs:
             ${{ env.SETUP_ZIP }}
             ${{ env.SETUP_SHA }}
 
-      - name: Verify published release asset pair
+      - name: Verify published release asset hashes from GitHub metadata
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference='Stop'
-          $check=Join-Path $env:RUNNER_TEMP 'verify-release'
-          New-Item -ItemType Directory -Force -Path $check | Out-Null
-          gh release download erp-deployment-manager --repo $env:GITHUB_REPOSITORY --dir $check --pattern 'ERP-Deployment-Manager-win-x64.zip*' --clobber
-          if($LASTEXITCODE -ne 0){throw 'Release assets could not be downloaded'}
-          $archive=Join-Path $check 'ERP-Deployment-Manager-win-x64.zip'
-          $digest=Get-Content "$archive.sha256" -Raw
-          $expected=($digest.Trim() -split '\\s+')[0].ToLowerInvariant()
-          $actual=(Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($actual -ne $expected){throw "Published release integrity mismatch: expected=$expected actual=$actual"}
-          Write-Host "Published ZIP and checksum match: $actual"
+          $archive=$env:SETUP_ZIP
+          $checksum=$env:SETUP_SHA
+          $localZip=(Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected=((Get-Content $checksum -Raw).Trim() -split '\\s+')[0].ToLowerInvariant()
+          if($localZip -ne $expected){throw "Generated ZIP hash does not match checksum file"}
+          $localSha=(Get-FileHash $checksum -Algorithm SHA256).Hash.ToLowerInvariant()
+          $release=gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/erp-deployment-manager" | ConvertFrom-Json
+          if($LASTEXITCODE -ne 0){throw 'Release metadata request failed'}
+          $zipAsset=@($release.assets | Where-Object name -eq 'ERP-Deployment-Manager-win-x64.zip')
+          $shaAsset=@($release.assets | Where-Object name -eq 'ERP-Deployment-Manager-win-x64.zip.sha256')
+          if($zipAsset.Count -ne 1 -or $shaAsset.Count -ne 1){throw 'Release asset pair missing or ambiguous'}
+          if($zipAsset[0].digest -ne "sha256:$localZip"){throw "Published ZIP digest mismatch: $($zipAsset[0].digest) vs sha256:$localZip"}
+          if($shaAsset[0].digest -ne "sha256:$localSha"){throw "Published checksum digest mismatch: $($shaAsset[0].digest) vs sha256:$localSha"}
+          Write-Host "Release asset digests match generated ZIP and checksum: $localZip"
