@@ -107,6 +107,8 @@ try {
   $stagedExe=Join-Path $stagingDir 'PosiranERP.Setup.exe'
   if(!(Test-Path $stagedExe)){throw 'Posiran ERP Deployment Manager executable was not found after extraction.'}
 
+  $legacy=Get-Service -Name 'ERPDeploymentManager' -ErrorAction SilentlyContinue
+  if($legacy -and $legacy.Status -eq 'Running') { throw 'Legacy unified ERPDeploymentManager is running on 8099. Back up and migrate it during a planned cutover before starting the separate Posiran manager.' }
   $existing=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
   if($existing){
     Write-Host 'Stopping Posiran ERP Deployment Manager for self-update...' -ForegroundColor Cyan
