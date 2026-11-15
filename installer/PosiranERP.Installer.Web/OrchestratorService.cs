@@ -804,7 +804,7 @@ public sealed class OrchestratorService
         return new OperationResult(action, health.Ok, health.Message);
     }
 
-    public InstallationManifest RequireManifest(string id) => LoadManifest(id) ?? throw new KeyNotFoundException("Installation was not found in the local registry.");
+    public InstallationManifest RequireManifest(string id) => LoadManifest(id) ?? throw new KeyNotFoundException("Posiran installation was not found in the local registry.");
 
     public async Task<RuntimeVerificationResult> VerifyInstallationRuntimeAsync(string id, CancellationToken cancellationToken = default)
     {
@@ -945,7 +945,9 @@ public sealed class OrchestratorService
         ValidateInstanceId(id);
         var p = Path.Combine(_registryRoot, id + ".json");
         if (!File.Exists(p)) return null;
-        return JsonSerializer.Deserialize<InstallationManifest>(File.ReadAllText(p), JsonOptions);
+        var manifest = JsonSerializer.Deserialize<InstallationManifest>(File.ReadAllText(p), JsonOptions);
+        if (manifest is null || manifest.Product != "Posiran" || !manifest.Id.StartsWith("posiran-", StringComparison.OrdinalIgnoreCase)) return null;
+        return manifest;
     }
 
     private void SaveManifest(InstallationManifest manifest)
