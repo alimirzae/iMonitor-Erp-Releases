@@ -12,10 +12,10 @@ Add-Type -AssemblyName System.Net.Http
 
 $root = Join-Path $env:ProgramData 'PosiranERP\Setup'
 New-Item -ItemType Directory -Force -Path $root | Out-Null
-$zip = Join-Path $root 'ERP-Deployment-Manager-win-x64.zip'
+$zip = Join-Path $root 'PosiranERP-Setup-win-x64.zip'
 $sha = "$zip.sha256"
 $repo='alimirzae/iMonitor-Erp-Releases'
-$tag='erp-deployment-manager'
+$tag='posiran-installer-preview'
 
 function Invoke-HttpDownload([string]$Url,[string]$Out,[string]$Accept='application/octet-stream',[int]$TimeoutSeconds=300){
   $handler=New-Object System.Net.Http.HttpClientHandler
@@ -70,8 +70,8 @@ function Get-DirectAsset([string]$Name,[string]$Out,[int]$TimeoutSeconds=300){
   throw ("All native download methods failed for {0}: {1}" -f $Name,($errors -join '; '))
 }
 
-Write-Host 'Downloading latest iBOS Deployment Manager...' -ForegroundColor Cyan
-Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip.sha256' $sha 60
+Write-Host 'Downloading latest Posiran ERP Deployment Manager...' -ForegroundColor Cyan
+Get-DirectAsset 'PosiranERP-Setup-win-x64.zip.sha256' $sha 60
 $expected=((Get-Content $sha -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
 if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
 
@@ -87,14 +87,14 @@ if(Test-Path $zip){
 }
 if(-not $useCached){
   Write-Host 'Cached Setup is missing or outdated; downloading the current Setup package.' -ForegroundColor Cyan
-  Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip' $zip 600
+  Get-DirectAsset 'PosiranERP-Setup-win-x64.zip' $zip 600
 }
 $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 if($expected -ne $actual){ throw "SHA256 mismatch. expected=$expected actual=$actual" }
 
 
-$serviceName='ERPDeploymentManager'
-$managerRoot=Join-Path $env:ProgramData 'iMonitor\ERPDeploymentManager'
+$serviceName='PosiranERPDeploymentManager'
+$managerRoot=Join-Path $env:ProgramData 'PosiranERP\DeploymentManager'
 $serviceDir=Join-Path $managerRoot 'current'
 $stagingDir=Join-Path $managerRoot ('staging-'+[guid]::NewGuid().ToString('N'))
 $previousDir=Join-Path $managerRoot 'previous'
@@ -105,11 +105,11 @@ New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
 try {
   Expand-Archive $zip -DestinationPath $stagingDir -Force
   $stagedExe=Join-Path $stagingDir 'PosiranERP.Setup.exe'
-  if(!(Test-Path $stagedExe)){throw 'iBOS Deployment Manager executable was not found after extraction.'}
+  if(!(Test-Path $stagedExe)){throw 'Posiran ERP Deployment Manager executable was not found after extraction.'}
 
   $existing=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
   if($existing){
-    Write-Host 'Stopping iBOS Deployment Manager for self-update...' -ForegroundColor Cyan
+    Write-Host 'Stopping Posiran ERP Deployment Manager for self-update...' -ForegroundColor Cyan
     Stop-Service -Name $serviceName -Force -ErrorAction Stop
     $existing.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
   }
@@ -134,7 +134,7 @@ try {
 
   if(-not $existing){
     $bin='"'+$exe+'"'
-    sc.exe create $serviceName binPath= $bin start= auto DisplayName= "iBOS Deployment Manager" | Out-Null
+    sc.exe create $serviceName binPath= $bin start= auto DisplayName= "Posiran ERP Deployment Manager" | Out-Null
   } else {
     $bin='"'+$exe+'"'
     sc.exe config $serviceName binPath= $bin start= auto | Out-Null
@@ -159,9 +159,9 @@ try {
       $exe=Join-Path $serviceDir 'PosiranERP.Setup.exe'
       $bin='"'+$exe+'"';sc.exe config $serviceName binPath= $bin start= auto | Out-Null
       Start-Service -Name $serviceName
-      throw 'New iBOS Deployment Manager was unhealthy and the previous manager was restored.'
+      throw 'New Posiran ERP Deployment Manager was unhealthy and the previous manager was restored.'
     }
-    throw 'iBOS Deployment Manager did not become healthy and no previous manager was available.'
+    throw 'Posiran ERP Deployment Manager did not become healthy and no previous manager was available.'
   }
   if(Test-Path $previousDir){Remove-Item $previousDir -Recurse -Force -ErrorAction SilentlyContinue}
 }
@@ -170,4 +170,4 @@ finally {
 }
 
 Start-Process 'http://127.0.0.1:8099/'
-Write-Host 'iBOS Deployment Manager Windows Service is running on http://127.0.0.1:8099/' -ForegroundColor Green
+Write-Host 'Posiran ERP Deployment Manager Windows Service is running on http://127.0.0.1:8099/' -ForegroundColor Green
