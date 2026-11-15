@@ -146,7 +146,7 @@ try {
     $bin='"'+$exe+'"'
     sc.exe config $serviceName binPath= $bin start= auto | Out-Null
   }
-  sc.exe description $serviceName "Localhost-only iBOS install, update, version health and deployment manager on 127.0.0.1:8099" | Out-Null
+  sc.exe description $serviceName "Localhost-only iBOS install, update, version health and deployment manager on 127.0.0.1:8100" | Out-Null
   sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
   Start-Service -Name $serviceName
 
