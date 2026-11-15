@@ -2,15 +2,15 @@
 <#
 Independent health recovery worker for Unified ERP Setup Host.
 Create a SYSTEM scheduled task every minute; this script does not require Setup Host or AiBOS.
-Settings: %ProgramData%\iMonitor\ERPDeploymentManager\watchdog\*.json
+Settings: %ProgramData%\PosiranERP\DeploymentManager\watchdog\*.json
 #>
 [CmdletBinding()]
-param([string]$StateRoot = "$env:ProgramData\iMonitor\ERPDeploymentManager")
+param([string]$StateRoot = "$env:ProgramData\PosiranERP\DeploymentManager")
 $ErrorActionPreference = 'Stop'
 $settingsRoot = Join-Path $StateRoot 'watchdog'
 $logDir = Join-Path $StateRoot 'watchdog-logs'
 New-Item -ItemType Directory -Path $settingsRoot,$logDir -Force | Out-Null
-$mutex = [Threading.Mutex]::new($false, 'Global\iBOS-ERP-Watchdog')
+$mutex = [Threading.Mutex]::new($false, 'Global\PosiranERP-Watchdog')
 $acquired = $false
 try {
     $acquired = $mutex.WaitOne(0)
