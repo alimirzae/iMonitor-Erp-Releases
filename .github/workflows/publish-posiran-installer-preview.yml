@@ -1,4 +1,4 @@
-name: Publish Posiran Posiran ERP Deployment Manager
+name: Publish Posiran ERP Deployment Manager
 
 on:
   workflow_dispatch:
@@ -41,7 +41,7 @@ jobs:
           start "Posiran ERP Deployment Manager" "PosiranERP.Setup.exe"
           timeout /t 2 /nobreak >nul
           start "" "http://127.0.0.1:8099/"
-          '@ | Set-Content (Join-Path $out 'Start-ERP-Deployment-Manager.cmd') -Encoding ASCII
+          '@ | Set-Content (Join-Path $out 'Start-PosiranERP-Deployment-Manager.cmd') -Encoding ASCII
 
       - name: Package preview
         shell: powershell
@@ -60,7 +60,7 @@ jobs:
           tag_name: posiran-installer-preview
           name: Posiran ERP Deployment Manager
           body: |
-            Persistent localhost-only Windows x64 Posiran ERP Deployment Manager for Posiran and iMonitor ERP.
+            Persistent localhost-only Windows x64 Posiran ERP Deployment Manager for Posiran ERP only.
             Bootstrap installs Posiran ERP Deployment Manager as an automatic Windows Service.
             Manager listens only on http://127.0.0.1:8099/.
             Preview channel.
