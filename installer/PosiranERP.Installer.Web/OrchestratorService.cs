@@ -18,7 +18,7 @@ public sealed class OrchestratorService
         _installRoot = installRoot;
         _configRoot = configRoot;
         _clients = clients;
-        _stateRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "iMonitor", "ERPDeploymentManager");
+        _stateRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PosiranERP", "DeploymentManager");
         _registryRoot = Path.Combine(_stateRoot, "instances");
         Directory.CreateDirectory(_registryRoot);
     }
@@ -32,7 +32,7 @@ public sealed class OrchestratorService
             DiscoverLegacyInstances(manifests);
             var latest = await GetLatestReleasesAsync(cancellationToken);
             var result = new List<InstallationStatus>();
-            foreach (var m in manifests.Values.OrderBy(x => x.Product).ThenBy(x => x.Channel).ThenBy(x => x.DisplayName))
+            foreach (var m in manifests.Values.Where(x => x.Product == "Posiran").OrderBy(x => x.Channel).ThenBy(x => x.DisplayName))
             {
                 var installed = ReadInstalledRelease(m);
                 var health = await CheckHealthAsync(m, cancellationToken);
@@ -242,7 +242,7 @@ public sealed class OrchestratorService
 
     public async Task RunAutoUpdateCycleAsync(CancellationToken cancellationToken)
     {
-        foreach (var m in LoadManifests().Where(x => x.Channel == "Test" && x.AutoUpdate))
+        foreach (var m in LoadManifests().Where(x => x.Product == "Posiran" && x.Channel == "Test" && x.AutoUpdate))
         {
             try
             {
@@ -804,7 +804,7 @@ public sealed class OrchestratorService
         return new OperationResult(action, health.Ok, health.Message);
     }
 
-    public InstallationManifest RequireManifest(string id) => LoadManifest(id) ?? throw new KeyNotFoundException("Installation was not found in the local registry.");
+    public InstallationManifest RequireManifest(string id) => LoadManifest(id) ?? throw new KeyNotFoundException("Posiran installation was not found in the local registry.");
 
     public async Task<RuntimeVerificationResult> VerifyInstallationRuntimeAsync(string id, CancellationToken cancellationToken = default)
     {
@@ -936,7 +936,7 @@ public sealed class OrchestratorService
         {
             InstallationManifest? m = null;
             try { m = JsonSerializer.Deserialize<InstallationManifest>(File.ReadAllText(f), JsonOptions); } catch { }
-            if (m is not null) yield return m;
+            if (m is not null && m.Product == "Posiran") yield return m;
         }
     }
 
@@ -945,7 +945,9 @@ public sealed class OrchestratorService
         ValidateInstanceId(id);
         var p = Path.Combine(_registryRoot, id + ".json");
         if (!File.Exists(p)) return null;
-        return JsonSerializer.Deserialize<InstallationManifest>(File.ReadAllText(p), JsonOptions);
+        var manifest = JsonSerializer.Deserialize<InstallationManifest>(File.ReadAllText(p), JsonOptions);
+        if (manifest is null || manifest.Product != "Posiran" || !manifest.Id.StartsWith("posiran-", StringComparison.OrdinalIgnoreCase)) return null;
+        return manifest;
     }
 
     private void SaveManifest(InstallationManifest manifest)
@@ -1008,12 +1010,12 @@ public sealed class OrchestratorService
     private async Task<Dictionary<string, string>> GetLatestReleasesAsync(CancellationToken cancellationToken)
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in new[] { ("Posiran","Test"), ("Posiran","Production"), ("iMonitor","Test"), ("iMonitor","Production") })
+        foreach (var item in new[] { ("Posiran","Test"), ("Posiran","Production") })
         {
             var tag = await GetStaticLatestAsync(item.Item1, item.Item2, cancellationToken);
             if (!string.IsNullOrWhiteSpace(tag)) result[$"{item.Item1}:{item.Item2}"] = tag;
         }
-        if (result.Count == 4) return result;
+        if (result.Count == 2) return result;
         try
         {
             var http = _clients.CreateClient(); http.DefaultRequestHeaders.UserAgent.ParseAdd("ERPDeploymentManager/1.1"); http.Timeout = TimeSpan.FromSeconds(15);
@@ -1025,8 +1027,6 @@ public sealed class OrchestratorService
                 var tag=x.GetProperty("tag_name").GetString(); if(string.IsNullOrWhiteSpace(tag)) continue;
                 if(tag.StartsWith("posiran-erp-test-v",StringComparison.OrdinalIgnoreCase)&&!result.ContainsKey("Posiran:Test"))result["Posiran:Test"]=tag;
                 if(tag.StartsWith("posiran-erp-production-v",StringComparison.OrdinalIgnoreCase)&&!result.ContainsKey("Posiran:Production"))result["Posiran:Production"]=tag;
-                if(tag.StartsWith("imonitor-ecomerp-test-v",StringComparison.OrdinalIgnoreCase)&&!result.ContainsKey("iMonitor:Test"))result["iMonitor:Test"]=tag;
-                if(tag.StartsWith("imonitor-ecomerp-master-v",StringComparison.OrdinalIgnoreCase)&&!result.ContainsKey("iMonitor:Production"))result["iMonitor:Production"]=tag;
             }
         } catch { }
         return result;
@@ -1360,8 +1360,7 @@ public sealed class OrchestratorService
     private static string NormalizeProduct(string? product)
     {
         if (string.Equals(product, "posiran", StringComparison.OrdinalIgnoreCase)) return "Posiran";
-        if (string.Equals(product, "imonitor", StringComparison.OrdinalIgnoreCase)) return "iMonitor";
-        throw new InvalidOperationException("Product must be Posiran or iMonitor.");
+        throw new InvalidOperationException("This deployment manager only accepts Posiran.");
     }
 
     private static string? NormalizeChannel(string? channel)

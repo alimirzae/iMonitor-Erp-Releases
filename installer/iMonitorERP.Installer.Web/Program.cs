@@ -4,7 +4,8 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls(builder.Configuration["Installer:Url"] ?? "http://127.0.0.1:8099");
+builder.Host.UseWindowsService(options => options.ServiceName = "iMonitor ERP Deployment Manager");
+builder.WebHost.UseUrls(builder.Configuration["Installer:Url"] ?? "http://127.0.0.1:8100");
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<OperationLogStore>();
 
@@ -26,7 +27,7 @@ app.MapGet("/api/status", (OrchestratorService orchestrator) =>
     return Results.Ok(new
     {
         product = "iMonitor ERP Installer",
-        url = "http://127.0.0.1:8099",
+        url = "http://127.0.0.1:8100",
         isWindows,
         isAdministrator = isAdmin,
         test = new { port = 8081, database = "ecomm_dev", folder = "test", configured = File.Exists(testConfig) },
@@ -308,7 +309,7 @@ app.MapPost("/api/installations/{id}/upgrade", (string id, OrchestratorService o
         status = "Running",
         stage = "آماده‌سازی",
         progressPercent = 1,
-        message = "عملیات ارتقا در سرویس 8099 شروع شد."
+        message = "عملیات ارتقا در سرویس 8100 شروع شد."
     });
 });
 
@@ -484,7 +485,7 @@ static async Task DownloadInstallerScriptAsync(HttpClient http, string destinati
     var bytes = await http.GetByteArrayAsync(scriptUrl, cancellationToken);
     var text = System.Text.Encoding.UTF8.GetString(bytes);
     if (!text.Contains("function Stop-ChannelHost", StringComparison.Ordinal) || !text.Contains("Get-WebAppPoolState", StringComparison.Ordinal))
-        throw new InvalidOperationException("Downloaded Posiran installer asset failed the version contract.");
+        throw new InvalidOperationException("Downloaded iMonitor installer asset failed the version contract.");
     await File.WriteAllBytesAsync(destination, bytes, cancellationToken);
     Console.WriteLine("Installer script downloaded from iMonitor ERP installer release v2.1.6.");
 }
@@ -616,7 +617,7 @@ static object BuildAppSettings(bool isTest, SetupRequest request, string connect
         AutoSync = new { Enabled = false, InitialDelaySeconds = 60, IdleIntervalSeconds = 60, ActiveIntervalSeconds = 120, ErrorRetrySeconds = 120, MaxRowsPerPull = 100, SyncDirection = "both", ShowToast = false },
         AI = new { Enabled = false, ApiKey = "", Model = "", MaxTokens = 1000, Temperature = 0.7, ApiUrl = "" },
         SMS = new { DefaultProvider = "ParsGreen", ParsGreen = new { ApiKey = "" } },
-        Branding = new { ProductName = "iMonitor ERP", DisplayName = "پوزایران ERP", Website = "https://www.ecomm.ir/", SupportPhone = "", SupportEmail = "" },
+        Branding = new { ProductName = "iMonitor ERP", DisplayName = "iMonitor ERP", Website = "https://www.ecomm.ir/", SupportPhone = "", SupportEmail = "" },
         TestDiagnostics = new { Enabled = false, AllowedHost = "", RootPath = "" },
         AllowedHosts = "*"
     };

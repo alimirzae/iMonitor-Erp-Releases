@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Host.UseWindowsService(options => options.ServiceName = "iBOS Deployment Manager");
+builder.Host.UseWindowsService(options => options.ServiceName = "Posiran ERP Deployment Manager");
 builder.WebHost.UseUrls("http://127.0.0.1:8099");
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<OperationLogStore>();
@@ -29,7 +29,7 @@ app.MapGet("/api/status", (OrchestratorService orchestrator) =>
 
     return Results.Ok(new
     {
-        product = "iBOS Deployment Manager",
+        product = "Posiran ERP Deployment Manager",
         url = "http://127.0.0.1:8099",
         isWindows,
         isAdministrator = isAdmin,
@@ -511,8 +511,7 @@ app.MapPost("/api/tools/chromium/permissions", async (HttpContext ctx) =>
     if (!IsAdministrator() || !LocalOrigin(ctx)) return Results.StatusCode(403);
     var chrome = SelectedBrowser();
     if (!ValidChrome(chrome)) return Results.Problem("Configure Chromium first.", statusCode: 409);
-    var principals = new[] { "IIS AppPool\\iMonitorERP-Test", "IIS AppPool\\iMonitorERP-Production",
-        "IIS AppPool\\PosiranERP-Test", "IIS AppPool\\PosiranERP-Production" };
+    var principals = new[] { "IIS AppPool\\PosiranERP-Test", "IIS AppPool\\PosiranERP-Production" };
     var dataRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "AiBOS", "BrowserHost");
     var changes = new List<string>();
     async Task Grant(string folder, string principal, string rights)
@@ -544,7 +543,7 @@ app.MapPost("/api/tools/chromium/permissions", async (HttpContext ctx) =>
 
 // Persist all four installation cards independently of deployment, including runtime URLs.
 var installerFormPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-    "AiBOS", "DeploymentManager", "form-settings.json");
+    "PosiranERP", "DeploymentManager", "form-settings.json");
 app.MapGet("/api/installer-form", () =>
 {
     if (!File.Exists(installerFormPath)) return Results.Ok(new Dictionary<string, JsonElement>());
@@ -653,7 +652,7 @@ app.MapPost("/api/installations/{id}/upgrade", async (string id, OrchestratorSer
         var backup = await orchestrator.BackupAsync(id, "pre-upgrade", ct);
         var scriptDirectory = Path.Combine(manifest.InstallRoot, "installer");
         Directory.CreateDirectory(scriptDirectory);
-        var isIMonitor = string.Equals(manifest.Product, "iMonitor", StringComparison.OrdinalIgnoreCase);
+        var isIMonitor = false;
         var scriptPath = Path.Combine(scriptDirectory, isIMonitor ? "Install-iMonitorERP-v2.1.6.ps1" : "Install-PosiranERP-v1.0.5.ps1");
         var http = clients.CreateClient();
         http.Timeout = TimeSpan.FromSeconds(60);
@@ -710,7 +709,8 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
     if (folderValidation is not null) return Results.BadRequest(new { error = folderValidation });
 
     var isTest = channel == "Test";
-    var isIMonitor = string.Equals(request.Product, "iMonitor", StringComparison.OrdinalIgnoreCase);
+    if (!string.IsNullOrWhiteSpace(request.Product) && !string.Equals(request.Product, "Posiran", StringComparison.OrdinalIgnoreCase)) return Results.BadRequest(new { error = "This manager only installs Posiran ERP." });
+    var isIMonitor = false;
     var installRoot = ResolveInstallRoot(request.InstallRoot, isIMonitor ? @"C:\ecomm" : defaultInstallRoot);
     Directory.CreateDirectory(installRoot);
     var configRoot = Path.Combine(installRoot, "config");
@@ -735,7 +735,7 @@ app.MapPost("/api/configure", (SetupRequest request, OrchestratorService orchest
         File.Copy(configPath, $"{configPath}.bak-{DateTime.Now:yyyyMMdd-HHmmss}", overwrite: true);
     File.WriteAllText(configPath, config.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     var effectiveAutoUpdate = isTest; // Test is always automatic; Production is always explicit/manual.
-    var registered = orchestrator.RegisterInstance(request.Product ?? (isIMonitor ? "iMonitor" : "Posiran"), channel, installRoot, appPort, installFolderName, database, effectiveAutoUpdate, configPath, request.RuntimeUrl);
+    var registered = orchestrator.RegisterInstance("Posiran", channel, installRoot, appPort, installFolderName, database, effectiveAutoUpdate, configPath, request.RuntimeUrl);
 
     return Results.Ok(new
     {
@@ -764,7 +764,8 @@ app.MapPost("/api/install", async (InstallRequest request, IHttpClientFactory cl
     if (folderValidation is not null) return Results.BadRequest(new { error = folderValidation });
 
     var isTest = channel == "Test";
-    var isIMonitor = string.Equals(request.Product, "iMonitor", StringComparison.OrdinalIgnoreCase);
+    if (!string.IsNullOrWhiteSpace(request.Product) && !string.Equals(request.Product, "Posiran", StringComparison.OrdinalIgnoreCase)) return Results.BadRequest(new { error = "This manager only installs Posiran ERP." });
+    var isIMonitor = false;
     var installRoot = ResolveInstallRoot(request.InstallRoot, isIMonitor ? @"C:\ecomm" : defaultInstallRoot);
     Directory.CreateDirectory(installRoot);
     var configRoot = Path.Combine(installRoot, "config");
@@ -876,7 +877,7 @@ app.MapGet("/api/watchdog/task-status", async () =>
         var psi = new ProcessStartInfo("schtasks.exe") {
             UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true
         };
-        foreach (var arg in new[] { "/Query", "/TN", "iBOS-ERP-Watchdog", "/FO", "LIST", "/V" })
+        foreach (var arg in new[] { "/Query", "/TN", "PosiranERP-Watchdog", "/FO", "LIST", "/V" })
             psi.ArgumentList.Add(arg);
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("schtasks unavailable");
         var output = await process.StandardOutput.ReadToEndAsync();
@@ -892,7 +893,7 @@ app.MapGet("/api/watchdog/{id}/history", (string id, OrchestratorService orchest
     {
         if (!Regex.IsMatch(id, @"^[a-zA-Z0-9_-]+$")) return Results.BadRequest();
         orchestrator.RequireManifest(id);
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "iMonitor", "ERPDeploymentManager");
+        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PosiranERP", "DeploymentManager");
         var path = Path.Combine(root, "watchdog-logs", id + ".jsonl");
         var records = new List<JsonNode?>();
         if (File.Exists(path))
@@ -905,7 +906,7 @@ app.MapGet("/api/watchdog/{id}/history", (string id, OrchestratorService orchest
 app.MapGet("/api/watchdog/{id}", (string id) =>
 {
     if (!Regex.IsMatch(id, @"^[a-zA-Z0-9_-]+$")) return Results.BadRequest();
-    var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "iMonitor", "ERPDeploymentManager");
+    var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PosiranERP", "DeploymentManager");
     var path = Path.Combine(root, "watchdog", id + ".json");
     var state = Path.Combine(root, "watchdog-logs", id + ".state.json");
     return Results.Ok(new { settings = File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path)) : null,
@@ -927,7 +928,7 @@ app.MapPost("/api/watchdog/{id}", async (string id, WatchdogSettings request, Or
         // Only registered endpoints, with no credentials, fragments or query secrets.
         if (!string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
             return Results.BadRequest(new { error = "Health URL must not contain query or fragment." });
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "iMonitor", "ERPDeploymentManager");
+        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "PosiranERP", "DeploymentManager");
         var folder = Path.Combine(root, "watchdog");
         Directory.CreateDirectory(folder);
         var path = Path.Combine(folder, id + ".json");
@@ -943,13 +944,13 @@ app.MapPost("/api/watchdog/{id}", async (string id, WatchdogSettings request, Or
         var psi = new ProcessStartInfo("schtasks.exe") {
             UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true, CreateNoWindow = true
         };
-        foreach (var arg in new[] { "/Create", "/F", "/TN", "iBOS-ERP-Watchdog", "/SC", "MINUTE", "/MO", "1", "/RU", "SYSTEM", "/RL", "HIGHEST", "/TR", taskCommand }) psi.ArgumentList.Add(arg);
+        foreach (var arg in new[] { "/Create", "/F", "/TN", "PosiranERP-Watchdog", "/SC", "MINUTE", "/MO", "1", "/RU", "SYSTEM", "/RL", "HIGHEST", "/TR", taskCommand }) psi.ArgumentList.Add(arg);
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start schtasks.");
         var stdout = await proc.StandardOutput.ReadToEndAsync();
         var stderr = await proc.StandardError.ReadToEndAsync();
         await proc.WaitForExitAsync();
         if (proc.ExitCode != 0) return Results.Problem("Watchdog task registration failed: " + stderr, statusCode: 500);
-        return Results.Ok(new { saved = true, task = "iBOS-ERP-Watchdog", id, healthUrl = uri.AbsoluteUri });
+        return Results.Ok(new { saved = true, task = "PosiranERP-Watchdog", id, healthUrl = uri.AbsoluteUri });
     }
     catch (Exception ex) { return Results.Problem(ex.Message); }
 });

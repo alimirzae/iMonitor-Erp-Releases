@@ -30,12 +30,12 @@
         <div><label>نوع نصب</label><select id="channel" onchange="syncDefaults()"><option value="Both">هر دو (Test + Production)</option><option value="Test">فقط آزمایشی (Test)</option><option value="Production">فقط اصلی (Production)</option></select><div class="hint">در حالت هر دو، Test روی 8081 و Production روی 8080 نصب می‌شود.</div></div>
         <div id="testFields" class="full grid">
           <div><label>پورت Test</label><input id="testPort" type="number" value="8081"></div>
-          <div><label>نام پوشه Test</label><input id="testFolder" value="test"><div class="hint">C:\PosiranERP\test\current</div></div>
+          <div><label>نام پوشه Test</label><input id="testFolder" value="test"><div class="hint">C:\ecomm\test\current</div></div>
           <div><label>دیتابیس Test</label><input id="testDbName" value="ecomm_dev" dir="ltr"></div>
         </div>
         <div id="productionFields" class="full grid">
           <div><label>پورت Production</label><input id="productionPort" type="number" value="8080"></div>
-          <div><label>نام پوشه Production</label><input id="productionFolder" value="production"><div class="hint">C:\PosiranERP\production\current</div></div>
+          <div><label>نام پوشه Production</label><input id="productionFolder" value="production"><div class="hint">C:\ecomm\production\current</div></div>
           <div><label>دیتابیس Production</label><input id="productionDbName" value="ecomm" dir="ltr"></div>
         </div>
         <div><label>آدرس دامنه Test / Health URL</label><input id="testUrl" dir="ltr" placeholder="https://testerp.pouyatools.ir"></div>
