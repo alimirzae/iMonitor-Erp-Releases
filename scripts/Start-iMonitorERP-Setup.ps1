@@ -10,12 +10,12 @@ if(-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentit
 [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName System.Net.Http
 
-$root = Join-Path $env:ProgramData 'PosiranERP\Setup'
+$root = Join-Path $env:ProgramData 'iMonitorERP\Setup'
 New-Item -ItemType Directory -Force -Path $root | Out-Null
-$zip = Join-Path $root 'ERP-Deployment-Manager-win-x64.zip'
+$zip = Join-Path $root 'iMonitorERP-Setup-win-x64.zip'
 $sha = "$zip.sha256"
 $repo='alimirzae/iMonitor-Erp-Releases'
-$tag='erp-deployment-manager'
+$tag='imonitor-installer-preview'
 
 function Invoke-HttpDownload([string]$Url,[string]$Out,[string]$Accept='application/octet-stream',[int]$TimeoutSeconds=300){
   $handler=New-Object System.Net.Http.HttpClientHandler
@@ -23,7 +23,7 @@ function Invoke-HttpDownload([string]$Url,[string]$Out,[string]$Accept='applicat
   $handler.AutomaticDecompression=[System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
   $client=New-Object System.Net.Http.HttpClient($handler)
   $client.Timeout=[TimeSpan]::FromSeconds($TimeoutSeconds)
-  $client.DefaultRequestHeaders.UserAgent.ParseAdd('PosiranERP-Setup-Bootstrap/1.0')
+  $client.DefaultRequestHeaders.UserAgent.ParseAdd('iMonitorERP-Setup-Bootstrap/1.0')
   $client.DefaultRequestHeaders.CacheControl=New-Object System.Net.Http.Headers.CacheControlHeaderValue
   $client.DefaultRequestHeaders.CacheControl.NoCache=$true
   if(-not [string]::IsNullOrWhiteSpace($Accept)){$client.DefaultRequestHeaders.Accept.ParseAdd($Accept)}
@@ -42,7 +42,7 @@ function Invoke-HttpDownload([string]$Url,[string]$Out,[string]$Accept='applicat
 function Invoke-BitsDownload([string]$Url,[string]$Out){
   Import-Module BitsTransfer -ErrorAction Stop
   if(Test-Path $Out){Remove-Item $Out -Force -ErrorAction SilentlyContinue}
-  Start-BitsTransfer -Source $Url -Destination $Out -TransferType Download -DisplayName 'Posiran ERP Setup' -Description 'Downloading Posiran ERP Setup' -ErrorAction Stop
+  Start-BitsTransfer -Source $Url -Destination $Out -TransferType Download -DisplayName 'iMonitor ERP Setup' -Description 'Downloading iMonitor ERP Setup' -ErrorAction Stop
 }
 
 function Get-DirectAssetUrl([string]$Name){
@@ -64,18 +64,18 @@ function Get-DirectAsset([string]$Name,[string]$Out,[int]$TimeoutSeconds=300){
   }catch{$errors.Add("BITS direct: $($_.Exception.Message)")}
   try{
     Write-Host 'Trying Invoke-WebRequest fallback...' -ForegroundColor Yellow
-    Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $Out -TimeoutSec $TimeoutSeconds -Headers @{'User-Agent'='PosiranERP-Setup-Bootstrap/1.1';'Cache-Control'='no-cache'}
+    Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $Out -TimeoutSec $TimeoutSeconds -Headers @{'User-Agent'='iMonitorERP-Setup-Bootstrap/1.1';'Cache-Control'='no-cache'}
     if((Test-Path $Out) -and (Get-Item $Out).Length -gt 0){return}
   }catch{$errors.Add("Invoke-WebRequest direct: $($_.Exception.Message)")}
   throw ("All native download methods failed for {0}: {1}" -f $Name,($errors -join '; '))
 }
 
-Write-Host 'Downloading latest iBOS Deployment Manager...' -ForegroundColor Cyan
+Write-Host 'Downloading latest iMonitor ERP Deployment Manager...' -ForegroundColor Cyan
 # Release assets are replaced separately. Never trust a ZIP/checksum pair obtained across a release update.
 $verified=$false
 for($attempt=1;$attempt -le 5;$attempt++){
   Write-Host "Checking coherent Setup release asset pair (attempt $attempt/5)..." -ForegroundColor Cyan
-  Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip.sha256' $sha 60
+  Get-DirectAsset 'iMonitorERP-Setup-win-x64.zip.sha256' $sha 60
   $expected=((Get-Content $sha -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
   if($expected -notmatch '^[a-f0-9]{64}$'){throw 'Downloaded checksum file is invalid.'}
   $useCached=$false
@@ -86,7 +86,7 @@ for($attempt=1;$attempt -le 5;$attempt++){
   if(-not $useCached){
     $candidate="$zip.download"
     try{
-      Get-DirectAsset 'ERP-Deployment-Manager-win-x64.zip' $candidate 600
+      Get-DirectAsset 'iMonitorERP-Setup-win-x64.zip' $candidate 600
       $actual=(Get-FileHash $candidate -Algorithm SHA256).Hash.ToLowerInvariant()
       if($expected -eq $actual){Move-Item -LiteralPath $candidate -Destination $zip -Force}
     }finally{Remove-Item $candidate -Force -ErrorAction SilentlyContinue}
@@ -100,8 +100,8 @@ if(-not $verified){
 }
 Write-Host "Verified Setup package SHA256: $expected" -ForegroundColor Green
 
-$serviceName='ERPDeploymentManager'
-$managerRoot=Join-Path $env:ProgramData 'iMonitor\ERPDeploymentManager'
+$serviceName='iMonitorERPDeploymentManager'
+$managerRoot=Join-Path $env:ProgramData 'iMonitor\iMonitorERPDeploymentManager'
 $serviceDir=Join-Path $managerRoot 'current'
 $stagingDir=Join-Path $managerRoot ('staging-'+[guid]::NewGuid().ToString('N'))
 $previousDir=Join-Path $managerRoot 'previous'
@@ -111,12 +111,12 @@ New-Item -ItemType Directory -Force -Path $managerRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
 try {
   Expand-Archive $zip -DestinationPath $stagingDir -Force
-  $stagedExe=Join-Path $stagingDir 'PosiranERP.Setup.exe'
-  if(!(Test-Path $stagedExe)){throw 'iBOS Deployment Manager executable was not found after extraction.'}
+  $stagedExe=Join-Path $stagingDir 'iMonitorERP.Setup.exe'
+  if(!(Test-Path $stagedExe)){throw 'iMonitor ERP Deployment Manager executable was not found after extraction.'}
 
   $existing=Get-Service -Name $serviceName -ErrorAction SilentlyContinue
   if($existing){
-    Write-Host 'Stopping iBOS Deployment Manager for self-update...' -ForegroundColor Cyan
+    Write-Host 'Stopping iMonitor ERP Deployment Manager for self-update...' -ForegroundColor Cyan
     Stop-Service -Name $serviceName -Force -ErrorAction Stop
     $existing.WaitForStatus([System.ServiceProcess.ServiceControllerStatus]::Stopped,[TimeSpan]::FromSeconds(30))
   }
@@ -137,23 +137,23 @@ try {
   if(Test-Path $previousDir){Remove-Item $previousDir -Recurse -Force}
   if(Test-Path $serviceDir){Move-Item $serviceDir $previousDir -Force}
   Move-Item $stagingDir $serviceDir -Force
-  $exe=Join-Path $serviceDir 'PosiranERP.Setup.exe'
+  $exe=Join-Path $serviceDir 'iMonitorERP.Setup.exe'
 
   if(-not $existing){
     $bin='"'+$exe+'"'
-    sc.exe create $serviceName binPath= $bin start= auto DisplayName= "iBOS Deployment Manager" | Out-Null
+    sc.exe create $serviceName binPath= $bin start= auto DisplayName= "iMonitor ERP Deployment Manager" | Out-Null
   } else {
     $bin='"'+$exe+'"'
     sc.exe config $serviceName binPath= $bin start= auto | Out-Null
   }
-  sc.exe description $serviceName "Localhost-only iBOS install, update, version health and deployment manager on 127.0.0.1:8099" | Out-Null
+  sc.exe description $serviceName "Localhost-only iBOS install, update, version health and deployment manager on 127.0.0.1:8100" | Out-Null
   sc.exe failure $serviceName reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
   Start-Service -Name $serviceName
 
   $ready=$false
   for($i=0;$i -lt 40;$i++){
     Start-Sleep -Milliseconds 500
-    try{$r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8099/health' -TimeoutSec 2;if($r.StatusCode -eq 200){$ready=$true;break}}catch{}
+    try{$r=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8100/health' -TimeoutSec 2;if($r.StatusCode -eq 200){$ready=$true;break}}catch{}
   }
   if(-not $ready){
     Write-Warning 'New Deployment Manager failed health check; rolling back the manager itself.'
@@ -163,12 +163,12 @@ try {
     if(Test-Path $serviceDir){Move-Item $serviceDir $failedDir -Force}
     if(Test-Path $previousDir){
       Move-Item $previousDir $serviceDir -Force
-      $exe=Join-Path $serviceDir 'PosiranERP.Setup.exe'
+      $exe=Join-Path $serviceDir 'iMonitorERP.Setup.exe'
       $bin='"'+$exe+'"';sc.exe config $serviceName binPath= $bin start= auto | Out-Null
       Start-Service -Name $serviceName
-      throw 'New iBOS Deployment Manager was unhealthy and the previous manager was restored.'
+      throw 'New iMonitor ERP Deployment Manager was unhealthy and the previous manager was restored.'
     }
-    throw 'iBOS Deployment Manager did not become healthy and no previous manager was available.'
+    throw 'iMonitor ERP Deployment Manager did not become healthy and no previous manager was available.'
   }
   if(Test-Path $previousDir){Remove-Item $previousDir -Recurse -Force -ErrorAction SilentlyContinue}
 }
@@ -176,5 +176,5 @@ finally {
   if(Test-Path $stagingDir){Remove-Item $stagingDir -Recurse -Force -ErrorAction SilentlyContinue}
 }
 
-Start-Process 'http://127.0.0.1:8099/'
-Write-Host 'iBOS Deployment Manager Windows Service is running on http://127.0.0.1:8099/' -ForegroundColor Green
+Start-Process 'http://127.0.0.1:8100/'
+Write-Host 'iMonitor ERP Deployment Manager Windows Service is running on http://127.0.0.1:8100/' -ForegroundColor Green
